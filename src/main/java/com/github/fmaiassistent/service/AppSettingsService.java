@@ -1,7 +1,8 @@
 package com.github.fmaiassistent.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.github.fmaiassistent.FmAiAssistentApplication;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
@@ -61,7 +62,7 @@ public class AppSettingsService {
                     .map(this::normalizeView)
                     .sorted(Comparator.comparing(view -> view.name().toLowerCase()))
                     .toList();
-        } catch (IOException ex) {
+        } catch (JacksonException ex) {
             return List.of();
         }
     }
@@ -97,7 +98,7 @@ public class AppSettingsService {
         Properties properties = load();
         try {
             properties.setProperty(PLAYER_VIEWS_KEY, objectMapper.writeValueAsString(views));
-        } catch (IOException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Could not serialize player views", ex);
         }
         save(properties);
