@@ -176,6 +176,11 @@ public class MainView extends VerticalLayout {
         settingsButton.setTooltipText("Settings");
         settingsButton.getElement().setAttribute("aria-label", "Settings");
 
+        Button moneyballButton = new Button("Moneyball", VaadinIcon.TRENDING_UP.create());
+        moneyballButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        moneyballButton.setTooltipText("Value signings");
+        moneyballButton.addClickListener(event -> getUI().ifPresent(ui -> ui.navigate("moneyball")));
+
         Span brandMonogram = new Span("FM");
         brandMonogram.addClassName("brand-monogram");
         Div brandIcon = new Div(brandMonogram);
@@ -190,7 +195,7 @@ public class MainView extends VerticalLayout {
         brand.addClassName("brand");
 
         status.addClassName("app-status");
-        HorizontalLayout actions = new HorizontalLayout(status, loadButton, settingsButton);
+        HorizontalLayout actions = new HorizontalLayout(status, loadButton, moneyballButton, settingsButton);
         actions.setAlignItems(Alignment.CENTER);
         actions.setSpacing(true);
         actions.addClassName("app-actions");

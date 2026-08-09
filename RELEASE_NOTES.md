@@ -10,6 +10,7 @@
 
 - Upgraded Spring AI 2.0.0-M2 to 2.0.0 (MCP SDK 0.17.1 to 2.0.0) so Antigravity clients requesting MCP protocol 2025-11-25 connect cleanly instead of hanging on version negotiation.
 - MCP instructions now steer value-oriented recruitment (bargains) to `fm26_moneyball_shortlist` and tactical recruitment to `fm26_transfer_shortlist`.
+- Moneyball view in the web UI (`/moneyball`, linked from the header): pick a managing club and a position, and every value signing appears ranked by `signing_rating` with `deal_tier` badges, market value, fee, 3-year cost and saving vs market in a sortable grid. It shares the exact rating pipeline with the `fm26_moneyball_shortlist` MCP tool (`FmAiAssistentTools.moneyballRows`).
 
 ## 0.3.0
 

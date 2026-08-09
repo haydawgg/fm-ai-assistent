@@ -1,0 +1,90 @@
+.moneyball-view {
+    background: var(--lumo-base-color);
+}
+
+.moneyball-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.moneyball-hint {
+    color: var(--lumo-secondary-text-color);
+    font-size: var(--lumo-font-size-s);
+}
+
+.back-link {
+    color: var(--lumo-primary-text-color);
+    text-decoration: none;
+    font-size: var(--lumo-font-size-s);
+    white-space: nowrap;
+}
+
+.moneyball-filters {
+    flex-wrap: wrap;
+    padding: var(--lumo-space-s) var(--lumo-space-s) 0;
+    background: var(--lumo-contrast-5pct);
+    border-radius: var(--lumo-border-radius-l);
+}
+
+.moneyball-run {
+    margin-bottom: 0;
+}
+
+.moneyball-summary,
+.moneyball-summary.moneyball-empty {
+    color: var(--lumo-secondary-text-color);
+    font-size: var(--lumo-font-size-s);
+    padding: 0 var(--lumo-space-s);
+}
+
+.rating-cell {
+    gap: var(--lumo-space-s);
+}
+
+.rating-value {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.tier-badge {
+    border-radius: 999px;
+    padding: 0.1em 0.6em;
+    font-size: var(--lumo-font-size-xs);
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.tier-excellent {
+    background: var(--lumo-success-color-10pct);
+    color: var(--lumo-success-text-color);
+}
+
+.tier-good {
+    background: var(--lumo-primary-color-10pct);
+    color: var(--lumo-primary-text-color);
+}
+
+.tier-average {
+    background: var(--lumo-contrast-10pct);
+    color: var(--lumo-secondary-text-color);
+}
+
+.tier-overpriced {
+    background: var(--lumo-error-color-10pct);
+    color: var(--lumo-error-text-color);
+}
+
+.gap-positive {
+    color: var(--lumo-success-text-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.gap-negative {
+    color: var(--lumo-error-text-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.moneyball-grid {
+    min-height: 60vh;
+}
