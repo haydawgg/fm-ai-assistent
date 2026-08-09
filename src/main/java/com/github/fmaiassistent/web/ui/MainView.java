@@ -9,6 +9,8 @@ import com.github.fmaiassistent.repository.*;
 import com.github.fmaiassistent.player.AttributeDefinitions;
 import com.github.fmaiassistent.player.FieldDef;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.Key;
+import com.vaadin.flow.component.Shortcuts;
 import com.vaadin.flow.component.ModalityMode;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
@@ -24,6 +26,7 @@ import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -33,6 +36,7 @@ import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
@@ -71,6 +75,9 @@ public class MainView extends VerticalLayout {
     private static final Set<String> MONEY_COLUMNS = Set.of(
             "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW",
             "BALANCE", "TRANSFER_BUDGET", "PAYROLL_BUDGET");
+    private static final Set<String> DEFAULT_PLAYER_COLUMN_KEYS = Set.of(
+            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA",
+            "SALARY_WEEKLY_RAW", "ASKING_PRICE", "CONTRACT_END_DATE");
 
     private final DatabaseLoadAllService loadAll;
     private final PlayerDatabaseService players;
@@ -83,7 +90,11 @@ public class MainView extends VerticalLayout {
     private final Button loadButton = new Button("Load from RAM", VaadinIcon.DATABASE.create());
     private final Button settingsButton = new Button(VaadinIcon.COG.create());
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
-    private final Span status = new Span();
+    private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
+    private final ComboBox<String> savedViews = new ComboBox<>();
+    private final Button saveViewButton = new Button("Save view", VaadinIcon.PLUS.create());
+    private final Button deleteViewButton = new Button(VaadinIcon.TRASH.create());
+    private final Div status = new Div();
     private final Tabs tabs = new Tabs();
     private final Div content = new Div();
     private final Grid<PlayerEntity> playersGrid = new Grid<>();
@@ -93,10 +104,21 @@ public class MainView extends VerticalLayout {
     private final Tab playersTab = new Tab("Players");
     private final Tab clubsTab = new Tab("Clubs");
     private final Tab competitionsTab = new Tab("Competitions");
+    private final TextField quickName = new TextField();
+    private final ComboBox<String> quickClub = new ComboBox<>();
+    private final IntegerField quickCaMin = new IntegerField();
+    private final IntegerField quickAgeMax = new IntegerField();
     private PlayerFilterCriteria playerFilter = PlayerFilterCriteria.empty();
     private ClubFilterCriteria clubFilter = ClubFilterCriteria.empty();
     private CompetitionFilterCriteria competitionFilter = CompetitionFilterCriteria.empty();
     private MoneyCurrency currency;
+    private boolean showAllPlayerColumns;
+    private PlayerEntity selectedPlayer;
+    private PlayerEntity compareAnchor;
+    private boolean awaitingCompareSelection;
+    private boolean syncingQuickFilters;
+    private boolean syncingSavedViews;
+    private List<PlayerEntity> visiblePlayers = List.of();
 
     public MainView(
             DatabaseLoadAllService loadAll,
@@ -123,7 +145,21 @@ public class MainView extends VerticalLayout {
         configureGrid(clubsGrid);
         configureGrid(competitionsGrid);
         configureLoadingDialog();
-        playersGrid.addItemClickListener(event -> openPlayerDetailsDialog(event.getItem()));
+        configureQuickFilters();
+        configurePlayerShortcuts();
+        playersGrid.addClassName("players-grid");
+        playersGrid.setSelectionMode(Grid.SelectionMode.SINGLE);
+        playersGrid.addSelectionListener(event -> {
+            if (!event.isFromClient()) {
+                return;
+            }
+            event.getFirstSelectedItem().ifPresentOrElse(this::openPlayerDrawer, () -> {
+                if (selectedPlayer != null) {
+                    selectedPlayer = null;
+                    showPlayers();
+                }
+            });
+        });
         updateStatus(null);
         showPlayers();
     }
@@ -139,24 +175,24 @@ public class MainView extends VerticalLayout {
         settingsButton.addClassName("icon-button");
         settingsButton.setTooltipText("Settings");
         settingsButton.getElement().setAttribute("aria-label", "Settings");
-        status.addClassName("app-status");
 
-        Div brandIcon = new Div(VaadinIcon.CHART.create());
+        Span brandMonogram = new Span("FM");
+        brandMonogram.addClassName("brand-monogram");
+        Div brandIcon = new Div(brandMonogram);
         brandIcon.addClassName("brand-icon");
         Span product = new Span("FM AI Assistent");
         product.addClassName("brand-title");
-        Span descriptor = new Span("Recruitment intelligence");
-        descriptor.addClassName("brand-descriptor");
-        Div brandCopy = new Div(product, descriptor);
+        Div brandCopy = new Div(product);
         brandCopy.addClassName("brand-copy");
         HorizontalLayout brand = new HorizontalLayout(brandIcon, brandCopy);
         brand.setAlignItems(Alignment.CENTER);
         brand.setSpacing(false);
         brand.addClassName("brand");
 
+        status.addClassName("app-status");
         HorizontalLayout actions = new HorizontalLayout(status, loadButton, settingsButton);
         actions.setAlignItems(Alignment.CENTER);
-        actions.setSpacing(false);
+        actions.setSpacing(true);
         actions.addClassName("app-actions");
 
         HorizontalLayout appBar = new HorizontalLayout(brand, actions);
@@ -167,13 +203,44 @@ public class MainView extends VerticalLayout {
         appBar.setSpacing(false);
         appBar.addClassName("app-bar");
 
-        HorizontalLayout navigation = new HorizontalLayout(tabs, filterButton);
+        columnsButton.addClassName("columns-button");
+        columnsButton.addClickListener(event -> {
+            showAllPlayerColumns = !showAllPlayerColumns;
+            columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
+            if (tabs.getSelectedTab() == playersTab) {
+                showPlayers();
+            }
+        });
+        savedViews.setPlaceholder("Saved views");
+        savedViews.setClearButtonVisible(true);
+        savedViews.setWidth("180px");
+        savedViews.addClassName("saved-views");
+        savedViews.addValueChangeListener(event -> {
+            if (!syncingSavedViews && event.getValue() != null) {
+                applySavedView(event.getValue());
+            }
+        });
+        saveViewButton.addClassName("save-view-button");
+        saveViewButton.addClickListener(event -> openSaveViewDialog());
+        deleteViewButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        deleteViewButton.addClassName("delete-view-button");
+        deleteViewButton.setTooltipText("Delete selected view");
+        deleteViewButton.getElement().setAttribute("aria-label", "Delete selected view");
+        deleteViewButton.addClickListener(event -> deleteSelectedView());
+        refreshSavedViewOptions();
+
+        HorizontalLayout navigation = new HorizontalLayout(
+                tabs, savedViews, saveViewButton, deleteViewButton, columnsButton, filterButton);
         navigation.setWidthFull();
         navigation.setAlignItems(Alignment.CENTER);
         navigation.expand(tabs);
         navigation.setPadding(false);
-        navigation.setSpacing(false);
+        navigation.setSpacing(true);
         navigation.addClassName("workspace-nav");
+        columnsButton.setVisible(true);
+        savedViews.setVisible(true);
+        saveViewButton.setVisible(true);
+        deleteViewButton.setVisible(true);
 
         Div header = new Div(appBar, navigation);
         header.addClassName("app-header");
@@ -188,10 +255,19 @@ public class MainView extends VerticalLayout {
         clubsTab.addComponentAsFirst(VaadinIcon.OFFICE.create());
         competitionsTab.addComponentAsFirst(VaadinIcon.TROPHY.create());
         tabs.addSelectedChangeListener(event -> {
-            filterButton.setVisible(event.getSelectedTab() == playersTab
+            boolean playersSelected = event.getSelectedTab() == playersTab;
+            columnsButton.setVisible(playersSelected);
+            savedViews.setVisible(playersSelected);
+            saveViewButton.setVisible(playersSelected);
+            deleteViewButton.setVisible(playersSelected);
+            filterButton.setVisible(playersSelected
                     || event.getSelectedTab() == clubsTab
                     || event.getSelectedTab() == competitionsTab);
-            if (event.getSelectedTab() == playersTab) {
+            if (!playersSelected) {
+                selectedPlayer = null;
+                clearCompareState();
+            }
+            if (playersSelected) {
                 showPlayers();
             } else if (event.getSelectedTab() == clubsTab) {
                 showClubs();
@@ -201,11 +277,99 @@ public class MainView extends VerticalLayout {
         });
     }
 
+    private void configureQuickFilters() {
+        quickName.setPlaceholder("Name");
+        quickName.setClearButtonVisible(true);
+        quickName.setWidth("160px");
+        quickName.setValueChangeMode(com.vaadin.flow.data.value.ValueChangeMode.LAZY);
+        quickName.setValueChangeTimeout(350);
+        quickName.addClassName("quick-filter");
+        quickName.addValueChangeListener(event -> {
+            if (!syncingQuickFilters) {
+                applyQuickFilters();
+            }
+        });
+
+        quickClub.setPlaceholder("Club");
+        quickClub.setClearButtonVisible(true);
+        quickClub.setWidth("180px");
+        quickClub.addClassName("quick-filter");
+        quickClub.addValueChangeListener(event -> {
+            if (!syncingQuickFilters) {
+                applyQuickFilters();
+            }
+        });
+
+        quickCaMin.setPlaceholder("CA min");
+        quickCaMin.setMin(1);
+        quickCaMin.setMax(200);
+        quickCaMin.setClearButtonVisible(true);
+        quickCaMin.setWidth("110px");
+        quickCaMin.addClassName("quick-filter");
+        quickCaMin.addValueChangeListener(event -> {
+            if (!syncingQuickFilters) {
+                applyQuickFilters();
+            }
+        });
+
+        quickAgeMax.setPlaceholder("Age max");
+        quickAgeMax.setMin(1);
+        quickAgeMax.setMax(80);
+        quickAgeMax.setClearButtonVisible(true);
+        quickAgeMax.setWidth("110px");
+        quickAgeMax.addClassName("quick-filter");
+        quickAgeMax.addValueChangeListener(event -> {
+            if (!syncingQuickFilters) {
+                applyQuickFilters();
+            }
+        });
+    }
+
+    private void configurePlayerShortcuts() {
+        Shortcuts.addShortcutListener(playersGrid, () -> navigateSelectedPlayer(-1), Key.ARROW_UP)
+                .listenOn(playersGrid);
+        Shortcuts.addShortcutListener(playersGrid, () -> navigateSelectedPlayer(1), Key.ARROW_DOWN)
+                .listenOn(playersGrid);
+        Shortcuts.addShortcutListener(this, this::closePlayerDrawer, Key.ESCAPE)
+                .listenOn(this);
+    }
+
+    private void navigateSelectedPlayer(int delta) {
+        if (tabs.getSelectedTab() != playersTab || visiblePlayers.isEmpty()) {
+            return;
+        }
+        int index = indexOfVisiblePlayer(selectedPlayer);
+        int next;
+        if (index < 0) {
+            next = delta > 0 ? 0 : visiblePlayers.size() - 1;
+        } else {
+            next = Math.max(0, Math.min(visiblePlayers.size() - 1, index + delta));
+        }
+        if (index == next && selectedPlayer != null) {
+            return;
+        }
+        openPlayerDrawer(visiblePlayers.get(next));
+        playersGrid.scrollToIndex(next);
+    }
+
+    private int indexOfVisiblePlayer(PlayerEntity player) {
+        if (player == null) {
+            return -1;
+        }
+        for (int i = 0; i < visiblePlayers.size(); i++) {
+            if (Objects.equals(visiblePlayers.get(i).getId(), player.getId())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private void configureGrid(Grid<?> grid) {
         grid.setSizeFull();
         grid.setColumnReorderingAllowed(true);
         grid.addThemeVariants(GridVariant.LUMO_NO_BORDER);
         grid.addClassName("data-grid");
+        grid.getElement().getStyle().set("cursor", "default");
     }
 
     private void loadAllData() {
@@ -232,11 +396,13 @@ public class MainView extends VerticalLayout {
                     updateStatus(result);
                     refreshSelectedTab();
 
-                    Notification.show(
+                    Notification loaded = Notification.show(
                             "Loaded RAM data",
                             3000,
                             Notification.Position.TOP_CENTER
                     );
+                    loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                    loaded.addClassName("app-toast");
                 }))
                 .exceptionally(ex -> {
                     ui.access(() -> {
@@ -244,11 +410,13 @@ public class MainView extends VerticalLayout {
                                 ? ex.getCause()
                                 : ex;
 
-                        Notification.show(
+                        Notification failed = Notification.show(
                                 "Load failed: " + cause.getMessage(),
                                 8000,
                                 Notification.Position.TOP_CENTER
                         );
+                        failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        failed.addClassName("app-toast");
                     });
 
                     return null;
@@ -273,7 +441,23 @@ public class MainView extends VerticalLayout {
     }
 
     private void showPlayers() {
-        List<PlayerColumn> columns = List.of(
+        List<PlayerColumn> allColumns = allPlayerColumns();
+        List<PlayerColumn> columns = showAllPlayerColumns
+                ? allColumns
+                : allColumns.stream().filter(column -> DEFAULT_PLAYER_COLUMN_KEYS.contains(column.key())).toList();
+        List<PlayerEntity> rows = playerFilter.isEmpty() ? players.findAllPlayerEntities() : players.findPlayerEntities(playerFilter);
+        syncQuickFiltersFromCriteria();
+        setPlayerGrid(columns, rows);
+        setFilterActive(!playerFilter.isEmpty());
+        if (!playerFilter.isEmpty()) {
+            renderFilteredStatus("Players", rows.size(), players.countPlayers());
+        } else {
+            updateStatus(null);
+        }
+    }
+
+    private List<PlayerColumn> allPlayerColumns() {
+        return List.of(
                 new PlayerColumn("NAME", "Name", PlayerEntity::getName),
                 new PlayerColumn("AGE", "Age", PlayerEntity::getAge),
                 new PlayerColumn("HEIGHT_CM", "Height (cm)", PlayerEntity::getHeightCm),
@@ -281,11 +465,11 @@ public class MainView extends VerticalLayout {
                 new PlayerColumn("CLUB", "Club", PlayerEntity::getClub),
                 new PlayerColumn("PLAYING_CLUB", "Playing Club", PlayerEntity::getPlayingClub),
                 new PlayerColumn("POSITION", "Position", PositionTextFormatter::format),
-                new PlayerColumn("CA", "Current Ability", PlayerEntity::getCa),
-                new PlayerColumn("PA", "Potential Ability", PlayerEntity::getPa),
-                new PlayerColumn("SALARY_WEEKLY_RAW", "Salary Weekly", PlayerEntity::getSalaryWeeklyRaw),
-                new PlayerColumn("ASKING_PRICE", "Asking Price", PlayerEntity::getAskingPrice),
-                new PlayerColumn("CONTRACT_END_DATE", "Contract End Date", PlayerEntity::getContractEndDate),
+                new PlayerColumn("CA", "CA", PlayerEntity::getCa),
+                new PlayerColumn("PA", "PA", PlayerEntity::getPa),
+                new PlayerColumn("SALARY_WEEKLY_RAW", "Wage", PlayerEntity::getSalaryWeeklyRaw),
+                new PlayerColumn("ASKING_PRICE", "Asking", PlayerEntity::getAskingPrice),
+                new PlayerColumn("CONTRACT_END_DATE", "Contract", PlayerEntity::getContractEndDate),
                 new PlayerColumn("TRANSFER_LISTED", "Transfer Listed", PlayerEntity::getTransferListed),
                 new PlayerColumn("LISTED_FOR_LOAN", "Listed For Loan", PlayerEntity::getListedForLoan),
                 new PlayerColumn("TRANSFER_AGREED", "Transfer Agreed", PlayerEntity::getTransferAgreed),
@@ -300,12 +484,6 @@ public class MainView extends VerticalLayout {
                 new PlayerColumn("CURRENT_REPUTATION", "Current Reputation", PlayerEntity::getCurrentReputation),
                 new PlayerColumn("HOME_REPUTATION", "Home Reputation", PlayerEntity::getHomeReputation),
                 new PlayerColumn("WORLD_REPUTATION", "World Reputation", PlayerEntity::getWorldReputation));
-        List<PlayerEntity> rows = playerFilter.isEmpty() ? players.findAllPlayerEntities() : players.findPlayerEntities(playerFilter);
-        setPlayerGrid(columns, rows);
-        setFilterActive(!playerFilter.isEmpty());
-        if (!playerFilter.isEmpty()) {
-            status.setText("Filtered players " + rows.size() + " | Total players " + players.countPlayers());
-        }
     }
 
     private void showClubs() {
@@ -321,7 +499,9 @@ public class MainView extends VerticalLayout {
         setClubGrid(columns, rows);
         setFilterActive(!clubFilter.isEmpty());
         if (!clubFilter.isEmpty()) {
-            status.setText("Filtered clubs " + rows.size() + " | Total clubs " + clubs.countClubs());
+            renderFilteredStatus("Clubs", rows.size(), clubs.countClubs());
+        } else {
+            updateStatus(null);
         }
     }
 
@@ -335,7 +515,9 @@ public class MainView extends VerticalLayout {
         setCompetitionGrid(columns, rows);
         setFilterActive(!competitionFilter.isEmpty());
         if (!competitionFilter.isEmpty()) {
-            status.setText("Filtered competitions " + rows.size() + " | Total competitions " + competitions.countCompetitions());
+            renderFilteredStatus("Competitions", rows.size(), competitions.countCompetitions());
+        } else {
+            updateStatus(null);
         }
     }
 
@@ -351,10 +533,14 @@ public class MainView extends VerticalLayout {
                     .setSortable(true);
         }
         clubsGrid.setItems(rows);
-        content.removeAll();
-        content.setSizeFull();
-        content.add(clubsGrid);
-        content.addClassName("data-workspace");
+        showWorkspace(
+                "Clubs",
+                rows.size(),
+                clubsGrid,
+                null,
+                false,
+                "No clubs match",
+                "Clear filters or load RAM data to populate clubs.");
     }
 
     private void setCompetitionGrid(List<GridColumn> columns, List<CompetitionEntity> rows) {
@@ -369,29 +555,358 @@ public class MainView extends VerticalLayout {
                     .setSortable(true);
         }
         competitionsGrid.setItems(rows);
-        content.removeAll();
-        content.setSizeFull();
-        content.add(competitionsGrid);
-        content.addClassName("data-workspace");
+        showWorkspace(
+                "Competitions",
+                rows.size(),
+                competitionsGrid,
+                null,
+                false,
+                "No competitions match",
+                "Clear filters or load RAM data to populate competitions.");
     }
 
     private void setPlayerGrid(List<PlayerColumn> columns, List<PlayerEntity> rows) {
         playersGrid.removeAllColumns();
         playersGrid.setPartNameGenerator(this::playerRowPartName);
         for (PlayerColumn column : columns) {
-            playersGrid.addColumn(player -> displayColumn(column.key(), column.value(player)))
+            Grid.Column<PlayerEntity> gridColumn;
+            if ("NAME".equals(column.key())) {
+                gridColumn = playersGrid.addColumn(new ComponentRenderer<>(this::playerNameCell))
+                        .setFlexGrow(1)
+                        .setWidth("220px");
+            } else if ("CA".equals(column.key()) || "PA".equals(column.key())) {
+                gridColumn = playersGrid.addColumn(new ComponentRenderer<>(player -> abilityCell(column.value(player))))
+                        .setAutoWidth(true);
+            } else {
+                gridColumn = playersGrid.addColumn(player -> displayColumn(column.key(), column.value(player)))
+                        .setAutoWidth(true);
+            }
+            gridColumn
                     .setKey(column.key())
                     .setHeader(column.header())
-                    .setAutoWidth(true)
                     .setResizable(true)
                     .setComparator((left, right) -> comparePlayerColumn(left, right, column))
                     .setSortable(true);
+            if ("NAME".equals(column.key())) {
+                gridColumn.setFrozen(true);
+            }
         }
         playersGrid.setItems(rows);
+        visiblePlayers = List.copyOf(rows);
+        if (selectedPlayer != null) {
+            PlayerEntity stillVisible = rows.stream()
+                    .filter(player -> Objects.equals(player.getId(), selectedPlayer.getId()))
+                    .findFirst()
+                    .orElse(null);
+            selectedPlayer = stillVisible;
+            if (stillVisible != null) {
+                playersGrid.select(stillVisible);
+                int index = indexOfVisiblePlayer(stillVisible);
+                if (index >= 0) {
+                    playersGrid.scrollToIndex(index);
+                }
+            } else {
+                playersGrid.deselectAll();
+            }
+        }
+        if (compareAnchor != null) {
+            compareAnchor = rows.stream()
+                    .filter(player -> Objects.equals(player.getId(), compareAnchor.getId()))
+                    .findFirst()
+                    .orElse(null);
+            if (compareAnchor == null) {
+                awaitingCompareSelection = false;
+            }
+        }
+        showWorkspace(
+                "Players",
+                rows.size(),
+                playersGrid,
+                buildSidePanel(),
+                true,
+                "No players match",
+                "Adjust filters or load from RAM to fill the desk.");
+    }
+
+    private void showWorkspace(
+            String title,
+            int rowCount,
+            Component grid,
+            Component drawer,
+            boolean playersMode,
+            String emptyTitle,
+            String emptyBody) {
         content.removeAll();
         content.setSizeFull();
-        content.add(playersGrid);
         content.addClassName("data-workspace");
+        content.getElement().getClassList().set("has-drawer", drawer != null);
+
+        Span titleText = new Span(title);
+        titleText.addClassName("workspace-title");
+        Span countText = new Span(rowCount + (rowCount == 1 ? " row" : " rows"));
+        countText.addClassName("workspace-count");
+        Div titleBlock = new Div(titleText, countText);
+        titleBlock.addClassName("workspace-title-block");
+
+        Div toolbarRight = new Div();
+        toolbarRight.addClassName("workspace-toolbar-right");
+        if (playersMode) {
+            Span hintText = new Span("Select a row · ↑ ↓ to move");
+            hintText.addClassName("workspace-hint");
+            toolbarRight.add(hintText);
+        }
+        Div toolbar = new Div(titleBlock, toolbarRight);
+        toolbar.addClassName("workspace-toolbar");
+        content.add(toolbar);
+
+        if (playersMode) {
+            content.add(playerQuickFilterBar());
+            Div chips = playerFilterChips();
+            if (chips.getChildren().findAny().isPresent()) {
+                content.add(chips);
+            }
+            if (!playerFilter.isEmpty() && playerFilter.club() != null && !playerFilter.club().isBlank()) {
+                content.add(loanLegend());
+            }
+        }
+
+        if (rowCount == 0) {
+            content.add(emptyState(emptyTitle, emptyBody));
+            return;
+        }
+
+        Div stage = new Div(grid);
+        stage.addClassName("workspace-stage");
+        stage.setSizeFull();
+
+        if (drawer == null) {
+            content.add(stage);
+            return;
+        }
+
+        Div body = new Div(stage, drawer);
+        body.addClassName("workspace-body");
+        body.setSizeFull();
+        content.add(body);
+    }
+
+    private Div playerQuickFilterBar() {
+        Span label = new Span("Quick");
+        label.addClassName("quick-filter-label");
+        Div bar = new Div(label, quickName, quickClub, quickCaMin, quickAgeMax);
+        bar.addClassName("quick-filter-bar");
+        return bar;
+    }
+
+    private Div playerFilterChips() {
+        Div chips = new Div();
+        chips.addClassName("filter-chips");
+        addFilterChip(chips, "Name", meaningfulText(playerFilter.name()), () -> patchPlayerFilter("", null, null, null));
+        addFilterChip(chips, "Club", meaningfulText(playerFilter.club()), () -> patchPlayerFilter(null, "", null, null));
+        addFilterChip(chips, "Nation", meaningfulText(playerFilter.playingNation()), () -> clearPlayingNation());
+        addFilterChip(chips, "Competition", meaningfulText(playerFilter.playingCompetition()), () -> clearPlayingCompetition());
+        addFilterChip(chips, "Nationality", meaningfulText(playerFilter.nationality()), () -> clearNationality());
+        if (playerFilter.ageMin() != null || playerFilter.ageMax() != null) {
+            String age = rangeLabel(playerFilter.ageMin(), playerFilter.ageMax());
+            addFilterChip(chips, "Age", age, () -> patchPlayerFilter(null, null, null, true));
+        }
+        if (meaningfulMin(playerFilter.caMin()) || playerFilter.caMax() != null) {
+            addFilterChip(chips, "CA", rangeLabel(meaningfulMinValue(playerFilter.caMin()), playerFilter.caMax()), this::clearCaFilter);
+        }
+        if (meaningfulMin(playerFilter.paMin()) || playerFilter.paMax() != null) {
+            addFilterChip(chips, "PA", rangeLabel(meaningfulMinValue(playerFilter.paMin()), playerFilter.paMax()), this::clearPaFilter);
+        }
+        if (playerFilter.salaryMax() != null) {
+            addFilterChip(chips, "Wage ≤", moneyDisplay(playerFilter.salaryMax()), this::clearSalaryMax);
+        }
+        if (!playerFilter.positionMinimums().isEmpty()) {
+            addFilterChip(chips, "Positions", playerFilter.positionMinimums().size() + " set", this::clearPositions);
+        }
+        if (!playerFilter.attributeMinimums().isEmpty()) {
+            addFilterChip(chips, "Attributes", playerFilter.attributeMinimums().size() + " set", this::clearAttributes);
+        }
+        return chips;
+    }
+
+    private void addFilterChip(Div chips, String label, String value, Runnable clearAction) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        Span text = new Span(label + ": " + value);
+        text.addClassName("filter-chip-text");
+        text.getElement().setAttribute("title", "Edit filters");
+        text.addClickListener(event -> openFilterDialog());
+        Button clear = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearAction.run());
+        clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        clear.addClassName("filter-chip-clear");
+        clear.getElement().setAttribute("aria-label", "Clear " + label);
+        Div chip = new Div(text, clear);
+        chip.addClassName("filter-chip");
+        chips.add(chip);
+    }
+
+    private static Div loanLegend() {
+        Span out = new Span("Loaned out");
+        out.addClassName("legend-swatch");
+        out.addClassName("legend-loaned-out");
+        Span in = new Span("Loaned in");
+        in.addClassName("legend-swatch");
+        in.addClassName("legend-loaned-in");
+        Div legend = new Div(out, in);
+        legend.addClassName("loan-legend");
+        return legend;
+    }
+
+    private static Div emptyState(String title, String body) {
+        Span titleText = new Span(title);
+        titleText.addClassName("empty-title");
+        Span bodyText = new Span(body);
+        bodyText.addClassName("empty-body");
+        Div icon = new Div(VaadinIcon.SEARCH.create());
+        icon.addClassName("empty-icon");
+        Div state = new Div(icon, titleText, bodyText);
+        state.addClassName("empty-state");
+        return state;
+    }
+
+    private Component playerNameCell(PlayerEntity player) {
+        Span name = new Span(display(player.getName()));
+        name.addClassName("player-name");
+        Div badges = new Div();
+        badges.addClassName("player-badges");
+        if (Boolean.TRUE.equals(player.getInjured())) {
+            Span injured = new Span("INJ");
+            injured.addClassName("row-badge");
+            injured.addClassName("row-badge-injury");
+            badges.add(injured);
+        }
+        if (Boolean.TRUE.equals(player.getTransferListed())) {
+            Span listed = new Span("Listed");
+            listed.addClassName("row-badge");
+            listed.addClassName("row-badge-listed");
+            badges.add(listed);
+        }
+        Div cell = new Div(name, badges);
+        cell.addClassName("player-name-cell");
+        return cell;
+    }
+
+    private Component abilityCell(Object value) {
+        Span text = new Span(display(value));
+        text.addClassName("ability-value");
+        Div cell = new Div(text);
+        cell.addClassName("ability-cell");
+        String tone = abilityTone(value);
+        if (tone != null) {
+            cell.addClassName(tone);
+        }
+        return cell;
+    }
+
+    private static String abilityTone(Object value) {
+        Long score = sortableLong(value);
+        if (score == null) {
+            return null;
+        }
+        if (score >= 160) {
+            return "ability-elite";
+        }
+        if (score >= 140) {
+            return "ability-high";
+        }
+        if (score >= 120) {
+            return "ability-mid";
+        }
+        return "ability-low";
+    }
+
+    private void refreshSavedViewOptions() {
+        syncingSavedViews = true;
+        try {
+            List<String> names = settings.playerViews().stream().map(SavedPlayerView::name).toList();
+            String current = savedViews.getValue();
+            savedViews.setItems(names);
+            if (current != null && names.stream().anyMatch(name -> name.equalsIgnoreCase(current))) {
+                savedViews.setValue(names.stream()
+                        .filter(name -> name.equalsIgnoreCase(current))
+                        .findFirst()
+                        .orElse(null));
+            } else {
+                savedViews.clear();
+            }
+        } finally {
+            syncingSavedViews = false;
+        }
+    }
+
+    private void applySavedView(String name) {
+        settings.playerViews().stream()
+                .filter(view -> view.name().equalsIgnoreCase(name))
+                .findFirst()
+                .ifPresent(view -> {
+                    playerFilter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
+                    showAllPlayerColumns = view.showAllColumns();
+                    columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
+                    selectedPlayer = null;
+                    clearCompareState();
+                    showPlayers();
+                });
+    }
+
+    private void openSaveViewDialog() {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Save player view");
+        dialog.setWidth("420px");
+        dialog.setMaxWidth("calc(100vw - 32px)");
+        dialog.getElement().getThemeList().add("professional-dialog");
+
+        TextField name = new TextField("View name");
+        name.setWidthFull();
+        name.setValue(savedViews.getValue() == null ? "" : savedViews.getValue());
+        name.setClearButtonVisible(true);
+        Span help = new Span("Stores the current player filters and column mode.");
+        help.addClassName("settings-intro");
+        VerticalLayout layout = new VerticalLayout(help, name);
+        layout.setPadding(false);
+        layout.setSpacing(true);
+        dialog.add(layout);
+
+        Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
+            String viewName = meaningfulText(name.getValue());
+            if (viewName == null) {
+                Notification.show("Enter a view name", 3000, Notification.Position.TOP_CENTER);
+                return;
+            }
+            settings.savePlayerView(new SavedPlayerView(viewName, playerFilter, showAllPlayerColumns));
+            refreshSavedViewOptions();
+            syncingSavedViews = true;
+            try {
+                savedViews.setValue(viewName);
+            } finally {
+                syncingSavedViews = false;
+            }
+            Notification saved = Notification.show("View saved", 2500, Notification.Position.TOP_CENTER);
+            saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            saved.addClassName("app-toast");
+            dialog.close();
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        Button cancel = new Button("Cancel", event -> dialog.close());
+        dialog.getFooter().add(cancel, save);
+        dialog.open();
+        name.focus();
+    }
+
+    private void deleteSelectedView() {
+        String name = savedViews.getValue();
+        if (name == null || name.isBlank()) {
+            Notification.show("Select a saved view to delete", 2500, Notification.Position.TOP_CENTER);
+            return;
+        }
+        settings.deletePlayerView(name);
+        refreshSavedViewOptions();
+        Notification deleted = Notification.show("View deleted", 2500, Notification.Position.TOP_CENTER);
+        deleted.addClassName("app-toast");
     }
 
     private String playerRowPartName(PlayerEntity player) {
@@ -419,11 +934,15 @@ public class MainView extends VerticalLayout {
         loadingDialog.setDraggable(false);
         loadingDialog.setResizable(false);
 
+        Span loadingTitle = new Span("Reading Football Manager memory");
+        loadingTitle.addClassName("loading-title");
+        Span loadingSubtitle = new Span("Players, clubs and competitions will refresh automatically.");
+        loadingSubtitle.addClassName("loading-subtitle");
         VerticalLayout content = new VerticalLayout(
                 new Div(VaadinIcon.DATABASE.create()),
                 spinner,
-                new Span("Reading Football Manager memory"),
-                new Span("Players, clubs and competitions will refresh automatically.")
+                loadingTitle,
+                loadingSubtitle
         );
         content.setAlignItems(FlexComponent.Alignment.CENTER);
         content.setPadding(true);
@@ -431,38 +950,188 @@ public class MainView extends VerticalLayout {
 
         loadingDialog.add(content);
         loadingDialog.addClassName("loading-dialog");
+        loadingDialog.getElement().getThemeList().add("professional-dialog");
     }
 
-    private void openPlayerDetailsDialog(PlayerEntity player) {
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle(display(player.getName()));
-        dialog.setWidth("1100px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.getElement().getThemeList().add("professional-dialog");
-        dialog.getElement().getThemeList().add("player-detail-dialog");
+    private void openPlayerDrawer(PlayerEntity player) {
+        if (awaitingCompareSelection && compareAnchor != null
+                && !Objects.equals(compareAnchor.getId(), player.getId())) {
+            selectedPlayer = player;
+            awaitingCompareSelection = false;
+            showPlayers();
+            return;
+        }
+        selectedPlayer = player;
+        showPlayers();
+    }
 
-        VerticalLayout info = new VerticalLayout(detailLayout(List.of(
-                new DetailField("Name", player.getName()),
-                new DetailField("Age", player.getAge()),
-                new DetailField("Height", heightDisplay(player)),
-                new DetailField("Nationality", player.getNationality()),
-                new DetailField("Club", player.getClub()),
-                new DetailField("Playing Club", player.getPlayingClub()),
-                new DetailField("Position", PositionTextFormatter.format(player)),
-                new DetailField("Salary Weekly", salaryWeeklyDisplay(player.getSalaryWeeklyRaw())),
-                new DetailField("Asking Price", moneyDisplay(player.getAskingPrice())),
-                new DetailField("Joined Club Date", player.getJoinedClubDate()),
-                new DetailField("Contract End Date", player.getContractEndDate()),
-                new DetailField("Current Reputation", player.getCurrentReputation()),
-                new DetailField("Home Reputation", player.getHomeReputation()),
-                new DetailField("World Reputation", player.getWorldReputation()))));
+    private void closePlayerDrawer() {
+        if (selectedPlayer == null && compareAnchor == null && !awaitingCompareSelection) {
+            return;
+        }
+        selectedPlayer = null;
+        clearCompareState();
+        showPlayers();
+    }
+
+    private void clearCompareState() {
+        compareAnchor = null;
+        awaitingCompareSelection = false;
+    }
+
+    private void startCompare() {
+        if (selectedPlayer == null) {
+            return;
+        }
+        compareAnchor = selectedPlayer;
+        awaitingCompareSelection = true;
+        Notification notice = Notification.show(
+                "Select another player to compare",
+                2500,
+                Notification.Position.TOP_CENTER);
+        notice.addClassName("app-toast");
+        showPlayers();
+    }
+
+    private Component buildSidePanel() {
+        if (compareAnchor != null && selectedPlayer != null
+                && !Objects.equals(compareAnchor.getId(), selectedPlayer.getId())) {
+            return buildCompareDrawer(compareAnchor, selectedPlayer);
+        }
+        return buildPlayerDrawer();
+    }
+
+    private Component buildCompareDrawer(PlayerEntity left, PlayerEntity right) {
+        Span title = new Span("Compare");
+        title.addClassName("drawer-title");
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
+        close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        close.addClassName("drawer-close");
+        close.getElement().setAttribute("aria-label", "Close compare");
+        Div header = new Div(title, close);
+        header.addClassName("drawer-header");
+
+        Div grid = new Div(
+                compareMetric("Name", display(left.getName()), display(right.getName()), null),
+                compareMetric("Age", display(left.getAge()), display(right.getAge()),
+                        compareLongs(sortableLong(left.getAge()), sortableLong(right.getAge()), false)),
+                compareMetric("Club", display(left.getClub()), display(right.getClub()), null),
+                compareMetric("Position", PositionTextFormatter.format(left), PositionTextFormatter.format(right), null),
+                compareMetric("CA", display(left.getCa()), display(right.getCa()),
+                        compareLongs(sortableLong(left.getCa()), sortableLong(right.getCa()), true)),
+                compareMetric("PA", display(left.getPa()), display(right.getPa()),
+                        compareLongs(sortableLong(left.getPa()), sortableLong(right.getPa()), true)),
+                compareMetric("Wage", salaryWeeklyDisplay(left.getSalaryWeeklyRaw()), salaryWeeklyDisplay(right.getSalaryWeeklyRaw()),
+                        compareLongs(sortableLong(left.getSalaryWeeklyRaw()), sortableLong(right.getSalaryWeeklyRaw()), false)),
+                compareMetric("Asking", moneyDisplay(left.getAskingPrice()), moneyDisplay(right.getAskingPrice()),
+                        compareLongs(sortableLong(left.getAskingPrice()), sortableLong(right.getAskingPrice()), false)),
+                compareMetric("Contract", display(left.getContractEndDate()), display(right.getContractEndDate()), null));
+        grid.addClassName("compare-grid");
+
+        Div drawer = new Div(header, grid);
+        drawer.addClassName("player-drawer");
+        drawer.addClassName("compare-drawer");
+        return drawer;
+    }
+
+    private static Integer compareLongs(Long left, Long right, boolean higherIsBetter) {
+        if (left == null || right == null || left.equals(right)) {
+            return null;
+        }
+        boolean leftWins = higherIsBetter ? left > right : left < right;
+        return leftWins ? -1 : 1;
+    }
+
+    private static Div compareMetric(String label, String left, String right, Integer winner) {
+        Span labelText = new Span(label);
+        labelText.addClassName("compare-label");
+        Span leftText = new Span(blankDash(left));
+        leftText.addClassName("compare-left");
+        Span rightText = new Span(blankDash(right));
+        rightText.addClassName("compare-right");
+        if (winner != null) {
+            if (winner < 0) {
+                leftText.addClassName("compare-winner");
+            } else {
+                rightText.addClassName("compare-winner");
+            }
+        }
+        Div row = new Div(labelText, leftText, rightText);
+        row.addClassName("compare-row");
+        return row;
+    }
+
+    private static String blankDash(String value) {
+        return value == null || value.isBlank() ? "—" : value;
+    }
+
+    private Component buildPlayerDrawer() {
+        if (selectedPlayer == null) {
+            return null;
+        }
+        PlayerEntity player = selectedPlayer;
+
+        Span title = new Span(display(player.getName()));
+        title.addClassName("drawer-title");
+        Button previous = new Button(VaadinIcon.ARROW_UP.create(), event -> navigateSelectedPlayer(-1));
+        previous.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        previous.addClassName("drawer-nav");
+        previous.setTooltipText("Previous player (↑)");
+        previous.getElement().setAttribute("aria-label", "Previous player");
+        Button next = new Button(VaadinIcon.ARROW_DOWN.create(), event -> navigateSelectedPlayer(1));
+        next.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        next.addClassName("drawer-nav");
+        next.setTooltipText("Next player (↓)");
+        next.getElement().setAttribute("aria-label", "Next player");
+        Button compare = new Button("Compare", event -> startCompare());
+        compare.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        compare.addClassName("drawer-compare");
+        compare.setTooltipText(awaitingCompareSelection
+                ? "Waiting for second player"
+                : "Compare with another player");
+        Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
+        close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        close.addClassName("drawer-close");
+        close.getElement().setAttribute("aria-label", "Close player details");
+        Div nav = new Div(compare, previous, next, close);
+        nav.addClassName("drawer-actions");
+        Div header = new Div(title, nav);
+        header.addClassName("drawer-header");
+        Span navHint = new Span(awaitingCompareSelection
+                ? "Select another player to compare · Esc to cancel"
+                : "↑ ↓ to move · Esc to close");
+        navHint.addClassName("drawer-nav-hint");
+
+        Div summary = playerSummary(player);
+        summary.addClassName("drawer-summary");
+
+        VerticalLayout info = new VerticalLayout(
+                detailSection("Profile", List.of(
+                        new DetailField("Age", player.getAge()),
+                        new DetailField("Height", heightDisplay(player)),
+                        new DetailField("Nationality", player.getNationality()),
+                        new DetailField("Position", PositionTextFormatter.format(player)),
+                        new DetailField("Club", player.getClub()),
+                        new DetailField("Playing Club", player.getPlayingClub()))),
+                detailSection("Contract", List.of(
+                        new DetailField("Salary Weekly", salaryWeeklyDisplay(player.getSalaryWeeklyRaw())),
+                        new DetailField("Asking Price", moneyDisplay(player.getAskingPrice())),
+                        new DetailField("Joined Club Date", player.getJoinedClubDate()),
+                        new DetailField("Contract End Date", player.getContractEndDate()))),
+                detailSection("Reputation", List.of(
+                        new DetailField("Current Reputation", player.getCurrentReputation()),
+                        new DetailField("Home Reputation", player.getHomeReputation()),
+                        new DetailField("World Reputation", player.getWorldReputation()))));
         info.setPadding(false);
+        info.setSpacing(true);
         info.addClassName("detail-info");
 
         Checkbox showGoalkeeping = new Checkbox("Show goalkeeping attributes");
         showGoalkeeping.setValue(isGoalkeeper(player));
         ComboBox<String> inPossessionRole = roleComboBox("In possession role", PlayerRoleAttributeCatalog.IN_POSSESSION);
         ComboBox<String> outOfPossessionRole = roleComboBox("Out of possession role", PlayerRoleAttributeCatalog.OUT_OF_POSSESSION);
+        inPossessionRole.setWidthFull();
+        outOfPossessionRole.setWidthFull();
         Div attributes = new Div();
         attributes.setWidthFull();
         attributes.addClassName("attribute-panel");
@@ -484,26 +1153,27 @@ public class MainView extends VerticalLayout {
             }
             renderAttributeColumns(attributes, player, showGoalkeeping.getValue(), selectedRolePriorities(inPossessionRole, outOfPossessionRole));
         });
-        HorizontalLayout attributeToolbar = new HorizontalLayout(showGoalkeeping, inPossessionRole, outOfPossessionRole);
-        attributeToolbar.setWidthFull();
-        attributeToolbar.setAlignItems(Alignment.END);
-        attributeToolbar.expand(showGoalkeeping);
+        VerticalLayout attributeToolbar = new VerticalLayout(showGoalkeeping, inPossessionRole, outOfPossessionRole);
+        attributeToolbar.setPadding(false);
+        attributeToolbar.setSpacing(true);
         attributeToolbar.addClassName("attribute-toolbar");
         VerticalLayout attributesView = new VerticalLayout(attributeToolbar, attributes);
         attributesView.setPadding(false);
         attributesView.setSpacing(true);
         attributesView.addClassName("attributes-view");
 
-        Div positions = positionField(player);
+        Div positions = positionsPanel(player);
 
         Tab infoTab = new Tab("Info");
         Tab attributesTab = new Tab("Attributes");
         Tab positionsTab = new Tab("Positions");
         Tabs detailTabs = new Tabs(infoTab, attributesTab, positionsTab);
         detailTabs.addClassName("dialog-tabs");
+        detailTabs.addClassName("drawer-tabs");
         Div detailContent = new Div(info);
         detailContent.setWidthFull();
         detailContent.addClassName("dialog-content");
+        detailContent.addClassName("drawer-content");
         detailTabs.addSelectedChangeListener(event -> {
             detailContent.removeAll();
             if (event.getSelectedTab() == infoTab) {
@@ -515,11 +1185,49 @@ public class MainView extends VerticalLayout {
             }
         });
 
-        Button close = new Button("Close", VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
-        close.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        dialog.add(detailTabs, detailContent);
-        dialog.getFooter().add(close);
-        dialog.open();
+        Div drawer = new Div(header, navHint, summary, detailTabs, detailContent);
+        drawer.addClassName("player-drawer");
+        return drawer;
+    }
+
+    private Div playerSummary(PlayerEntity player) {
+        Div summary = new Div(
+                summaryMetric("CA", display(player.getCa())),
+                summaryMetric("PA", display(player.getPa())),
+                summaryMetric("Age", display(player.getAge())),
+                summaryMetric("Position", PositionTextFormatter.format(player)),
+                summaryMetric("Wage", salaryWeeklyDisplay(player.getSalaryWeeklyRaw())),
+                summaryMetric("Asking", moneyDisplay(player.getAskingPrice())));
+        summary.addClassName("player-summary");
+        return summary;
+    }
+
+    private static Div summaryMetric(String label, String value) {
+        Span labelText = new Span(label);
+        labelText.addClassName("summary-label");
+        Span valueText = new Span(value == null || value.isBlank() ? "—" : value);
+        valueText.addClassName("summary-value");
+        Div metric = new Div(labelText, valueText);
+        metric.addClassName("summary-metric");
+        return metric;
+    }
+
+    private static Div detailSection(String title, List<DetailField> fields) {
+        Span heading = new Span(title);
+        heading.addClassName("detail-section-title");
+        Div section = new Div(heading, detailLayout(fields));
+        section.addClassName("detail-section");
+        return section;
+    }
+
+    private static Div positionsPanel(PlayerEntity player) {
+        Span heading = new Span("Positional familiarity");
+        heading.addClassName("positions-heading");
+        Span legend = new Span("Natural · Accomplished · Competent · Can play · Cannot");
+        legend.addClassName("positions-legend");
+        Div panel = new Div(heading, legend, positionField(player));
+        panel.addClassName("positions-panel");
+        return panel;
     }
 
     private void openFilterDialog() {
@@ -546,13 +1254,12 @@ public class MainView extends VerticalLayout {
         currencySelect.setItemLabelGenerator(MoneyCurrency::label);
         currencySelect.setValue(currency);
 
+        Span intro = new Span("Display currency for money columns and player sheets.");
+        intro.addClassName("settings-intro");
         Span file = new Span("Stored in " + settings.settingsPath());
-        file.getStyle()
-                .set("font-size", "var(--lumo-font-size-xs)")
-                .set("color", "var(--lumo-secondary-text-color)")
-                .set("overflow-wrap", "anywhere");
+        file.addClassName("settings-path");
 
-        VerticalLayout layout = new VerticalLayout(currencySelect, file);
+        VerticalLayout layout = new VerticalLayout(intro, currencySelect, file);
         layout.setPadding(false);
         layout.setSpacing(true);
         layout.addClassName("settings-content");
@@ -562,7 +1269,9 @@ public class MainView extends VerticalLayout {
             currency = currencySelect.getValue() == null ? MoneyCurrency.POUND : currencySelect.getValue();
             settings.saveCurrency(currency);
             refreshSelectedTab();
-            Notification.show("Settings saved", 2500, Notification.Position.TOP_CENTER);
+            Notification saved = Notification.show("Settings saved", 2500, Notification.Position.TOP_CENTER);
+            saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            saved.addClassName("app-toast");
             dialog.close();
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
@@ -597,15 +1306,15 @@ public class MainView extends VerticalLayout {
         IntegerField ageMax = intField("Age max", playerFilter.ageMax(), 1, 80);
         IntegerField heightMin = intField("Height min (cm)", playerFilter.heightMin(), 100, 230);
         IntegerField heightMax = intField("Height max (cm)", playerFilter.heightMax(), 100, 230);
-        IntegerField currentRepMin = intField("Current rep min", defaultInt(playerFilter.currentReputationMin(), 1), 1, 10000);
+        IntegerField currentRepMin = intField("Current rep min", playerFilter.currentReputationMin(), 1, 10000);
         IntegerField currentRepMax = intField("Current rep max", playerFilter.currentReputationMax(), 1, 10000);
-        IntegerField homeRepMin = intField("Home rep min", defaultInt(playerFilter.homeReputationMin(), 1), 1, 10000);
+        IntegerField homeRepMin = intField("Home rep min", playerFilter.homeReputationMin(), 1, 10000);
         IntegerField homeRepMax = intField("Home rep max", playerFilter.homeReputationMax(), 1, 10000);
-        IntegerField worldRepMin = intField("World rep min", defaultInt(playerFilter.worldReputationMin(), 1), 1, 10000);
+        IntegerField worldRepMin = intField("World rep min", playerFilter.worldReputationMin(), 1, 10000);
         IntegerField worldRepMax = intField("World rep max", playerFilter.worldReputationMax(), 1, 10000);
-        IntegerField caMin = intField("CA min", defaultInt(playerFilter.caMin(), 1), 1, 200);
+        IntegerField caMin = intField("CA min", playerFilter.caMin(), 1, 200);
         IntegerField caMax = intField("CA max", playerFilter.caMax(), 1, 200);
-        IntegerField paMin = intField("PA min", defaultInt(playerFilter.paMin(), 1), 1, 200);
+        IntegerField paMin = intField("PA min", playerFilter.paMin(), 1, 200);
         IntegerField paMax = intField("PA max", playerFilter.paMax(), 1, 200);
         LongField askingMin = new LongField("Asking price min", playerFilter.askingPriceMin());
         LongField askingMax = new LongField("Asking price max", playerFilter.askingPriceMax());
@@ -635,17 +1344,19 @@ public class MainView extends VerticalLayout {
                 new FormLayout.ResponsiveStep("720px", 2));
         basicFilters.addClassName("filter-form");
 
+        Span filterIntro = new Span("Filter by identity, ability, contract, or reputation.");
+        filterIntro.addClassName("filter-intro");
+        VerticalLayout playerTab = new VerticalLayout(filterIntro, basicFilters);
+        playerTab.setPadding(false);
+        playerTab.setSpacing(true);
+        playerTab.addClassName("filter-tab-content");
+
         Map<String, PositionLevel> selectedPositions = new LinkedHashMap<>();
         for (FieldDef field : AttributeDefinitions.POSITION_FIELDS) {
             String column = PlayerColumnNames.toColumnName(field.name()).toUpperCase();
             PositionLevel initial = PositionLevel.fromMinimum(playerFilter.positionMinimums().get(column));
             selectedPositions.put(column, initial);
         }
-
-        VerticalLayout playerTab = new VerticalLayout(basicFilters);
-        playerTab.setPadding(false);
-        playerTab.setSpacing(true);
-        playerTab.addClassName("filter-tab-content");
 
         Div positionFilterLayout = positionFilterField(selectedPositions);
 
@@ -701,11 +1412,11 @@ public class MainView extends VerticalLayout {
                     ageMin.getValue(), ageMax.getValue(),
                     heightMin.getValue(), heightMax.getValue(),
                     nationality.getValue(),
-                    defaultInt(currentRepMin.getValue(), 1), currentRepMax.getValue(),
-                    defaultInt(homeRepMin.getValue(), 1), homeRepMax.getValue(),
-                    defaultInt(worldRepMin.getValue(), 1), worldRepMax.getValue(),
-                    defaultInt(caMin.getValue(), 1), caMax.getValue(),
-                    defaultInt(paMin.getValue(), 1), paMax.getValue(),
+                    currentRepMin.getValue(), currentRepMax.getValue(),
+                    homeRepMin.getValue(), homeRepMax.getValue(),
+                    worldRepMin.getValue(), worldRepMax.getValue(),
+                    caMin.getValue(), caMax.getValue(),
+                    paMin.getValue(), paMax.getValue(),
                     contractFrom.getValue(), contractTo.getValue(),
                     askingMin.value(), askingMax.value(),
                     salaryMax.value(),
@@ -863,16 +1574,291 @@ public class MainView extends VerticalLayout {
 
     private void updateStatus(DatabaseLoadAllService.LoadAllResult result) {
         if (result == null) {
-            status.setText("Players " + players.countPlayers()
-                    + " | Clubs " + clubs.countClubs()
-                    + " | Competitions " + competitions.countCompetitions());
+            renderStatus(players.countPlayers(), clubs.countClubs(), competitions.countCompetitions(), null, null);
             return;
         }
-        status.setText("PID " + result.pid()
-                + " | Game date " + nullSafe(result.gameDate())
-                + " | Players " + result.players()
-                + " | Clubs " + result.clubs()
-                + " | Competitions " + result.competitions());
+        renderStatus(result.players(), result.clubs(), result.competitions(), result.pid(), result.gameDate());
+    }
+
+    private void renderStatus(long playerCount, long clubCount, long competitionCount, Integer pid, String gameDate) {
+        status.removeAll();
+
+        boolean loaded = pid != null || (gameDate != null && !gameDate.isBlank());
+        Span freshness = new Span(loaded ? "Loaded" : "Ready");
+        freshness.addClassName("status-live");
+        status.add(freshness);
+
+        if (loaded) {
+            StringBuilder metaText = new StringBuilder();
+            if (gameDate != null && !gameDate.isBlank()) {
+                metaText.append(nullSafe(gameDate));
+            }
+            if (pid != null) {
+                if (!metaText.isEmpty()) {
+                    metaText.append(" · ");
+                }
+                metaText.append("PID ").append(pid);
+            }
+            Span meta = new Span(metaText.toString());
+            meta.addClassName("status-meta");
+            status.add(meta);
+        }
+
+        Div chips = new Div(
+                statusChip("Players", playerCount),
+                statusChip("Clubs", clubCount),
+                statusChip("Competitions", competitionCount));
+        chips.addClassName("status-chips");
+        status.add(chips);
+    }
+
+    private void renderFilteredStatus(String entityLabel, int filteredCount, long totalCount) {
+        status.removeAll();
+        Span freshness = new Span("Filtered");
+        freshness.addClassName("status-live");
+        status.add(freshness);
+        Span meta = new Span(filteredCount + " of " + totalCount + " " + entityLabel.toLowerCase());
+        meta.addClassName("status-meta");
+        status.add(meta);
+    }
+
+    private static Div statusChip(String label, long value) {
+        Span labelText = new Span(label);
+        Span valueText = new Span(String.valueOf(value));
+        valueText.addClassName("status-chip-value");
+        Div chip = new Div(labelText, valueText);
+        chip.addClassName("status-chip");
+        return chip;
+    }
+
+    private void syncQuickFiltersFromCriteria() {
+        syncingQuickFilters = true;
+        try {
+            quickName.setValue(nullSafeValue(playerFilter.name()));
+            List<String> clubs = players.findClubs();
+            quickClub.setItems(clubs);
+            String club = meaningfulText(playerFilter.club());
+            if (club != null) {
+                quickClub.setValue(club);
+            } else {
+                quickClub.clear();
+            }
+            quickCaMin.setValue(meaningfulMinValue(playerFilter.caMin()));
+            quickAgeMax.setValue(playerFilter.ageMax());
+        } finally {
+            syncingQuickFilters = false;
+        }
+    }
+
+    private void applyQuickFilters() {
+        String name = meaningfulText(quickName.getValue());
+        String club = meaningfulText(quickClub.getValue());
+        Integer caMin = quickCaMin.getValue();
+        Integer ageMax = quickAgeMax.getValue();
+        playerFilter = copyPlayerFilter(
+                playerFilter,
+                name == null ? "" : name,
+                club == null ? "" : club,
+                playerFilter.ageMin(),
+                ageMax,
+                caMin,
+                playerFilter.caMax(),
+                playerFilter.paMin(),
+                playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(),
+                playerFilter.playingCompetition(),
+                playerFilter.nationality(),
+                playerFilter.positionMinimums(),
+                playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void patchPlayerFilter(String name, String club, Integer ignored, Boolean clearAge) {
+        playerFilter = copyPlayerFilter(
+                playerFilter,
+                name != null ? name : playerFilter.name(),
+                club != null ? club : playerFilter.club(),
+                Boolean.TRUE.equals(clearAge) ? null : playerFilter.ageMin(),
+                Boolean.TRUE.equals(clearAge) ? null : playerFilter.ageMax(),
+                playerFilter.caMin(),
+                playerFilter.caMax(),
+                playerFilter.paMin(),
+                playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(),
+                playerFilter.playingCompetition(),
+                playerFilter.nationality(),
+                playerFilter.positionMinimums(),
+                playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearPlayingNation() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                "", playerFilter.playingCompetition(), playerFilter.nationality(),
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearPlayingCompetition() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), "", playerFilter.nationality(),
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearNationality() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), playerFilter.playingCompetition(), "",
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearCaFilter() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                null, null,
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), playerFilter.playingCompetition(), playerFilter.nationality(),
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearPaFilter() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                null, null,
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), playerFilter.playingCompetition(), playerFilter.nationality(),
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearSalaryMax() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                null,
+                playerFilter.playingNation(), playerFilter.playingCompetition(), playerFilter.nationality(),
+                playerFilter.positionMinimums(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearPositions() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), playerFilter.playingCompetition(), playerFilter.nationality(),
+                Map.of(), playerFilter.attributeMinimums());
+        showPlayers();
+    }
+
+    private void clearAttributes() {
+        playerFilter = copyPlayerFilter(
+                playerFilter, playerFilter.name(), playerFilter.club(),
+                playerFilter.ageMin(), playerFilter.ageMax(),
+                playerFilter.caMin(), playerFilter.caMax(),
+                playerFilter.paMin(), playerFilter.paMax(),
+                playerFilter.salaryMax(),
+                playerFilter.playingNation(), playerFilter.playingCompetition(), playerFilter.nationality(),
+                playerFilter.positionMinimums(), Map.of());
+        showPlayers();
+    }
+
+    private static PlayerFilterCriteria copyPlayerFilter(
+            PlayerFilterCriteria source,
+            String name,
+            String club,
+            Integer ageMin,
+            Integer ageMax,
+            Integer caMin,
+            Integer caMax,
+            Integer paMin,
+            Integer paMax,
+            Long salaryMax,
+            String playingNation,
+            String playingCompetition,
+            String nationality,
+            Map<String, Integer> positionMinimums,
+            Map<String, Integer> attributeMinimums) {
+        return new PlayerFilterCriteria(
+                name,
+                source.gender(),
+                playingNation,
+                playingCompetition,
+                club,
+                ageMin,
+                ageMax,
+                source.heightMin(),
+                source.heightMax(),
+                nationality,
+                source.currentReputationMin(),
+                source.currentReputationMax(),
+                source.homeReputationMin(),
+                source.homeReputationMax(),
+                source.worldReputationMin(),
+                source.worldReputationMax(),
+                caMin,
+                caMax,
+                paMin,
+                paMax,
+                source.contractEndDateFrom(),
+                source.contractEndDateTo(),
+                source.askingPriceMin(),
+                source.askingPriceMax(),
+                salaryMax,
+                positionMinimums,
+                attributeMinimums);
+    }
+
+    private static String meaningfulText(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static boolean meaningfulMin(Integer value) {
+        return value != null && value > 1;
+    }
+
+    private static Integer meaningfulMinValue(Integer value) {
+        return meaningfulMin(value) ? value : null;
+    }
+
+    private static String rangeLabel(Integer min, Integer max) {
+        if (min != null && max != null) {
+            return min + "–" + max;
+        }
+        if (min != null) {
+            return "≥ " + min;
+        }
+        if (max != null) {
+            return "≤ " + max;
+        }
+        return "";
     }
 
     private void setFilterActive(boolean active) {
@@ -959,20 +1945,6 @@ public class MainView extends VerticalLayout {
     private static Div positionField(PlayerEntity player) {
         Div field = new Div();
         field.addClassName("position-pitch");
-        field.getStyle()
-                .set("position", "relative")
-                .set("display", "grid")
-                .set("grid-template-rows", "repeat(6, 1fr)")
-                .set("gap", "6px")
-                .set("width", "min(320px, 100%)")
-                .set("aspect-ratio", "2 / 3")
-                .set("margin", "0 auto")
-                .set("padding", "10px")
-                .set("box-sizing", "border-box")
-                .set("border", "2px solid #d1fae5")
-                .set("border-radius", "8px")
-                .set("background", "linear-gradient(90deg, #064e3b 0%, #065f46 50%, #064e3b 100%)")
-                .set("overflow", "hidden");
 
         addFieldLine(field, "50%", "0", "100%", "2px", "#d1fae580", "translateY(-1px)");
         addFieldLine(field, "50%", "50%", "68px", "68px", "#d1fae580", "translate(-50%, -50%)");
@@ -1019,20 +1991,6 @@ public class MainView extends VerticalLayout {
         Div field = new Div();
         field.addClassName("position-pitch");
         field.addClassName("position-filter-pitch");
-        field.getStyle()
-                .set("position", "relative")
-                .set("display", "grid")
-                .set("grid-template-rows", "repeat(6, 1fr)")
-                .set("gap", "7px")
-                .set("width", "min(360px, 100%)")
-                .set("aspect-ratio", "2 / 3")
-                .set("margin", "0 auto")
-                .set("padding", "12px")
-                .set("box-sizing", "border-box")
-                .set("border", "2px solid #d1fae5")
-                .set("border-radius", "8px")
-                .set("background", "linear-gradient(90deg, #064e3b 0%, #065f46 50%, #064e3b 100%)")
-                .set("overflow", "hidden");
         addFieldLine(field, "50%", "0", "100%", "2px", "#d1fae580", "translateY(-1px)");
         addFieldLine(field, "50%", "50%", "76px", "76px", "#d1fae580", "translate(-50%, -50%)");
         addPenaltyBox(field, "top");
@@ -1180,15 +2138,68 @@ public class MainView extends VerticalLayout {
             boolean showGoalkeeping,
             Map<String, String> rolePriorities) {
         container.removeAll();
+        if (!rolePriorities.isEmpty()) {
+            container.add(roleFocusPanel(player, rolePriorities));
+        }
         Div columns = new Div();
         columns.addClassName("attribute-columns");
-        columns.getStyle()
-                .set("display", "grid")
-                .set("grid-template-columns", "repeat(auto-fit, minmax(170px, 1fr))")
-                .set("gap", "16px")
-                .set("align-items", "start");
         PlayerAttributeCatalog.categories(showGoalkeeping).forEach(category -> columns.add(attributeCategory(player, category, rolePriorities)));
+        if (!rolePriorities.isEmpty()) {
+            Span allTitle = new Span("All attributes");
+            allTitle.addClassName("attribute-all-title");
+            container.add(allTitle);
+        }
         container.add(columns);
+    }
+
+    private static Div roleFocusPanel(PlayerEntity player, Map<String, String> rolePriorities) {
+        Div primary = new Div();
+        primary.addClassName("role-focus-group");
+        Span primaryTitle = new Span("Primary for role");
+        primaryTitle.addClassName("role-focus-title");
+        primary.add(primaryTitle);
+
+        Div secondary = new Div();
+        secondary.addClassName("role-focus-group");
+        Span secondaryTitle = new Span("Secondary for role");
+        secondaryTitle.addClassName("role-focus-title");
+        secondary.add(secondaryTitle);
+
+        Map<String, PlayerAttributeCatalog.AttributeDefinition> byColumn = new LinkedHashMap<>();
+        PlayerAttributeCatalog.categories(true).forEach(category -> {
+            for (PlayerAttributeCatalog.AttributeDefinition attribute : category.attributes()) {
+                byColumn.putIfAbsent(attribute.columnName().toLowerCase(), attribute);
+            }
+        });
+
+        List<Map.Entry<String, String>> ordered = rolePriorities.entrySet().stream()
+                .sorted(Comparator
+                        .comparing((Map.Entry<String, String> entry) -> !"primary".equals(entry.getValue()))
+                        .thenComparing(Map.Entry::getKey))
+                .toList();
+        for (Map.Entry<String, String> entry : ordered) {
+            PlayerAttributeCatalog.AttributeDefinition definition = byColumn.get(entry.getKey().toLowerCase());
+            if (definition == null) {
+                continue;
+            }
+            Div row = attributeRow(definition.displayName(), attributeValue(player, definition.columnName()), entry.getValue());
+            row.addClassName("role-focus-row");
+            if ("primary".equals(entry.getValue())) {
+                primary.add(row);
+            } else if ("secondary".equals(entry.getValue())) {
+                secondary.add(row);
+            }
+        }
+
+        Div panel = new Div();
+        panel.addClassName("attribute-role-focus");
+        if (primary.getChildren().count() > 1) {
+            panel.add(primary);
+        }
+        if (secondary.getChildren().count() > 1) {
+            panel.add(secondary);
+        }
+        return panel;
     }
 
     private static Div attributeCategory(
@@ -1196,16 +2207,9 @@ public class MainView extends VerticalLayout {
             PlayerAttributeCatalog.AttributeCategory category,
             Map<String, String> rolePriorities) {
         Span title = new Span(category.name());
-        title.getStyle()
-                .set("font-weight", "700")
-                .set("padding-bottom", "6px")
-                .set("border-bottom", "1px solid var(--lumo-contrast-20pct)");
+        title.addClassName("attribute-category-title");
         Div column = new Div(title);
         column.addClassName("attribute-category");
-        column.getStyle()
-                .set("display", "flex")
-                .set("flex-direction", "column")
-                .set("gap", "4px");
         for (PlayerAttributeCatalog.AttributeDefinition attribute : category.attributes()) {
             Object value = attributeValue(player, attribute.columnName());
             column.add(attributeRow(attribute.displayName(), value, rolePriority(rolePriorities, attribute.columnName())));
@@ -1215,28 +2219,32 @@ public class MainView extends VerticalLayout {
 
     private static Div attributeRow(String label, Object value, String rolePriority) {
         Span labelText = new Span(label);
-        labelText.getStyle().set("color", "var(--lumo-secondary-text-color)");
+        labelText.addClassName("attribute-label");
         Span valueText = new Span(display(value));
-        valueText.getStyle()
-                .set("font-weight", "600")
-                .set("text-align", "right")
-                .set("color", scoreColor(value));
-        Div row = new Div(labelText, valueText);
+        valueText.addClassName("attribute-value");
+        valueText.getStyle().set("color", scoreColor(value));
+
+        Div fill = new Div();
+        fill.addClassName("attr-meter-fill");
+        fill.getStyle().set("background", scoreColor(value));
+        Long score = sortableLong(value);
+        if (score != null) {
+            int pct = (int) Math.max(0, Math.min(100, Math.round(score * 5.0)));
+            fill.getStyle().set("width", pct + "%");
+        } else {
+            fill.getStyle().set("width", "0%");
+        }
+        Div meter = new Div(fill);
+        meter.addClassName("attr-meter");
+
+        Div head = new Div(labelText, valueText);
+        head.addClassName("attribute-head");
+        Div row = new Div(head, meter);
         row.addClassName("attribute-row");
-        row.getStyle()
-                .set("display", "grid")
-                .set("grid-template-columns", "1fr auto")
-                .set("gap", "8px")
-                .set("font-size", "var(--lumo-font-size-s)")
-                .set("line-height", "1.3")
-                .set("padding", "2px 4px")
-                .set("border-radius", "4px");
         if ("primary".equals(rolePriority)) {
             row.addClassName("role-primary");
-            row.getStyle().set("background", "#dcfce7");
         } else if ("secondary".equals(rolePriority)) {
             row.addClassName("role-secondary");
-            row.getStyle().set("background", "#dbeafe");
         }
         return row;
     }
@@ -1469,7 +2477,11 @@ public class MainView extends VerticalLayout {
             for (PlayerAttributeCatalog.AttributeDefinition definition : category.attributes()) {
                 String attributeColumn = definition.columnName();
                 String key = category.name() + ":" + attributeColumn;
-                IntegerField attribute = intField(definition.displayName(), playerFilter.attributeMinimums().getOrDefault(attributeColumn, 1), 1, 20);
+                IntegerField attribute = intField(
+                        definition.displayName(),
+                        playerFilter.attributeMinimums().get(attributeColumn),
+                        1,
+                        20);
                 attribute.setWidthFull();
                 attributeFields.put(key, attribute);
                 column.add(attribute);
@@ -1512,11 +2524,11 @@ public class MainView extends VerticalLayout {
                 return false;
             }
         }
-        return validRange("Current reputation", defaultInt(currentRepMin.getValue(), 1), currentRepMax.getValue())
-                && validRange("Home reputation", defaultInt(homeRepMin.getValue(), 1), homeRepMax.getValue())
-                && validRange("World reputation", defaultInt(worldRepMin.getValue(), 1), worldRepMax.getValue())
-                && validRange("CA", defaultInt(caMin.getValue(), 1), caMax.getValue())
-                && validRange("PA", defaultInt(paMin.getValue(), 1), paMax.getValue())
+        return validRange("Current reputation", currentRepMin.getValue(), currentRepMax.getValue())
+                && validRange("Home reputation", homeRepMin.getValue(), homeRepMax.getValue())
+                && validRange("World reputation", worldRepMin.getValue(), worldRepMax.getValue())
+                && validRange("CA", caMin.getValue(), caMax.getValue())
+                && validRange("PA", paMin.getValue(), paMax.getValue())
                 && validRange("Height", heightMin.getValue(), heightMax.getValue());
     }
 

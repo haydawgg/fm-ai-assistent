@@ -1,7 +1,11 @@
 package com.github.fmaiassistent.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.fmaiassistent.FmAiAssistentApplication;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.repository.PlayerFilterCriteria;
+import com.github.fmaiassistent.web.ui.SavedPlayerView;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -11,6 +15,10 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.CodeSource;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -19,10 +27,13 @@ public class AppSettingsService {
     private static final String SETTINGS_FILE = "fm-ai-assistent.properties";
     private static final String SETTINGS_FILE_PROPERTY = "fmaiassistent.settings.file";
     private static final String CURRENCY_KEY = "currency";
+    private static final String PLAYER_VIEWS_KEY = "player.views";
 
     private final Path settingsPath;
+    private final ObjectMapper objectMapper;
 
-    public AppSettingsService() {
+    public AppSettingsService(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
         this.settingsPath = resolveSettingsPath().toAbsolutePath().normalize();
         ensureSettingsFileExists();
     }
@@ -37,8 +48,98 @@ public class AppSettingsService {
         save(properties);
     }
 
+    public List<SavedPlayerView> playerViews() {
+        String json = load().getProperty(PLAYER_VIEWS_KEY, "[]");
+        try {
+            List<SavedPlayerView> views = objectMapper.readValue(json, new TypeReference<>() {
+            });
+            if (views == null || views.isEmpty()) {
+                return List.of();
+            }
+            return views.stream()
+                    .filter(view -> view != null && view.name() != null && !view.name().isBlank())
+                    .map(this::normalizeView)
+                    .sorted(Comparator.comparing(view -> view.name().toLowerCase()))
+                    .toList();
+        } catch (IOException ex) {
+            return List.of();
+        }
+    }
+
+    public void savePlayerView(SavedPlayerView view) {
+        if (view == null || view.name() == null || view.name().isBlank()) {
+            throw new IllegalArgumentException("View name is required");
+        }
+        SavedPlayerView normalized = normalizeView(view);
+        List<SavedPlayerView> views = new ArrayList<>(playerViews());
+        views.removeIf(existing -> existing.name().equalsIgnoreCase(normalized.name()));
+        views.add(normalized);
+        views.sort(Comparator.comparing(item -> item.name().toLowerCase()));
+        writePlayerViews(views);
+    }
+
+    public void deletePlayerView(String name) {
+        if (name == null || name.isBlank()) {
+            return;
+        }
+        List<SavedPlayerView> views = new ArrayList<>(playerViews());
+        boolean removed = views.removeIf(existing -> existing.name().equalsIgnoreCase(name));
+        if (removed) {
+            writePlayerViews(views);
+        }
+    }
+
     public Path settingsPath() {
         return settingsPath;
+    }
+
+    private void writePlayerViews(List<SavedPlayerView> views) {
+        Properties properties = load();
+        try {
+            properties.setProperty(PLAYER_VIEWS_KEY, objectMapper.writeValueAsString(views));
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not serialize player views", ex);
+        }
+        save(properties);
+    }
+
+    private SavedPlayerView normalizeView(SavedPlayerView view) {
+        PlayerFilterCriteria filter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
+        Map<String, Integer> positions = filter.positionMinimums() == null ? Map.of() : Map.copyOf(filter.positionMinimums());
+        Map<String, Integer> attributes = filter.attributeMinimums() == null ? Map.of() : Map.copyOf(filter.attributeMinimums());
+        PlayerFilterCriteria normalizedFilter = new PlayerFilterCriteria(
+                nullToEmpty(filter.name()),
+                nullToEmpty(filter.gender()),
+                nullToEmpty(filter.playingNation()),
+                nullToEmpty(filter.playingCompetition()),
+                nullToEmpty(filter.club()),
+                filter.ageMin(),
+                filter.ageMax(),
+                filter.heightMin(),
+                filter.heightMax(),
+                nullToEmpty(filter.nationality()),
+                filter.currentReputationMin(),
+                filter.currentReputationMax(),
+                filter.homeReputationMin(),
+                filter.homeReputationMax(),
+                filter.worldReputationMin(),
+                filter.worldReputationMax(),
+                filter.caMin(),
+                filter.caMax(),
+                filter.paMin(),
+                filter.paMax(),
+                filter.contractEndDateFrom(),
+                filter.contractEndDateTo(),
+                filter.askingPriceMin(),
+                filter.askingPriceMax(),
+                filter.salaryMax(),
+                positions,
+                attributes);
+        return new SavedPlayerView(view.name().trim(), normalizedFilter, view.showAllColumns());
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private Properties load() {
@@ -74,6 +175,7 @@ public class AppSettingsService {
         }
         Properties properties = new Properties();
         properties.setProperty(CURRENCY_KEY, MoneyCurrency.POUND.propertyValue());
+        properties.setProperty(PLAYER_VIEWS_KEY, "[]");
         save(properties);
     }
 
