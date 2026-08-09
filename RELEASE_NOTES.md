@@ -1,5 +1,16 @@
 # Release Notes
 
+## 0.4.0-SNAPSHOT (unreleased)
+
+### Most important
+
+- New `fm26_moneyball_shortlist` MCP tool: moneyball value signings, sorted by `signing_rating` (0-100) — a composite of CA, age-adjusted PA and transfer value (fee + 3 years of wages vs the market median). Each candidate carries `deal_tier` (excellent/good/average/overpriced), market value, 3-year total cost and the saving vs market.
+
+### Other features
+
+- Upgraded Spring AI 2.0.0-M2 to 2.0.0 (MCP SDK 0.17.1 to 2.0.0) so Antigravity clients requesting MCP protocol 2025-11-25 connect cleanly instead of hanging on version negotiation.
+- MCP instructions now steer value-oriented recruitment (bargains) to `fm26_moneyball_shortlist` and tactical recruitment to `fm26_transfer_shortlist`.
+
 ## 0.3.0
 
 ### Most important

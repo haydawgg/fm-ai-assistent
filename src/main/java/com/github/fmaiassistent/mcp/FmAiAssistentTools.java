@@ -37,6 +37,7 @@ public class FmAiAssistentTools {
     private static final int MAX_SHORTLIST_LIMIT = 30;
     private static final int DEFAULT_REPUTATION_MARGIN = 750;
     private static final int DEFAULT_MIN_POSITION_SCORE = 15;
+    private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
 
     private final PlayerDatabaseService players;
@@ -262,61 +263,30 @@ public class FmAiAssistentTools {
         int shortlistLimit = limit == null ? DEFAULT_SHORTLIST_LIMIT : Math.max(1, Math.min(limit, MAX_SHORTLIST_LIMIT));
         Boolean effectiveTransferAgreed = transferAgreed == null ? Boolean.FALSE : transferAgreed;
 
-        List<ScoredCandidate> candidatePool = new ArrayList<>();
-        for (PlayerEntity player : allPlayers) {
-            if (belongsToClub(player, club.getName())
-                    || !sameGender(player.getGender(), club.getGender())
-                    || !inRange(asInteger(player.getAge()), null, maxAge)
-                    || !inRange(player.getCa(), minCurrentAbility, null)
-                    || !inRange(player.getPa(), minPotentialAbility, null)
-                    || !matchesBoolean(player.getTransferListed(), transferListed)
-                    || !matchesBoolean(player.getListedForLoan(), listedForLoan)
-                    || !matchesBoolean(player.getTransferAgreed(), effectiveTransferAgreed)
-                    || !matchesBoolean(player.getInjured(), injured)) {
-                continue;
-            }
-
-            int candidatePositionScore = positionSpec == null ? bestPositionScore(player) : positionScore(player, positionSpec);
-            if (candidatePositionScore < positionMinimum) {
-                continue;
-            }
-            long askingPrice = value(player.getAskingPrice());
-            boolean priceKnown = askingPrice > 0;
-            boolean freeAgent = blank(player.getClub());
-            if (priceKnown && askingPrice > priceCap) {
-                continue;
-            }
-            if (maxWeeklySalary != null && value(player.getSalaryWeeklyRaw()) > maxWeeklySalary) {
-                continue;
-            }
-
-            ClubEntity sourceClub = clubsByName.get(normalize(player.getClub()));
-            Willingness willingness = willingness(player, club, sourceClub, safeReputationMargin, minimumTime);
-            if (willingness == Willingness.LOW) {
-                continue;
-            }
-
-            RoleFit roleFit = roleFit(player, roleProfile);
-            double score = decisionScore(
-                    player,
-                    candidatePositionScore,
-                    benchmarkCa,
-                    priceKnown,
-                    freeAgent,
-                    priceCap,
-                    wageCeiling,
-                    willingness,
-                    roleFit);
-            candidatePool.add(new ScoredCandidate(
-                    player,
-                    sourceClub,
-                    candidatePositionScore,
-                    roleFit,
-                    willingness,
-                    priceKnown,
-                    freeAgent,
-                    score));
-        }
+        List<Candidate> pool = buildCandidatePool(
+                allPlayers, clubsByName, club, positionSpec, positionMinimum, roleProfile,
+                maxAge, minCurrentAbility, minPotentialAbility, transferListed, listedForLoan,
+                effectiveTransferAgreed, injured, priceCap, maxWeeklySalary, safeReputationMargin, minimumTime);
+        List<ScoredCandidate> candidatePool = new ArrayList<>(pool.stream()
+                .map(candidate -> new ScoredCandidate(
+                        candidate.player(),
+                        candidate.sourceClub(),
+                        candidate.positionScore(),
+                        candidate.roleFit(),
+                        candidate.willingness(),
+                        candidate.priceKnown(),
+                        candidate.freeAgent(),
+                        decisionScore(
+                                candidate.player(),
+                                candidate.positionScore(),
+                                benchmarkCa,
+                                candidate.priceKnown(),
+                                candidate.freeAgent(),
+                                priceCap,
+                                wageCeiling,
+                                candidate.willingness(),
+                                candidate.roleFit())))
+                .toList());
 
         candidatePool.sort(Comparator
                 .comparingDouble(ScoredCandidate::decisionScore).reversed()
@@ -365,6 +335,240 @@ public class FmAiAssistentTools {
         out.put("returned", candidates.size());
         out.put("candidates", candidates);
         out.put("guidance", "Ranked estimates, not guaranteed transfers. asking_price=null means unknown, not free. Call fm26_get_player_details only for finalists needing full attributes.");
+        return out;
+    }
+
+    @Tool(name = "fm26_moneyball_shortlist", description = "Moneyball value tool. Finds the best signings for a club and sorts them by signing_rating (0-100), which combines player quality (half CA, half age-adjusted PA) with transfer value (asking price plus 3 years of wages compared with the market median for comparable players). Each candidate also carries a deal_tier: excellent, good, average or overpriced, used-car style. Call this for cheap signings and value transfers; call fm26_transfer_shortlist when tactical or role fit is the priority.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> moneyballShortlist(
+            @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
+            @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST. Full names also work.") String position,
+            @ToolParam(required = false, description = "Optional FM26 role name for attribute fit, for example Ball-Playing Centre-Back.") String roleName,
+            @ToolParam(required = false, description = "Role phase: In Possession or Out of Possession.") String phase,
+            @ToolParam(required = false, description = "Minimum current ability. Defaults to the squad first-team average CA minus 15 when the squad is known.") Integer minCurrentAbility,
+            @ToolParam(required = false, description = "Minimum potential ability.") Integer minPotentialAbility,
+            @ToolParam(required = false, description = "Maximum player age. No limit when omitted.") Integer maxAge,
+            @ToolParam(required = false, description = "Maximum asking price in pounds. If omitted, uses the club transfer budget.") Long maxAskingPrice,
+            @ToolParam(required = false, description = "Maximum weekly salary in pounds.") Integer maxWeeklySalary,
+            @ToolParam(required = false, description = "Extra player reputation above club reputation considered plausible. Defaults to 750.") Integer reputationMargin,
+            @ToolParam(required = false, description = "Minimum time at current club. ISO-8601 period like P1Y or plain days like 365. Defaults to P1Y.") String minimumTimeAtCurrentClub,
+            @ToolParam(required = false, description = "Transfer-listed filter. true=only listed, false=exclude listed.") Boolean transferListed,
+            @ToolParam(required = false, description = "Loan-listed filter. true=only loan-listed, false=exclude loan-listed.") Boolean listedForLoan,
+            @ToolParam(required = false, description = "Transfer-agreed filter. Defaults to false because agreed players are unavailable.") Boolean transferAgreed,
+            @ToolParam(required = false, description = "Injury filter. false=fit only, true=injured only, omit=both.") Boolean injured,
+            @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
+        ClubEntity club = requireClub(managingClub);
+        PositionSpec positionSpec = resolvePosition(position);
+        if (!blank(roleName) && positionSpec == null) {
+            throw new IllegalArgumentException("position is required when roleName is supplied");
+        }
+        RoleProfile roleProfile = resolveRoleProfile(positionSpec, roleName, phase);
+        int positionMinimum = positionSpec == null ? 1 : DEFAULT_MIN_POSITION_SCORE;
+
+        List<PlayerEntity> allPlayers = allPlayers();
+        MarketValuation market = MarketValuation.build(allPlayers);
+        Map<String, ClubEntity> clubsByName = clubsByName(allClubs());
+        List<PlayerEntity> squad = currentSquad(allPlayers, club.getName());
+        List<PlayerEntity> positionSquad = positionSpec == null ? squad
+                : squad.stream().filter(player -> positionScore(player, positionSpec) >= positionMinimum).toList();
+        int benchmarkCa = firstTeamAverageCa(positionSquad);
+        int qualityFloor = minCurrentAbility == null
+                ? Math.max(0, benchmarkCa - DEFAULT_MONEYBALL_QUALITY_GAP)
+                : minCurrentAbility;
+
+        long budget = Math.max(0L, value(club.getTransferBudget()));
+        int safeReputationMargin = reputationMargin == null ? DEFAULT_REPUTATION_MARGIN : Math.max(0, reputationMargin);
+        Period minimumTime = parsePeriod(minimumTimeAtCurrentClub, Period.ofYears(1));
+        long priceCap = maxAskingPrice == null ? budget : Math.min(Math.max(0L, maxAskingPrice), budget);
+        long wageCeiling = maxWeeklySalary == null
+                ? inferredWeeklyWageCeiling(squad, club)
+                : Math.max(0L, maxWeeklySalary);
+        int shortlistLimit = limit == null ? DEFAULT_SHORTLIST_LIMIT : Math.max(1, Math.min(limit, MAX_SHORTLIST_LIMIT));
+        Boolean effectiveTransferAgreed = transferAgreed == null ? Boolean.FALSE : transferAgreed;
+
+        List<Candidate> pool = buildCandidatePool(
+                allPlayers, clubsByName, club, positionSpec, positionMinimum, roleProfile,
+                maxAge, qualityFloor, minPotentialAbility, transferListed, listedForLoan,
+                effectiveTransferAgreed, injured, priceCap, maxWeeklySalary, safeReputationMargin, minimumTime);
+
+        List<DealCandidate> rated = new ArrayList<>();
+        for (Candidate candidate : pool) {
+            if (!candidate.priceKnown() && !candidate.freeAgent()) {
+                continue;
+            }
+            MarketValuation.Deal deal = market.deal(candidate.player(), candidate.freeAgent() ? 0 : value(candidate.player().getAskingPrice()));
+            if (deal == null) {
+                continue;
+            }
+            double quality = qualityScore(candidate.player());
+            rated.add(new DealCandidate(candidate, deal, quality, MarketValuation.signingRating(quality, deal)));
+        }
+        rated.sort(Comparator
+                        .comparingInt((DealCandidate candidate) -> candidate.signingRating()).reversed()
+                        .thenComparing(Comparator.comparingDouble(
+                                (DealCandidate candidate) -> candidate.deal().score()).reversed())
+                        .thenComparing(Comparator.comparingInt(
+                                (DealCandidate candidate) -> value(candidate.candidate().player().getPa())).reversed())
+                        .thenComparing(Comparator.comparingInt(
+                                (DealCandidate candidate) -> value(candidate.candidate().player().getCa())).reversed())
+                        .thenComparing(candidate -> candidate.candidate().player().getName(),
+                                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (int index = 0; index < Math.min(shortlistLimit, rated.size()); index++) {
+            candidates.add(moneyballMap(index + 1, rated.get(index), benchmarkCa, priceCap, wageCeiling));
+        }
+
+        Map<String, Object> criteria = new LinkedHashMap<>();
+        putIfNotNull(criteria, "position", positionSpec == null ? null : positionSpec.code());
+        putIfNotNull(criteria, "minimum_position_score", positionSpec == null ? null : positionMinimum);
+        putIfNotNull(criteria, "role", blank(roleName) ? null : roleName);
+        putIfNotNull(criteria, "phase", blank(phase) ? null : phase);
+        criteria.put("min_ca", qualityFloor);
+        putIfNotNull(criteria, "min_pa", minPotentialAbility);
+        putIfNotNull(criteria, "max_age", maxAge);
+        criteria.put("max_asking_price", priceCap);
+        criteria.put("weekly_wage_ceiling", wageCeiling);
+        criteria.put("reputation_margin", safeReputationMargin);
+        criteria.put("minimum_time_at_current_club", minimumTime.toString());
+        putIfNotNull(criteria, "transfer_listed", transferListed);
+        putIfNotNull(criteria, "listed_for_loan", listedForLoan);
+        criteria.put("transfer_agreed", effectiveTransferAgreed);
+        putIfNotNull(criteria, "injured", injured);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("club", recruitmentClubMap(club));
+        out.put("criteria", criteria);
+        out.put("market_model", marketModelMap(market));
+        out.put("position_benchmark", positionBenchmark(positionSquad, positionSpec));
+        if (!roleProfile.isEmpty()) {
+            out.put("role_model", roleProfile.toMap());
+        }
+        out.put("candidate_pool_count", pool.size());
+        out.put("deal_rated_count", rated.size());
+        out.put("returned", candidates.size());
+        out.put("candidates", candidates);
+        out.put("sort", "signing_rating descending");
+        out.put("signing_rating_legend", "signing_rating (0-100) = quality_score x value_factor, capped at 100. quality_score blends CA (50%) and age-adjusted PA (50%). value_factor is 1.0 at market price, up to 1.5 for below-market deals and down to 0.3 for overpriced ones.");
+        out.put("deal_tier_legend", "deal_tier compares total cost (fee + 3 years of wages) with the market median for comparable players: excellent = cost below 60% of market, good = 60-80%, average = 80-120%, overpriced = above 120%. deal_score is market_cost divided by total_cost, so above 1 means below market.");
+        out.put("guidance", "Ranked estimates, not guaranteed transfers. Candidates are sorted by signing_rating; deal_tier labels only the value component. asking_price=null means unknown, not free; only players with a known fee or no club are rated. Call fm26_get_player_details only for finalists and fm26_transfer_shortlist when role fit matters more than value.");
+        return out;
+    }
+
+    private static List<Candidate> buildCandidatePool(
+            List<PlayerEntity> allPlayers,
+            Map<String, ClubEntity> clubsByName,
+            ClubEntity managingClub,
+            PositionSpec positionSpec,
+            int positionMinimum,
+            RoleProfile roleProfile,
+            Integer maxAge,
+            Integer minCa,
+            Integer minPa,
+            Boolean transferListed,
+            Boolean listedForLoan,
+            Boolean transferAgreed,
+            Boolean injured,
+            long priceCap,
+            Integer maxWeeklySalary,
+            int reputationMargin,
+            Period minimumTime) {
+        List<Candidate> pool = new ArrayList<>();
+        for (PlayerEntity player : allPlayers) {
+            if (belongsToClub(player, managingClub.getName())
+                    || !sameGender(player.getGender(), managingClub.getGender())
+                    || !inRange(asInteger(player.getAge()), null, maxAge)
+                    || !inRange(player.getCa(), minCa, null)
+                    || !inRange(player.getPa(), minPa, null)
+                    || !matchesBoolean(player.getTransferListed(), transferListed)
+                    || !matchesBoolean(player.getListedForLoan(), listedForLoan)
+                    || !matchesBoolean(player.getTransferAgreed(), transferAgreed)
+                    || !matchesBoolean(player.getInjured(), injured)) {
+                continue;
+            }
+            int candidatePositionScore = positionSpec == null ? bestPositionScore(player) : positionScore(player, positionSpec);
+            if (candidatePositionScore < positionMinimum) {
+                continue;
+            }
+            long askingPrice = value(player.getAskingPrice());
+            boolean priceKnown = askingPrice > 0;
+            boolean freeAgent = blank(player.getClub());
+            if (priceKnown && askingPrice > priceCap) {
+                continue;
+            }
+            if (maxWeeklySalary != null && value(player.getSalaryWeeklyRaw()) > maxWeeklySalary) {
+                continue;
+            }
+            ClubEntity sourceClub = clubsByName.get(normalize(player.getClub()));
+            Willingness willingness = willingness(player, managingClub, sourceClub, reputationMargin, minimumTime);
+            if (willingness == Willingness.LOW) {
+                continue;
+            }
+            pool.add(new Candidate(
+                    player,
+                    sourceClub,
+                    candidatePositionScore,
+                    roleFit(player, roleProfile),
+                    willingness,
+                    priceKnown,
+                    freeAgent));
+        }
+        return pool;
+    }
+
+    private Map<String, Object> moneyballMap(
+            int rank,
+            DealCandidate dealCandidate,
+            int benchmarkCa,
+            long priceCap,
+            long wageCeiling) {
+        Candidate candidate = dealCandidate.candidate();
+        PlayerEntity player = candidate.player();
+        MarketValuation.Deal deal = dealCandidate.deal();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("rank", rank);
+        out.put("signing_rating", dealCandidate.signingRating());
+        out.put("quality_score", Math.round(dealCandidate.qualityScore() * 100));
+        out.put("deal_tier", deal.tier());
+        out.put("deal_score", deal.score());
+        out.put("market_value", deal.market().price());
+        out.put("market_wage_weekly", deal.market().wage());
+        out.put("market_samples", deal.market().samples());
+        out.put("cost_fee", candidate.freeAgent() ? 0 : value(player.getAskingPrice()));
+        out.put("cost_wages_3yr", MarketValuation.CONTRACT_YEARS * MarketValuation.WEEKS_PER_YEAR * value(player.getSalaryWeeklyRaw()));
+        out.put("total_cost_3yr", deal.totalCost());
+        out.put("value_gap", deal.marketCost() - deal.totalCost());
+        out.put("name", player.getName());
+        out.put("age", asInteger(player.getAge()));
+        out.put("nationality", player.getNationality());
+        out.put("club", player.getClub());
+        out.put("position_score", candidate.positionScore());
+        out.put("ca", player.getCa());
+        out.put("pa", player.getPa());
+        out.put("development_upside", effectivePotential(player) - value(player.getCa()));
+        out.put("age_curve", ageCurve(player));
+        out.put("ca_vs_squad_position_avg", value(player.getCa()) - benchmarkCa);
+        if (candidate.roleFit().score() != null) {
+            out.put("role_fit", candidate.roleFit().score());
+            out.put("role_strengths", candidate.roleFit().strengths());
+            out.put("role_gaps", candidate.roleFit().gaps());
+        }
+        out.put("asking_price", candidate.priceKnown() ? player.getAskingPrice() : null);
+        out.put("price_fit", candidate.freeAgent() ? "free_agent" : !candidate.priceKnown() ? "unknown"
+                : value(player.getAskingPrice()) <= priceCap ? "within_budget" : "over_budget");
+        out.put("salary_weekly", player.getSalaryWeeklyRaw());
+        out.put("wage_fit", value(player.getSalaryWeeklyRaw()) <= wageCeiling);
+        out.put("willingness", candidate.willingness().name().toLowerCase(Locale.ROOT));
+        out.put("signals", candidateSignals(candidate, benchmarkCa));
+        return out;
+    }
+
+    private static Map<String, Object> marketModelMap(MarketValuation market) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("priced_players", market.pricedPlayers());
+        out.put("buckets", market.bucketCount());
+        out.put("minimum_samples_per_bucket", MarketValuation.MIN_BUCKET_SAMPLES);
+        out.put("contract_years_for_wage_cost", MarketValuation.CONTRACT_YEARS);
         return out;
     }
 
@@ -654,11 +858,11 @@ public class FmAiAssistentTools {
         out.put("transfer_listed", player.getTransferListed());
         out.put("loan_listed", player.getListedForLoan());
         out.put("injured", player.getInjured());
-        out.put("signals", candidateSignals(candidate, benchmarkCa));
+        out.put("signals", candidateSignals(candidate.asCandidate(), benchmarkCa));
         return out;
     }
 
-    private static List<String> candidateSignals(ScoredCandidate candidate, int benchmarkCa) {
+    private static List<String> candidateSignals(Candidate candidate, int benchmarkCa) {
         PlayerEntity player = candidate.player();
         List<String> signals = new ArrayList<>();
         signals.add(candidate.positionScore() >= 18 ? "natural_position" : "accomplished_position");
@@ -734,6 +938,13 @@ public class FmAiAssistentTools {
         int ca = value(player.getCa());
         int availableGrowth = Math.max(0, value(player.getPa()) - ca);
         return ca + (int) Math.round(availableGrowth * developmentFactor(player));
+    }
+
+    /** 0-1 quality: half current ability, half age-adjusted potential. Young players' PA counts, veterans' CA only. */
+    private static double qualityScore(PlayerEntity player) {
+        double ca = clamp(value(player.getCa()) / 200.0);
+        double upside = clamp(effectivePotential(player) / 200.0);
+        return 0.5 * ca + 0.5 * upside;
     }
 
     private static double developmentFactor(PlayerEntity player) {
@@ -920,7 +1131,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    private static String columnName(FieldDef field) {
+    static String columnName(FieldDef field) {
         String name = field.name();
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < name.length(); i++) {
@@ -1123,6 +1334,23 @@ public class FmAiAssistentTools {
             boolean priceKnown,
             boolean freeAgent,
             double decisionScore) {
+
+        private Candidate asCandidate() {
+            return new Candidate(player, sourceClub, positionScore, roleFit, willingness, priceKnown, freeAgent);
+        }
+    }
+
+    private record Candidate(
+            PlayerEntity player,
+            ClubEntity sourceClub,
+            int positionScore,
+            RoleFit roleFit,
+            Willingness willingness,
+            boolean priceKnown,
+            boolean freeAgent) {
+    }
+
+    private record DealCandidate(Candidate candidate, MarketValuation.Deal deal, double qualityScore, int signingRating) {
     }
 
     private enum Willingness {
