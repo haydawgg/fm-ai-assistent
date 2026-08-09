@@ -16,6 +16,12 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_ABILITY_REL;
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_REPUTATION_REL;
@@ -67,43 +73,89 @@ public class PlayerExporter {
     public ExportResult exportAllPlayers(int pid, int build, Long gamePluginBase) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
-            List<Map<String, Object>> rows = new ArrayList<>();
-            for (long index = 0; index < bounds.count(); index++) {
-                long slotAddress = bounds.start() + index * 8;
-                var recordOpt = reader.qwordOrNull(slotAddress);
-                if (recordOpt.isEmpty()) {
+            long total = bounds.count();
+            int threads = Math.min(Runtime.getRuntime().availableProcessors(), 8);
+            List<Map<String, Object>> rows = Collections.synchronizedList(new ArrayList<>());
+            Map<Long, String> clubNames = new ConcurrentHashMap<>();
+            ExecutorService pool = Executors.newFixedThreadPool(threads);
+            try {
+                long chunk = (total + threads - 1) / threads;
+                List<Future<?>> futures = new ArrayList<>();
+                for (int worker = 0; worker < threads; worker++) {
+                    long from = worker * chunk;
+                    long to = Math.min(total, from + chunk);
+                    futures.add(pool.submit(() -> exportRange(reader, bounds.start(), from, to, clubNames, rows)));
+                }
+                for (Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted while exporting players", e);
+                    } catch (ExecutionException e) {
+                        throw new IOException("Player export failed", e.getCause());
+                    }
+                }
+            } finally {
+                pool.shutdown();
+            }
+            List<Map<String, Object>> sortedRows = new ArrayList<>(rows);
+            LocalDate gameDate = gameDateFinder.find(reader, sortedRows.size(), build, gamePluginBase).orElse(null);
+            applyGameDate(sortedRows, gameDate);
+            sortedRows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
+            return new ExportResult(gameDate == null ? "" : gameDate.toString(), sortedRows);
+        }
+    }
+
+    private void exportRange(
+            ProcessMemoryReader reader,
+            long slotBase,
+            long from,
+            long to,
+            Map<Long, String> clubNames,
+            List<Map<String, Object>> rows) {
+        for (long index = from; index < to; index++) {
+            long slotAddress = slotBase + index * 8;
+            var recordOpt = reader.qwordOrNull(slotAddress);
+            if (recordOpt.isEmpty()) {
+                continue;
+            }
+            long record = recordOpt.get();
+            try {
+                var contractedClubAddress = currentClubAddress(reader, record);
+                var playingClubAddress = playingClubAddress(reader, record);
+                if (playingClubAddress.isEmpty()) {
+                    playingClubAddress = contractedClubAddress;
+                }
+                String contractedClub = clubDisplayName(reader, clubNames, contractedClubAddress);
+                String playingClub = playingClubAddress.isEmpty() ? contractedClub
+                        : clubDisplayName(reader, clubNames, playingClubAddress);
+                if (contractedClub.isBlank() && !playingClub.isBlank() && playingClubAddress.isPresent()) {
+                    contractedClubAddress = playingClubAddress;
+                    contractedClub = playingClub;
+                }
+                Map<String, Object> row = decodeRow(reader, (int) index, record, contractedClub, playingClub, null);
+                contractedClubAddress.ifPresent(value -> row.put("_club_address", value));
+                playingClubAddress.ifPresent(value -> row.put("_playing_club_address", value));
+                int ca = ((Number) row.get("ca")).intValue();
+                int pa = ((Number) row.get("pa")).intValue();
+                if (ca <= 0 || ca > 200 || pa <= 0 || pa > 200) {
                     continue;
                 }
-                long record = recordOpt.get();
-                try {
-                    var contractedClubAddress = currentClubAddress(reader, record);
-                    var playingClubAddress = playingClubAddress(reader, record);
-                    if (playingClubAddress.isEmpty()) {
-                        playingClubAddress = contractedClubAddress;
-                    }
-                    String contractedClub = contractedClubAddress.flatMap(value -> FmMemoryStrings.clubDisplayName(reader, value)).orElse("");
-                    String playingClub = playingClubAddress.flatMap(value -> FmMemoryStrings.clubDisplayName(reader, value)).orElse(contractedClub);
-                    if (contractedClub.isBlank() && !playingClub.isBlank() && playingClubAddress.isPresent()) {
-                        contractedClubAddress = playingClubAddress;
-                        contractedClub = playingClub;
-                    }
-                    Map<String, Object> row = decodeRow(reader, (int) index, record, contractedClub, playingClub, null);
-                    contractedClubAddress.ifPresent(value -> row.put("_club_address", value));
-                    playingClubAddress.ifPresent(value -> row.put("_playing_club_address", value));
-                    int ca = ((Number) row.get("ca")).intValue();
-                    int pa = ((Number) row.get("pa")).intValue();
-                    if (ca <= 0 || ca > 200 || pa <= 0 || pa > 200) {
-                        continue;
-                    }
-                    rows.add(row);
-                } catch (IOException | RuntimeException ignored) {
-                }
+                rows.add(row);
+            } catch (IOException | RuntimeException ignored) {
             }
-            LocalDate gameDate = gameDateFinder.find(reader, rows.size(), build, gamePluginBase).orElse(null);
-            applyGameDate(rows, gameDate);
-            rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
-            return new ExportResult(gameDate == null ? "" : gameDate.toString(), rows);
         }
+    }
+
+    private static String clubDisplayName(
+            ProcessMemoryReader reader,
+            Map<Long, String> cache,
+            java.util.Optional<Long> address) {
+        if (address.isEmpty()) {
+            return "";
+        }
+        return cache.computeIfAbsent(address.get(), value -> FmMemoryStrings.clubDisplayName(reader, value).orElse(""));
     }
 
     public Map<String, Object> decodeRow(ProcessMemoryReader reader, int index, long record, String club, LocalDate gameDate) throws IOException {

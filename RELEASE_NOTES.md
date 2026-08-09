@@ -15,6 +15,7 @@
 - Staff/retired people in the People export are now excluded from transfer and moneyball candidate pools: they carry no position attributes, while real players always do (position-score floor of 5, shared by both tools and the UI).
 - The market model (`MarketValuation`) also excludes staff/retired entries when building comparables, so bucket medians are no longer dragged down by £0-wage, near-zero-price staff rows; the position floor is single-source in `MarketValuation.hasPlayablePosition`.
 - UI polish: the moneyball view honours the Settings currency instead of hardcoding £ (shared `MoneyDisplay` formatter), quick filters expose proper labels to assistive tech, the Load from RAM button now meets WCAG AA contrast, and the moneyball grid prompts "Pick a club" instead of a misleading empty state.
+- Load from RAM is faster: the player memory export reads records in parallel (up to 8 threads) and caches club display names by address (~26s baseline for the full export); the parallel split/merge/filter/sort is covered by `PlayerExporterParallelTest` against a scripted memory stub.
 
 ## 0.3.0
 
