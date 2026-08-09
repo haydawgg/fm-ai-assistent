@@ -39,6 +39,7 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_MIN_POSITION_SCORE = 15;
     private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
     private static final int DEFAULT_MONEYBALL_MAX_AGE = 40;
+    private static final int MIN_PLAYER_POSITION_SCORE = 5;
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
 
     private final PlayerDatabaseService players;
@@ -628,6 +629,9 @@ public class FmAiAssistentTools {
                     || !matchesBoolean(player.getInjured(), injured)) {
                 continue;
             }
+            if (!hasPlayablePosition(player)) {
+                continue;
+            }
             int candidatePositionScore = positionSpec == null ? bestPositionScore(player) : positionScore(player, positionSpec);
             if (candidatePositionScore < positionMinimum) {
                 continue;
@@ -853,6 +857,11 @@ public class FmAiAssistentTools {
     private static int positionScore(PlayerEntity player, PositionSpec position) {
         Object score = player.getColumnValue(position.column());
         return score instanceof Number number ? number.intValue() : 0;
+    }
+
+    /** People-table exports include staff/retired entries with no position attributes; real players always have positions. */
+    static boolean hasPlayablePosition(PlayerEntity player) {
+        return bestPositionScore(player) >= MIN_PLAYER_POSITION_SCORE;
     }
 
     private static int bestPositionScore(PlayerEntity player) {
