@@ -284,6 +284,7 @@ public class MainView extends VerticalLayout {
 
     private void configureQuickFilters() {
         quickName.setPlaceholder("Name");
+        quickName.getElement().setAttribute("aria-label", "Name");
         quickName.setClearButtonVisible(true);
         quickName.setWidth("160px");
         quickName.setValueChangeMode(com.vaadin.flow.data.value.ValueChangeMode.LAZY);
@@ -296,6 +297,7 @@ public class MainView extends VerticalLayout {
         });
 
         quickClub.setPlaceholder("Club");
+        quickClub.getElement().setAttribute("aria-label", "Club");
         quickClub.setClearButtonVisible(true);
         quickClub.setWidth("180px");
         quickClub.addClassName("quick-filter");
@@ -306,6 +308,7 @@ public class MainView extends VerticalLayout {
         });
 
         quickCaMin.setPlaceholder("CA min");
+        quickCaMin.getElement().setAttribute("aria-label", "CA min");
         quickCaMin.setMin(1);
         quickCaMin.setMax(200);
         quickCaMin.setClearButtonVisible(true);
@@ -318,6 +321,7 @@ public class MainView extends VerticalLayout {
         });
 
         quickAgeMax.setPlaceholder("Age max");
+        quickAgeMax.getElement().setAttribute("aria-label", "Age max");
         quickAgeMax.setMin(1);
         quickAgeMax.setMax(80);
         quickAgeMax.setClearButtonVisible(true);
@@ -1889,7 +1893,7 @@ public class MainView extends VerticalLayout {
         }
         MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
         long roundedPounds = roundDisplayedWeeklySalary(pounds);
-        long converted = convertPounds(roundedPounds, selected);
+        long converted = MoneyDisplay.convert(roundedPounds, selected);
         if (selected != MoneyCurrency.POUND) {
             converted = roundDisplayedWeeklySalaryCurrency(converted);
         }
@@ -1901,20 +1905,9 @@ public class MainView extends VerticalLayout {
         if (pounds == null) {
             return "";
         }
-        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
-        long converted = convertPounds(pounds, selected);
-        if (selected != MoneyCurrency.POUND) {
-            converted = roundDisplayedCurrencyAmount(converted);
-        }
-        return selected.symbol() + NumberFormat.getIntegerInstance(Locale.US).format(converted);
+        return MoneyDisplay.format(pounds, currency);
     }
 
-    private static long convertPounds(long pounds, MoneyCurrency selected) {
-        return BigDecimal.valueOf(pounds)
-                .multiply(selected.rateFromPounds())
-                .setScale(0, RoundingMode.HALF_UP)
-                .longValue();
-    }
 
     private static String heightDisplay(PlayerEntity player) {
         Integer cm = player.getHeightCm();
@@ -2355,22 +2348,6 @@ public class MainView extends VerticalLayout {
         return roundToNearest(amount, step);
     }
 
-    private static long roundDisplayedCurrencyAmount(long amount) {
-        long abs = Math.abs(amount);
-        long step;
-        if (abs < 25_000L) {
-            step = 250L;
-        } else if (abs < 100_000L) {
-            step = 1_000L;
-        } else if (abs < 1_000_000L) {
-            step = 25_000L;
-        } else if (abs < 10_000_000L) {
-            step = 1_000_000L;
-        } else {
-            step = 1_000_000L;
-        }
-        return roundToNearest(amount, step);
-    }
 
     private static long roundToNearest(long value, long step) {
         if (value == 0 || step <= 0) {

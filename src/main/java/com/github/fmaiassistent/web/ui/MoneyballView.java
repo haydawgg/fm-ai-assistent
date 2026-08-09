@@ -1,8 +1,10 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballResult;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballRow;
+import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
@@ -25,7 +27,6 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouterLink;
 
-import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -51,18 +52,23 @@ public class MoneyballView extends VerticalLayout {
     private final IntegerField minCa = new IntegerField("Min CA");
     private final IntegerField minPa = new IntegerField("Min PA");
     private final IntegerField maxAge = new IntegerField("Max age");
-    private final IntegerField maxPrice = new IntegerField("Max fee (\u00a3)");
-    private final IntegerField maxWage = new IntegerField("Max wage/wk (\u00a3)");
+    private final IntegerField maxPrice = new IntegerField();
+    private final IntegerField maxWage = new IntegerField();
     private final Button runButton = new Button("Find value", VaadinIcon.DIPLOMA.create());
     private final Span summary = new Span();
     private final Grid<MoneyballRow> grid = new Grid<>();
+    private final MoneyCurrency currency;
 
-    public MoneyballView(FmAiAssistentTools tools, ClubDatabaseService clubs) {
+    public MoneyballView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
+        this.currency = settings.currency();
         setSizeFull();
         setPadding(true);
         setSpacing(true);
         addClassName("moneyball-view");
+
+        maxPrice.setLabel("Max fee (" + currency.symbol() + ")");
+        maxWage.setLabel("Max wage/wk (" + currency.symbol() + ")");
 
         configureGrid();
         add(header(), filterBar(), summary, grid);
@@ -75,7 +81,6 @@ public class MoneyballView extends VerticalLayout {
             return;
         }
         clubFilter.setItems(clubNames(clubs));
-        run();
     }
 
     private Component header() {
@@ -133,7 +138,7 @@ public class MoneyballView extends VerticalLayout {
         grid.setSizeFull();
         grid.addClassName("moneyball-grid");
         grid.setSelectionMode(Grid.SelectionMode.NONE);
-        grid.setEmptyStateText("No candidates match these filters.");
+        grid.setEmptyStateText("Pick a club to see value signings.");
 
         grid.addColumn(MoneyballRow::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(ratingRenderer()).setHeader("Signing")
@@ -194,6 +199,7 @@ public class MoneyballView extends VerticalLayout {
                     value(maxAge),
                     value(maxPrice) == null ? null : value(maxPrice).longValue(),
                     value(maxWage));
+            grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
             summary.setText("Pool " + result.candidatePoolSize() + " \u00b7 rated " + result.ratedCount()
                     + " \u00b7 market model: " + result.pricedPlayers() + " priced players in "
@@ -230,12 +236,12 @@ public class MoneyballView extends VerticalLayout {
         });
     }
 
-    private static ComponentRenderer<Span, MoneyballRow> feeRenderer() {
+    private ComponentRenderer<Span, MoneyballRow> feeRenderer() {
         return new ComponentRenderer<>(row ->
                 new Span(row.freeAgent() ? "Free" : money(row.costFee())));
     }
 
-    private static ComponentRenderer<Span, MoneyballRow> gapRenderer() {
+    private ComponentRenderer<Span, MoneyballRow> gapRenderer() {
         return new ComponentRenderer<>(row -> {
             long gap = row.deal().marketCost() - row.deal().totalCost();
             Span value = new Span((gap >= 0 ? "+" : "\u2212") + money(Math.abs(gap)));
@@ -257,8 +263,8 @@ public class MoneyballView extends VerticalLayout {
         return field.isEmpty() ? null : field.getValue();
     }
 
-    private static String money(long pounds) {
-        return "\u00a3" + NumberFormat.getIntegerInstance(Locale.US).format(pounds);
+    private String money(long pounds) {
+        return MoneyDisplay.format(pounds, currency);
     }
 
     private static String capitalize(String value) {
