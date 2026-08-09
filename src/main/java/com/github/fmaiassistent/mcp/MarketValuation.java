@@ -27,6 +27,8 @@ public final class MarketValuation {
 
     /** Minimum samples before a bucket is used as market evidence. */
     public static final int MIN_BUCKET_SAMPLES = 5;
+    /** Minimum best-position score for a person to count as a player; staff/retired entries have none. */
+    public static final int MIN_PLAYER_POSITION_SCORE = 5;
     /** Contract length used to fold wages into the total cost of a deal. */
     public static final long CONTRACT_YEARS = 3;
     public static final long WEEKS_PER_YEAR = 52;
@@ -95,7 +97,7 @@ public final class MarketValuation {
         Map<Bucket, PriceList> level3 = new HashMap<>();
         int priced = 0;
         for (PlayerEntity player : players) {
-            if (value(player.getAskingPrice()) <= 0) {
+            if (value(player.getAskingPrice()) <= 0 || !hasPlayablePosition(player)) {
                 continue;
             }
             priced++;
@@ -192,6 +194,18 @@ public final class MarketValuation {
     }
 
     /** Index of the player's best position field, or -1 when every position is 0. */
+    /** People-table exports include staff/retired entries with no position attributes; real players always have positions. */
+    public static boolean hasPlayablePosition(PlayerEntity player) {
+        return AttributeDefinitions.POSITION_FIELDS.stream()
+                .map(FmAiAssistentTools::columnName)
+                .map(player::getColumnValue)
+                .filter(Number.class::isInstance)
+                .map(Number.class::cast)
+                .mapToInt(Number::intValue)
+                .max()
+                .orElse(0) >= MIN_PLAYER_POSITION_SCORE;
+    }
+
     public static int bestPositionIndex(PlayerEntity player) {
         List<FieldDef> fields = AttributeDefinitions.POSITION_FIELDS;
         int bestIndex = -1;

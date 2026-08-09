@@ -13,6 +13,7 @@
 - Moneyball view in the web UI (`/moneyball`, linked from the header): pick a managing club and a position, and every value signing appears ranked by `signing_rating` with `deal_tier` badges, market value, fee, 3-year cost and saving vs market in a sortable grid. It shares the exact rating pipeline with the `fm26_moneyball_shortlist` MCP tool (`FmAiAssistentTools.moneyballRows`).
 - Moneyball candidates default to a 40-year age cap (MCP tool and UI alike) so retired/staff entries in the People export no longer top `signing_rating` with "free" £0-wage deals; pass `maxAge` explicitly to override.
 - Staff/retired people in the People export are now excluded from transfer and moneyball candidate pools: they carry no position attributes, while real players always do (position-score floor of 5, shared by both tools and the UI).
+- The market model (`MarketValuation`) also excludes staff/retired entries when building comparables, so bucket medians are no longer dragged down by £0-wage, near-zero-price staff rows; the position floor is single-source in `MarketValuation.hasPlayablePosition`.
 
 ## 0.3.0
 

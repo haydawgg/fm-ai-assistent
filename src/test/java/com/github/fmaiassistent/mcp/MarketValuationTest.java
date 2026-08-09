@@ -163,6 +163,33 @@ class MarketValuationTest {
         return players;
     }
 
+    @Test
+    void excludesStaffFromMarketModel() {
+        List<PlayerEntity> players = new ArrayList<>();
+        for (int index = 0; index < 6; index++) {
+            players.add(player("keeper" + index, 5_000_000L, 20_000, "Market FC", "Goalkeeper", 16));
+        }
+        // Staff-like entry: has an asking price, but no position attributes.
+        players.add(PlayerEntity.fromExportRow(Map.<String, Object>of(
+                "name", "Coach",
+                "ca", 150,
+                "pa", 70,
+                "age", 45,
+                "club", "World",
+                "asking_price", 1_000L,
+                "salary_weekly_raw", 0)));
+
+        MarketValuation market = MarketValuation.build(players);
+        assertEquals(6, market.pricedPlayers());
+
+        MarketValuation.Market keeperMarket = market.marketFor(
+                player("probe", 5_000_000L, 20_000, "Market FC", "Goalkeeper", 16));
+        assertNotNull(keeperMarket);
+        assertEquals(5_000_000L, keeperMarket.price());
+        assertEquals(20_000L, keeperMarket.wage());
+        assertEquals(6, keeperMarket.samples());
+    }
+
     private static PlayerEntity player(String name, long price, int wage, String club) {
         return player(name, price, wage, club, 150);
     }

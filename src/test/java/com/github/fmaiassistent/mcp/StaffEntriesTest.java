@@ -22,7 +22,7 @@ class StaffEntriesTest {
                 "nationality", "World",
                 "salary_weekly_raw", 0,
                 "asking_price", 0));
-        assertFalse(FmAiAssistentTools.hasPlayablePosition(staff));
+        assertFalse(MarketValuation.hasPlayablePosition(staff));
     }
 
     @Test
@@ -36,7 +36,7 @@ class StaffEntriesTest {
                 "nationality", "Peru",
                 "Striker", 16,
                 "MidfielderCentral", 14));
-        assertTrue(FmAiAssistentTools.hasPlayablePosition(player));
+        assertTrue(MarketValuation.hasPlayablePosition(player));
     }
 
     @Test
@@ -48,14 +48,14 @@ class StaffEntriesTest {
                 "age", 25,
                 "club", "",
                 "Goalkeeper", 18));
-        assertTrue(FmAiAssistentTools.hasPlayablePosition(freeAgent));
+        assertTrue(MarketValuation.hasPlayablePosition(freeAgent));
     }
 
     @Test
     void thresholdBoundary() {
         PlayerEntity below = PlayerEntity.fromExportRow(Map.<String, Object>of("name", "low", "Striker", 4));
         PlayerEntity atFloor = PlayerEntity.fromExportRow(Map.<String, Object>of("name", "floor", "Striker", 5));
-        assertFalse(FmAiAssistentTools.hasPlayablePosition(below));
-        assertTrue(FmAiAssistentTools.hasPlayablePosition(atFloor));
+        assertFalse(MarketValuation.hasPlayablePosition(below));
+        assertTrue(MarketValuation.hasPlayablePosition(atFloor));
     }
 }
