@@ -48,6 +48,25 @@ The application starts on:
 http://127.0.0.1:8080
 ```
 
+### Option 3: Run from source (development)
+
+Requirements: JDK 25 and Maven 3.9+ (on Windows use `mvn.cmd`, not the `mvn` shell script).
+
+Build and start:
+
+```bash
+mvn.cmd -DskipTests package
+java -jar target/fm-ai-assistent-0.4.0-SNAPSHOT.jar
+```
+
+Or start directly with Maven:
+
+```bash
+mvn.cmd spring-boot:run
+```
+
+The application starts on http://127.0.0.1:8080. Keep FM26 running with a save loaded, then click "Load from RAM" in the UI before using the MCP tools.
+
 ## Use AI Assistent
 
 Keep FM26 running with your save loaded. Start FM AI Assistent and Load data (not necessary but be wise with your tokens) before using the MCP tools.
