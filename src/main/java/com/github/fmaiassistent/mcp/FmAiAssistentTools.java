@@ -38,6 +38,7 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_REPUTATION_MARGIN = 750;
     private static final int DEFAULT_MIN_POSITION_SCORE = 15;
     private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
+    private static final int DEFAULT_MONEYBALL_MAX_AGE = 40;
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
 
     private final PlayerDatabaseService players;
@@ -347,7 +348,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Role phase: In Possession or Out of Possession.") String phase,
             @ToolParam(required = false, description = "Minimum current ability. Defaults to the squad first-team average CA minus 15 when the squad is known.") Integer minCurrentAbility,
             @ToolParam(required = false, description = "Minimum potential ability.") Integer minPotentialAbility,
-            @ToolParam(required = false, description = "Maximum player age. No limit when omitted.") Integer maxAge,
+            @ToolParam(required = false, description = "Maximum player age. Defaults to 40 when omitted.") Integer maxAge,
             @ToolParam(required = false, description = "Maximum asking price in pounds. If omitted, uses the club transfer budget.") Long maxAskingPrice,
             @ToolParam(required = false, description = "Maximum weekly salary in pounds.") Integer maxWeeklySalary,
             @ToolParam(required = false, description = "Extra player reputation above club reputation considered plausible. Defaults to 750.") Integer reputationMargin,
@@ -530,11 +531,12 @@ public class FmAiAssistentTools {
                 ? inferredWeeklyWageCeiling(squad, club)
                 : Math.max(0L, maxWeeklySalary);
         boolean effectiveTransferAgreed = transferAgreed == null ? Boolean.FALSE : transferAgreed;
+        int effectiveMaxAge = maxAge == null ? DEFAULT_MONEYBALL_MAX_AGE : maxAge;
         return new MoneyballParameters(
                 club, positionSpec, roleProfile, positionMinimum, positionSquad,
                 benchmarkCa, qualityFloor, priceCap, wageCeiling, safeReputationMargin, minimumTime,
                 effectiveTransferAgreed, transferListed, listedForLoan, injured,
-                maxAge, minPotentialAbility, maxWeeklySalary);
+                effectiveMaxAge, minPotentialAbility, maxWeeklySalary);
     }
 
     private static MoneyballRated rateMoneyball(
