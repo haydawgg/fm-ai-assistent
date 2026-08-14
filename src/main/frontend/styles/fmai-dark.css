@@ -337,8 +337,6 @@ vaadin-drawer-toggle.fmai-sidebar-toggle:focus-visible,
 .chat-send:focus-visible,
 .chat-stop:focus-visible,
 .moneyball-run:focus-visible,
-.codex-conversation-button:focus-visible,
-.codex-login-link:focus-visible,
 vaadin-button:focus-visible,
 vaadin-tab:focus-visible {
     outline: 2px solid var(--fmai-accent);
@@ -467,6 +465,9 @@ vaadin-tab:focus-visible {
     .player-drawer,
     .chat-message,
     .chat-typing,
+    .chat-typing-dot,
+    .chat-markdown.chat-streaming::after,
+    .chat-stop[data-busy="true"],
     .filter-chip,
     .empty-state,
     .app-toast {

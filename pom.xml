@@ -22,7 +22,6 @@
         <vaadin.productionMode>true</vaadin.productionMode>
         <spring-ai.version>2.0.0</spring-ai.version>
         <jna.version>5.18.1</jna.version>
-        <copilot-sdk.version>1.0.9</copilot-sdk.version>
         <aircompressor.version>2.0.3</aircompressor.version>
     </properties>
 
@@ -113,11 +112,6 @@
         <dependency>
             <groupId>com.vaadin</groupId>
             <artifactId>vaadin-spring-boot-starter</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.github</groupId>
-            <artifactId>copilot-sdk-java</artifactId>
-            <version>${copilot-sdk.version}</version>
         </dependency>
         <dependency>
             <groupId>io.airlift</groupId>

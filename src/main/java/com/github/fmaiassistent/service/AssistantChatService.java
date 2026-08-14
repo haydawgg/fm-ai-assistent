@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.service;
 
+import com.github.fmaiassistent.ai.AiPromptContext;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -32,14 +33,16 @@ public class AssistantChatService {
 
     private final AppSettingsService settings;
     private final ToolCallbackProvider tools;
+    private final AiPromptContext promptContext;
     private final Object clientLock = new Object();
     private String cachedApiKey;
     private String cachedModel;
     private ChatClient client;
 
-    public AssistantChatService(AppSettingsService settings, ToolCallbackProvider tools) {
+    public AssistantChatService(AppSettingsService settings, ToolCallbackProvider tools, AiPromptContext promptContext) {
         this.settings = settings;
         this.tools = tools;
+        this.promptContext = promptContext;
     }
 
     public boolean configured() {
@@ -53,7 +56,7 @@ public class AssistantChatService {
     public Flux<String> stream(List<ChatTurn> history, String userMessage) {
         if (!configured()) {
             throw new IllegalStateException(
-                    "Set an OpenRouter API key in Settings to use in-app chat, or connect Codex/Claude to http://127.0.0.1:8080/mcp");
+                    "Set an OpenRouter API key in Settings to use in-app chat, or connect an MCP client to http://127.0.0.1:8080/mcp");
         }
         if (userMessage == null || userMessage.isBlank()) {
             return Flux.error(new IllegalArgumentException("Message cannot be empty"));
@@ -62,7 +65,8 @@ public class AssistantChatService {
         synchronized (clientLock) {
             snapshot = chatClient();
         }
-        return snapshot.prompt().messages(promptMessages(history, userMessage)).stream().content();
+        String enriched = promptContext.enrich("openrouter-chat", userMessage);
+        return snapshot.prompt().messages(promptMessages(history, enriched)).stream().content();
     }
 
     static List<Message> promptMessages(List<ChatTurn> history, String userMessage) {

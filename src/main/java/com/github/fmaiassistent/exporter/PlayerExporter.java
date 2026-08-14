@@ -71,17 +71,6 @@ public class PlayerExporter {
 
     private final GameDateFinder gameDateFinder = new GameDateFinder();
 
-    public ExportResult exportClub(int pid, String club, int build, Long gamePluginBase) throws IOException {
-        ExportResult allPlayers = exportAllPlayers(pid, build, gamePluginBase);
-        String target = club.toLowerCase();
-        List<Map<String, Object>> rows = allPlayers.rows().stream()
-                .filter(row -> String.valueOf(row.get("club")).equalsIgnoreCase(target)
-                        || String.valueOf(row.get("playing_club")).equalsIgnoreCase(target))
-                .sorted(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()))
-                .toList();
-        return new ExportResult(allPlayers.gameDate(), rows);
-    }
-
     public ExportResult exportAllPlayers(int pid, int build, Long gamePluginBase) throws IOException {
         return exportAllPlayers(pid, build, gamePluginBase, LoadProgressReporter.NONE);
     }

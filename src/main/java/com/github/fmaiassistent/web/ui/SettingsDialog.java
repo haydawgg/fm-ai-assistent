@@ -46,7 +46,7 @@ final class SettingsDialog {
         apiKey.setWidthFull();
         apiKey.setValue(settings.openRouterApiKey());
         apiKey.setPlaceholder("sk-or-... or leave empty to use MCP only");
-        apiKey.setHelperText("From openrouter.ai/keys. Empty disables in-app chat; Codex/Claude can still use /mcp.");
+        apiKey.setHelperText("From openrouter.ai/keys. Empty disables in-app chat; Claude or another MCP client can still use /mcp.");
 
         ComboBox<String> model = OpenRouterModelPicker.comboBox();
         model.setHelperText("Catalog refreshes from OpenRouter when this dialog opens. Type an id if a model is missing.");

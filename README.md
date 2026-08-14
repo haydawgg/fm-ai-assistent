@@ -2,7 +2,7 @@
 
 FM AI Assistent is an AI assistant companion for Football Manager 26 running on Linux or Windows 11.
 
-It reads FM26 data from RAM and makes the data available to AI assistants through MCP. An AI assistant can use this information to help with buying and selling players, finding profitable young talents, comparing squads, checking club finances, and giving tactical advice based on the players in your save.
+It reads FM26 data from RAM and makes the data available to the in-app chat and to AI clients through MCP. Use it to help with buying and selling players, finding profitable young talents, comparing squads, checking club finances, and giving tactical advice based on the players in your save.
 
 The app also includes a frontend where you can search and filter the data yourself. Pages:
 
@@ -12,9 +12,11 @@ The app also includes a frontend where you can search and filter the data yourse
 - Squad trim (`/squad-trim`) — sell / loan / keep
 - First XI (`/first-xi`) — XI from the live RAM formation or a pasted tactic
 - Compare (`/compare-squads`) — two clubs, best player per position
-- Chat (`/chat`) — optional OpenRouter chat using the same MCP tools
+- Chat (`/chat`) — in-app OpenRouter chat using the same `fm26_*` tools
 
-You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI if you want role-fit scoring.
+You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring.
+
+Display currency is chosen in Settings. RAM snapshots persist in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`.
 
 ## How To Install
 
@@ -64,7 +66,7 @@ The application starts on:
 http://127.0.0.1:8080
 ```
 
-RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. Optional in-app chat uses an OpenRouter key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
+After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. In-app chat uses an OpenRouter key from Settings. You can also connect an MCP client such as Claude Desktop to `/mcp`.
 
 ### Option 3: Run from source (development)
 
@@ -85,196 +87,66 @@ mvn.cmd spring-boot:run
 
 On Windows, double-click `start.bat` in this folder. It opens a terminal, sets `JAVA_HOME`, and runs `mvn.cmd spring-boot:run`.
 
-The application starts on http://127.0.0.1:8080. Keep FM26 running with a save loaded, then click "Load from RAM" in the UI before using the MCP tools.
+The application starts on http://127.0.0.1:8080. Keep FM26 running with a save loaded, then click "Load from RAM" in the UI before using chat or MCP tools.
 
 ## Use AI Assistent
 
 Keep FM26 running with your save loaded. Start FM AI Assistent and click Load from RAM (or call `fm26_load_from_ram`) once; a persisted snapshot is enough until the save changes.
+
+### In-app chat
+
+Open **Chat** (`/chat`). Set an OpenRouter API key in Settings. Chat calls the same `fm26_*` tools as `/mcp`.
+
+On Chat you can also:
+
+- enter the location of a `.fmf` tactic file;
+- upload a `.fmf` tactic file; or
+- optionally select a folder containing an FMF plus extra screenshots/readable exports.
+
+The application reads the FM26 archive catalog, decrypts and decompresses the embedded tactic resource, and converts the tactic name, tactical style, mentality, in-possession roles/duties, and out-of-possession roles/duties into AI-readable text. The `.fmf` file is sufficient: screenshots and Football Manager Resource Archiver are not required. The file is processed locally and is not uploaded to a separate conversion service.
 
 ### MCP tools
 
 Recruitment: `fm26_transfer_shortlist`, `fm26_moneyball_shortlist`, `fm26_wonderkid_shortlist`.
 Squad: `fm26_sell_shortlist`, `fm26_compare_squads`, `fm26_compare_players`, `fm26_best_xi`, `fm26_current_tactic`.
 Lookup: `fm26_status`, `fm26_load_from_ram`, `fm26_find_clubs`, `fm26_find_players`, `fm26_find_competitions`, `fm26_get_club_context`, `fm26_get_player_details`, `fm26_get_role_attributes`.
+Research: `fm26_ram_table_counts` (live offset-table slot counts; not a manager workflow).
+
 Money values are raw pounds. `asking_price=null` means unknown, not free.
 
 For a first XI, call `fm26_current_tactic` then `fm26_best_xi` with `managingClub`. Omit `tacticSlots` to use the RAM formation; pass `position,inPossessionRole,outOfPossessionRole` lines (not `DMC:`) when you want role fit.
 
-### FM26 tactic context
+### Claude or other MCP clients
 
-The **AI assistent** tab has a collapsible **Tactic context** section. You can:
+The HTTP MCP server is `http://127.0.0.1:8080/mcp`. Use the server name `fm-ai-assistent`.
 
-- enter the location of a `.fmf` tactic file;
-- upload a `.fmf` tactic file; or
-- optionally select a folder containing an FMF plus extra screenshots/readable exports.
-
-The application reads the FM26 archive catalog, decrypts and decompresses the embedded tactic resource, and converts the tactic name, tactical style, mentality, in-possession roles/duties, and out-of-possession roles/duties into AI-readable text. The `.fmf` file is sufficient: screenshots and Football Manager Resource Archiver are not required. The resulting context is sent to the selected Codex, Antigravity, or GitHub Copilot conversation. The file is processed locally and is not uploaded to a separate conversion service.
-
-### Embedded Codex chat
-
-The **AI assistent** tab runs the locally installed `codex app-server`. It uses the Codex ChatGPT login and existing MCP configuration; it does not use or store an API key. On first use, select **Sign in with ChatGPT** in the tab and complete the browser flow.
-
-The terminal login command remains an optional alternative. The MCP configuration is still managed by Codex:
-
-```bash
-codex login
-codex mcp add fm-genie26 --url http://127.0.0.1:8080/mcp
-```
-
-Start FM AI Assistent normally, open `http://127.0.0.1:8080`, load the current FM26 save from RAM, and select **AI assistent**. Codex conversations are persisted by Codex and can be resumed from the conversation sidebar.
-
-The executable and workspace can be overridden without credentials:
-
-```properties
-app.codex.executable=codex
-app.codex.working-directory=.
-```
-
-Run `codex login status` and `codex mcp list` if the chat reports an authentication or MCP connectivity problem.
-
-### Embedded Antigravity chat
-
-Select **Antigravity** in the **AI assistent** tab. It runs the locally installed `agy` CLI in headless `stream-json` mode. It reuses Antigravity's Google login, MCP configuration, agent configuration, skills, and global permissions. FM AI Assistent does not read Google credentials or require a Gemini API key.
-
-First authenticate Antigravity normally from a terminal:
-
-```bash
-agy
-```
-
-Complete Google sign-in and approve the workspace if Antigravity asks. Exit Antigravity after authentication.
-
-Register the FM AI Assistent MCP server in Antigravity's user-level MCP configuration file:
-
-```text
-~/.gemini/config/mcp_config.json
-```
-
-The complete configuration is:
+Claude Desktop example:
 
 ```json
 {
   "mcpServers": {
     "fm-ai-assistent": {
-      "serverUrl": "http://127.0.0.1:8080/mcp"
-    }
-  }
-}
-```
-
-Antigravity headless mode cannot open an interactive approval prompt. Add explicit global permission grants for the application's six read-only MCP tools in:
-
-```text
-~/.gemini/antigravity-cli/settings.json
-```
-
-Merge the following entries into the existing `permissions.allow` array rather than replacing existing settings:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "mcp(fm-ai-assistent/fm26_find_clubs)",
-      "mcp(fm-ai-assistent/fm26_find_players)",
-      "mcp(fm-ai-assistent/fm26_get_club_context)",
-      "mcp(fm-ai-assistent/fm26_get_player_details)",
-      "mcp(fm-ai-assistent/fm26_get_role_attributes)",
-      "mcp(fm-ai-assistent/fm26_transfer_shortlist)"
-    ]
-  }
-}
-```
-
-Exact per-tool grants are used instead of `--dangerously-skip-permissions`. They are global Antigravity permissions and therefore apply whenever this MCP server is configured under the name `fm-ai-assistent`.
-
-Start FM AI Assistent before verifying the connection, then inspect the effective global grants without spending model quota:
-
-```bash
-agy -p "/permissions" --output-format json
-```
-
-For an end-to-end check, open the **AI assistent** tab, select **Antigravity**, and ask:
-
-```text
-What agents or FM26 tools are available in my application?
-```
-
-If Antigravity reports that the MCP server is unavailable, confirm that FM AI Assistent is running at `http://127.0.0.1:8080` and that the server name in `mcp_config.json` exactly matches the `fm-ai-assistent` name used by the permission rules.
-
-### Embedded GitHub Copilot chat
-
-Select **GitHub Copilot** in the **AI assistent** tab. The application uses official GitHub Copilot Java SDK `1.0.9`, which owns one persistent local Copilot CLI process. Login credentials, instructions, skills, custom agents, session history, and MCP configuration remain owned by Copilot. FM AI Assistent does not read GitHub credentials or require a model API key.
-
-Install GitHub Copilot CLI and authenticate once:
-
-```bash
-copilot --version
-copilot login
-```
-
-Add FM AI Assistent's local HTTP MCP server to Copilot's normal user configuration:
-
-```bash
-copilot mcp add --transport http fm-ai-assistent http://127.0.0.1:8080/mcp
-copilot mcp list
-```
-
-If `copilot mcp list` already shows `fm-ai-assistent`, do not add it again. Start FM AI Assistent before testing MCP calls. Copilot permission requests appear in Vaadin with **Allow once** and **Deny** actions. Requests from the application's own `fm-ai-assistent` MCP server also offer **Always allow this MCP tool**. This persists an exact tool rule for the current workspace through Copilot's location-scoped permission API; it does not approve other MCP tools, shell commands, or file writes. The integration never uses `--allow-all` or `--yolo`.
-
-Optional runtime settings:
-
-```properties
-app.ai.copilot.enabled=true
-app.ai.copilot.executable=copilot
-app.ai.copilot.working-directory=.
-app.ai.copilot.startup-timeout=30s
-app.ai.copilot.permission-timeout=5m
-# app.ai.copilot.model=
-# app.ai.copilot.reasoning-effort=
-```
-
-For an end-to-end check, load FM26 data, select **GitHub Copilot**, then ask:
-
-```text
-What agents or FM26 tools are available in my application?
-```
-
-The web server binds to `127.0.0.1` by default. Keep this local: Copilot can run tools, access workspace files, and call the application MCP server.
-
-### Codex
-
-Add the MCP server in a terminal:
-
-```bash
-codex mcp add fmaiassistent --url http://127.0.0.1:8080/mcp
-```
-
-Restart Codex or start a new Codex session after adding the MCP.
-
-### Claude
-
-Add it to Claude Desktop config as an HTTP MCP server.
-
-Add:
-
-```json
-{
-  "mcpServers": {
-    "fmaiassistent": {
       "url": "http://127.0.0.1:8080/mcp"
     }
   }
 }
 ```
 
-Restart Claude Desktop after changing the config.
+Restart Claude Desktop after changing the config. The web server binds to `127.0.0.1` by default; keep it local.
 
 ## Use of the app
 - Start Football Manager 26 and load your game.
 - Start fm-ai-assistent
 - Open http://127.0.0.1:8080
 - Load from RAM
-- Use Shortlist / Moneyball / Squad trim / First XI / Compare, or connect an MCP client to `/mcp`
+- Use Shortlist / Moneyball / Squad trim / First XI / Compare, or Chat (OpenRouter), or connect an MCP client to `/mcp`
+
+## Known limits
+
+- Morale, form, appearances, goals and assists are not read from RAM yet.
+- In/out-of-possession roles are not in RAM. Use Chat `.fmf` import or paste roles on First XI.
+- Preferred-move traits are filled only when RAM name vectors match.
+- Staff and retired people without playable positions are excluded from transfer and moneyball pools.
 
 ## AI Examples
 

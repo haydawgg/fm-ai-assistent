@@ -225,17 +225,36 @@
 .chat-typing {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
     min-height: 1.4em;
     padding: 4px 0;
+    animation: none;
+}
+
+.chat-typing-compact {
+    margin-top: 0.35em;
+    min-height: 1.1em;
+}
+
+.chat-typing-label {
+    color: var(--fmai-text-muted);
+    font-size: var(--lumo-font-size-xs);
+    font-weight: 650;
+    letter-spacing: 0.02em;
+}
+
+.chat-typing-dots {
+    display: flex;
+    align-items: center;
+    gap: 5px;
 }
 
 .chat-typing-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--fmai-text-muted);
-    animation: fmai-typing-pulse 1.2s ease-in-out infinite;
+    background: var(--fmai-accent);
+    animation: fmai-typing-bounce 1s ease-in-out infinite;
 }
 
 .chat-typing-dot:nth-child(2) {
@@ -244,6 +263,40 @@
 
 .chat-typing-dot:nth-child(3) {
     animation-delay: 0.3s;
+}
+
+@keyframes fmai-typing-bounce {
+    0%, 100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-4px);
+    }
+}
+
+.chat-markdown.chat-streaming::after {
+    display: inline-block;
+    width: 0.45em;
+    margin-left: 0.12em;
+    color: var(--fmai-accent);
+    animation: fmai-caret-blink 1s steps(1, end) infinite;
+    content: "▍";
+}
+
+@keyframes fmai-caret-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+}
+
+.chat-stop[data-busy="true"] {
+    animation: fmai-stop-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes fmai-stop-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.72; }
 }
 
 .chat-composer {
@@ -300,29 +353,34 @@
     }
 }
 
-/* Shared agent chats (Codex / Copilot / Antigravity) — keep in this file so they
-   stay aligned with ChatView bubbles and composers. */
-vaadin-message-list.codex-messages {
-    background: transparent;
-    color: var(--fmai-text);
+.tactic-context-panel {
+    flex: 0 0 auto;
+    border: 1px solid var(--fmai-border);
+    border-radius: var(--fmai-radius-l);
+    background: var(--fmai-surface);
+    font-size: 13px;
 }
 
-.codex-conversation-button.selected {
-    background: var(--fmai-accent-soft);
-    color: var(--fmai-accent);
+.tactic-context-panel::part(summary) {
+    min-height: 38px;
+    box-sizing: border-box;
+    padding: 7px 16px;
+    color: var(--fmai-text-muted);
     font-weight: 750;
 }
 
-.codex-status[data-state="error"],
-.codex-status[data-state="unavailable"],
-.codex-status[data-state="authentication_required"] {
-    color: var(--fmai-danger);
-    font-weight: 700;
+.tactic-context-panel::part(content) {
+    padding: 0 16px 14px;
 }
 
-.codex-status[data-state="ready"] {
-    color: var(--fmai-accent);
-    font-weight: 700;
+.tactic-context-help,
+.tactic-context-details {
+    color: var(--fmai-muted);
+    font-size: 12px;
+}
+
+.tactic-context-details {
+    white-space: pre-wrap;
 }
 
 .tactic-context-status {
@@ -331,12 +389,60 @@ vaadin-message-list.codex-messages {
     font-weight: 700;
 }
 
+.tactic-context-controls {
+    gap: 8px;
+}
+
+.tactic-context-location {
+    min-width: 220px;
+}
+
+.tactic-context-upload {
+    min-width: max-content;
+}
+
+.tactic-context-preview-details {
+    width: 100%;
+    border: 1px solid var(--fmai-border);
+    font-size: 12px;
+}
+
+.tactic-context-preview {
+    max-height: 280px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    background: var(--fmai-surface-elevated);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+}
+
 .chat-send,
-.chat-stop,
-.codex-input-actions vaadin-button {
+.chat-stop {
     min-width: 6.5em;
 }
 
-.codex-chat-header {
-    flex-wrap: wrap;
+@media (max-width: 620px) {
+    .tactic-context-panel::part(summary),
+    .tactic-context-panel::part(content) {
+        padding-right: 10px;
+        padding-left: 10px;
+    }
+
+    .tactic-context-controls {
+        flex-wrap: wrap;
+    }
+
+    .tactic-context-location {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-typing-dot,
+    .chat-markdown.chat-streaming::after,
+    .chat-stop[data-busy="true"] {
+        animation: none;
+    }
 }

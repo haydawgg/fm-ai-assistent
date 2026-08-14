@@ -4,10 +4,6 @@ import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.CompetitionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.service.*;
-import com.github.fmaiassistent.codex.CodexConversationService;
-import com.github.fmaiassistent.antigravity.AntigravityConversationService;
-import com.github.fmaiassistent.copilot.CopilotConversationService;
-import com.github.fmaiassistent.tactic.TacticContextService;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.repository.*;
 import com.github.fmaiassistent.player.AttributeDefinitions;
@@ -115,12 +111,10 @@ public class MainView extends VerticalLayout {
     private final Grid<PlayerEntity> playersGrid = new Grid<>();
     private final Grid<ClubEntity> clubsGrid = new Grid<>();
     private final Grid<CompetitionEntity> competitionsGrid = new Grid<>();
-    private final AiAssistantView aiAssistant;
 
     private final Tab playersTab = new Tab("Players");
     private final Tab clubsTab = new Tab("Clubs");
     private final Tab competitionsTab = new Tab("Competitions");
-    private final Tab aiAssistantTab = new Tab("AI assistent");
     private final TextField quickName = new TextField();
     private final ComboBox<String> quickClub = new ComboBox<>();
     private final IntegerField quickCaMin = new IntegerField();
@@ -143,19 +137,13 @@ public class MainView extends VerticalLayout {
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
             AppSettingsService settings,
-            OpenRouterModelCatalog openRouterModels,
-            CodexConversationService codexConversations,
-            AntigravityConversationService antigravityConversations,
-            CopilotConversationService copilotConversations,
-            TacticContextService tacticContexts) {
+            OpenRouterModelCatalog openRouterModels) {
         this.ramLoad = ramLoad;
         this.players = players;
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
         this.openRouterModels = openRouterModels;
-        this.aiAssistant = new AiAssistantView(
-                codexConversations, antigravityConversations, copilotConversations, tacticContexts);
         this.currency = settings.currency();
 
         setSizeFull();
@@ -261,13 +249,12 @@ public class MainView extends VerticalLayout {
     }
 
     private void configureTabs() {
-        tabs.add(playersTab, clubsTab, competitionsTab, aiAssistantTab);
+        tabs.add(playersTab, clubsTab, competitionsTab);
         tabs.setWidthFull();
         tabs.addClassName("workspace-tabs");
         playersTab.addComponentAsFirst(VaadinIcon.USERS.create());
         clubsTab.addComponentAsFirst(VaadinIcon.OFFICE.create());
         competitionsTab.addComponentAsFirst(VaadinIcon.TROPHY.create());
-        aiAssistantTab.addComponentAsFirst(VaadinIcon.CHAT.create());
         tabs.addSelectedChangeListener(event -> {
             boolean playersSelected = event.getSelectedTab() == playersTab;
             columnsButton.setVisible(playersSelected);
@@ -285,10 +272,8 @@ public class MainView extends VerticalLayout {
                 showPlayers();
             } else if (event.getSelectedTab() == clubsTab) {
                 showClubs();
-            } else if (event.getSelectedTab() == competitionsTab) {
-                showCompetitions();
             } else {
-                showAiAssistant();
+                showCompetitions();
             }
         });
     }
@@ -488,18 +473,9 @@ public class MainView extends VerticalLayout {
             showPlayers();
         } else if (tabs.getSelectedTab() == clubsTab) {
             showClubs();
-        } else if (tabs.getSelectedTab() == competitionsTab) {
-            showCompetitions();
         } else {
-            showAiAssistant();
+            showCompetitions();
         }
-    }
-
-    private void showAiAssistant() {
-        content.removeAll();
-        content.removeClassName("data-workspace");
-        content.setSizeFull();
-        content.add(aiAssistant);
     }
 
     private void showPlayers() {
@@ -544,11 +520,6 @@ public class MainView extends VerticalLayout {
                 new PlayerColumn("INJURY_FULL_TRAINING_DAYS_REMAINING", "Full Training Days", PlayerEntity::getInjuryFullTrainingDaysRemaining),
                 new PlayerColumn("INJURY_EXPECTED_RETURN", "Expected Return", PlayerEntity::getInjuryExpectedReturn),
                 new PlayerColumn("TRAITS", "Traits", PlayerEntity::getTraits),
-                new PlayerColumn("MORALE", "Morale", PlayerEntity::getMorale),
-                new PlayerColumn("FORM", "Form", PlayerEntity::getForm),
-                new PlayerColumn("APPEARANCES", "Apps", PlayerEntity::getAppearances),
-                new PlayerColumn("GOALS", "Goals", PlayerEntity::getGoals),
-                new PlayerColumn("ASSISTS", "Assists", PlayerEntity::getAssists),
                 new PlayerColumn("CURRENT_REPUTATION", "Current Reputation", PlayerEntity::getCurrentReputation),
                 new PlayerColumn("HOME_REPUTATION", "Home Reputation", PlayerEntity::getHomeReputation),
                 new PlayerColumn("WORLD_REPUTATION", "World Reputation", PlayerEntity::getWorldReputation));
@@ -1200,6 +1171,8 @@ public class MainView extends VerticalLayout {
 
         Div summary = playerSummary(player);
         summary.addClassName("drawer-summary");
+        Span ramLimit = new Span("Morale, form and match stats are not read from RAM yet.");
+        ramLimit.addClassName("drawer-nav-hint");
 
         VerticalLayout info = new VerticalLayout(
                 detailSection("Profile", List.of(
@@ -1209,10 +1182,7 @@ public class MainView extends VerticalLayout {
                         new DetailField("Position", PositionTextFormatter.format(player)),
                         new DetailField("Club", player.getClub()),
                         new DetailField("Playing Club", player.getPlayingClub()),
-                        new DetailField("Traits", player.getTraits()),
-                        new DetailField("Morale", player.getMorale()),
-                        new DetailField("Form", player.getForm()),
-                        new DetailField("Apps / Goals / Assists", appsGoalsAssists(player)))),
+                        new DetailField("Traits", player.getTraits()))),
                 detailSection("Contract", List.of(
                         new DetailField("Salary Weekly", salaryWeeklyDisplay(player.getSalaryWeeklyRaw())),
                         new DetailField("Asking Price", moneyDisplay(player.getAskingPrice())),
@@ -1284,7 +1254,7 @@ public class MainView extends VerticalLayout {
             }
         });
 
-        Div drawer = new Div(header, navHint, summary, detailTabs, detailContent);
+        Div drawer = new Div(header, navHint, summary, ramLimit, detailTabs, detailContent);
         drawer.addClassName("player-drawer");
         return drawer;
     }
@@ -1979,13 +1949,6 @@ public class MainView extends VerticalLayout {
         }
         int totalInches = (int) Math.round(cm / 2.54);
         return cm + " cm (" + (totalInches / 12) + "'" + (totalInches % 12) + "\")";
-    }
-
-    private static String appsGoalsAssists(PlayerEntity player) {
-        if (player.getAppearances() == null && player.getGoals() == null && player.getAssists() == null) {
-            return "";
-        }
-        return display(player.getAppearances()) + " / " + display(player.getGoals()) + " / " + display(player.getAssists());
     }
 
     private static FormLayout detailLayout(List<DetailField> fields) {

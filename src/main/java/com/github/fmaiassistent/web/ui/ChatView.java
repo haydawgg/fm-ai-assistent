@@ -4,6 +4,7 @@ import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.AssistantChatService;
 import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.github.fmaiassistent.tactic.TacticContextService;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.DetachEvent;
@@ -44,12 +45,12 @@ import java.util.concurrent.atomic.AtomicLong;
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 public class ChatView extends VerticalLayout {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
-    private static final long STREAM_PAINT_NANOS = 80_000_000L;
+    private static final long STREAM_PAINT_NANOS = 32_000_000L;
     private static final List<String> STARTERS = List.of(
             "Build my best XI from the live formation",
             "Find affordable wonderkids for my club",
             "Who should I sell or loan out?",
-            "Compare my squad with the league's best");
+            "Compare my squad with another named club");
 
     private final AssistantChatService chat;
     private final AppSettingsService settings;
@@ -78,7 +79,8 @@ public class ChatView extends VerticalLayout {
             AssistantChatService chat,
             AppSettingsService settings,
             OpenRouterModelCatalog catalog,
-            PlayerDatabaseService players) {
+            PlayerDatabaseService players,
+            TacticContextService tacticContexts) {
         this.chat = chat;
         this.settings = settings;
         this.catalog = catalog;
@@ -97,7 +99,7 @@ public class ChatView extends VerticalLayout {
         buildUnconfigured();
         transcript.add(unconfigured, welcome);
 
-        add(toolbar(), transcript, composer());
+        add(toolbar(), new TacticContextPanel(tacticContexts), transcript, composer());
         setFlexGrow(1, transcript);
         OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), true, modelLabels);
         refreshSnapshot();
@@ -173,7 +175,7 @@ public class ChatView extends VerticalLayout {
     private void buildWelcome() {
         welcome.addClassName("chat-welcome");
         H3 title = new H3("What are we solving today?");
-        Span copy = new Span("Ask naturally. I can inspect the loaded FM snapshot and use the same recruitment and squad tools as your MCP assistant.");
+        Span copy = new Span("Ask naturally. I inspect the loaded FM snapshot with the same recruitment and squad tools as /mcp. Upload an .fmf below for role-fit context.");
         copy.addClassName("chat-welcome-copy");
         Span tip = new Span("Every answer is grounded in your latest saved snapshot. Mention a budget, position, or club to make recommendations sharper.");
         tip.addClassName("chat-welcome-tip");
@@ -272,6 +274,7 @@ public class ChatView extends VerticalLayout {
         send.setVisible(!streaming);
         stop.setVisible(streaming);
         stop.setEnabled(streaming);
+        stop.getElement().setAttribute("data-busy", streaming);
         model.setEnabled(!streaming);
         clear.setEnabled(!streaming);
         starters.getChildren().forEach(child -> {
@@ -314,13 +317,14 @@ public class ChatView extends VerticalLayout {
                 .subscribe(
                         token -> access(ui, () -> {
                             response.append(token);
+                            turn.buffer(response.toString());
                             if (first.compareAndSet(true, false)) {
                                 turn.showContent();
                             }
                             long now = System.nanoTime();
                             if (now - lastPaint.get() >= STREAM_PAINT_NANOS) {
                                 lastPaint.set(now);
-                                turn.setMarkdown(response.toString());
+                                turn.paint();
                                 scrollToLatest();
                             }
                         }),
@@ -333,6 +337,7 @@ public class ChatView extends VerticalLayout {
                             }
                             rememberAssistant(response.toString());
                             turn.setError("I couldn't complete that request. " + safeMessage(error));
+                            turn.finishStreaming();
                             finishStream();
                         }),
                         () -> access(ui, () -> {
@@ -344,6 +349,7 @@ public class ChatView extends VerticalLayout {
                             }
                             turn.setMarkdown(response.toString());
                             rememberAssistant(response.toString());
+                            turn.finishStreaming();
                             finishStream();
                             scrollToLatest();
                         }));
@@ -387,8 +393,10 @@ public class ChatView extends VerticalLayout {
                 turn.showContent();
                 turn.setMarkdown("Stopped.");
             } else {
+                turn.paint();
                 rememberAssistant(turn.rawText());
             }
+            turn.finishStreaming();
         }
         finishStream();
     }
@@ -431,6 +439,7 @@ public class ChatView extends VerticalLayout {
     private static final class AssistantTurn {
         private final Div root = new Div();
         private final Div typing = new Div();
+        private final Span typingLabel = new Span("Thinking");
         private final Markdown body = new Markdown("");
         private final Button copy = new Button(VaadinIcon.COPY.create());
         private String raw = "";
@@ -464,10 +473,15 @@ public class ChatView extends VerticalLayout {
             heading.addClassName("chat-message-heading");
 
             typing.addClassName("chat-typing");
-            typing.add(dot(), dot(), dot());
-            typing.getElement().setAttribute("aria-label", "AI is thinking");
+            typingLabel.addClassName("chat-typing-label");
+            Div dots = new Div(dot(), dot(), dot());
+            dots.addClassName("chat-typing-dots");
+            typing.add(dots, typingLabel);
+            typing.getElement().setAttribute("aria-live", "polite");
+            typing.getElement().setAttribute("aria-label", "Thinking");
 
             body.addClassName("chat-markdown");
+            body.addClassName("chat-streaming");
             body.setVisible(false);
             root.add(heading, typing, body);
         }
@@ -484,9 +498,16 @@ public class ChatView extends VerticalLayout {
 
         private void showContent() {
             contentVisible = true;
-            typing.setVisible(false);
+            typing.addClassName("chat-typing-compact");
+            typingLabel.setText("Writing");
+            typing.getElement().setAttribute("aria-label", "Writing");
             body.setVisible(true);
             copy.setVisible(true);
+        }
+
+        private void finishStreaming() {
+            typing.setVisible(false);
+            body.removeClassName("chat-streaming");
         }
 
         private boolean hasContent() {
@@ -498,7 +519,15 @@ public class ChatView extends VerticalLayout {
         }
 
         private void setMarkdown(String markdown) {
+            buffer(markdown);
+            paint();
+        }
+
+        private void buffer(String markdown) {
             raw = markdown == null ? "" : markdown;
+        }
+
+        private void paint() {
             body.setContent(sanitizeMarkdown(raw));
         }
 
@@ -507,6 +536,7 @@ public class ChatView extends VerticalLayout {
             raw = message == null ? "" : message;
             body.setContent(sanitizeMarkdown(raw));
             body.addClassName("chat-error");
+            finishStreaming();
         }
     }
 }

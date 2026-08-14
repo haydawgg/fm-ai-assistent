@@ -159,7 +159,7 @@ final class TacticContextPanel extends Details {
     private void refresh(TacticContext context) {
         if (!context.active()) {
             setSummaryText("Tactic context · none");
-            status.setText("No tactic context is sent to the AI agent.");
+            status.setText("No tactic context is sent with chat messages.");
             details.setText("");
             preview.setText("");
             previewDetails.setVisible(false);
@@ -167,7 +167,7 @@ final class TacticContextPanel extends Details {
             return;
         }
         setSummaryText("Tactic context · " + context.title());
-        status.setText("Active for Codex, Antigravity and GitHub Copilot");
+        status.setText("Active for in-app chat");
         String imported = "Files: " + String.join(", ", context.importedFiles());
         if (!context.warnings().isEmpty()) {
             imported += "\nNotes: " + String.join(" · ", context.warnings());
