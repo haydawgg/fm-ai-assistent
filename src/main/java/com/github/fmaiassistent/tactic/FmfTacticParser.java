@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 class FmfTacticParser {
@@ -35,15 +36,45 @@ class FmfTacticParser {
                 -1, "FMF archive index");
         CatalogDirectory root = parseCatalog(catalog);
         List<CatalogFile> resources = root.allFiles();
-        CatalogFile tacticResource = resources.stream()
-                .filter(file -> ".tac".equalsIgnoreCase(file.extension()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("The FMF archive contains no tactic resource"));
+        CatalogFile tacticResource = selectTacticResource(resources, root.name());
 
         byte[] tacticBytes = extractResource(archive, tacticResource);
         Fm26TacticDecoder.DecodedTactic tactic = tacticDecoder.decode(tacticBytes);
         List<String> names = resources.stream().map(CatalogFile::fileName).toList();
         return new FmfMetadata(root.name(), names, tactic);
+    }
+
+    static CatalogFile selectTacticResource(List<CatalogFile> resources, String rootName) {
+        List<CatalogFile> tactics = resources.stream()
+                .filter(file -> ".tac".equalsIgnoreCase(file.extension()))
+                .toList();
+        if (tactics.isEmpty()) {
+            throw new IllegalArgumentException("The FMF archive contains no tactic resource");
+        }
+        if (tactics.size() == 1) {
+            return tactics.getFirst();
+        }
+        List<CatalogFile> named = tactics.stream()
+                .filter(file -> rootName != null && rootName.equalsIgnoreCase(file.baseName()))
+                .toList();
+        if (named.size() == 1) {
+            return named.getFirst();
+        }
+        if (named.size() > 1) {
+            throw ambiguousTactics(named);
+        }
+        List<CatalogFile> atRoot = tactics.stream()
+                .filter(file -> file.directory() == null || file.directory().isBlank())
+                .toList();
+        if (atRoot.size() == 1) {
+            return atRoot.getFirst();
+        }
+        throw ambiguousTactics(atRoot.size() > 1 ? atRoot : tactics);
+    }
+
+    private static IllegalArgumentException ambiguousTactics(List<CatalogFile> tactics) {
+        String names = tactics.stream().map(CatalogFile::fileName).collect(Collectors.joining(", "));
+        return new IllegalArgumentException("The FMF archive contains multiple tactic resources: " + names);
     }
 
     private static int catalogOffset(byte[] archive) {

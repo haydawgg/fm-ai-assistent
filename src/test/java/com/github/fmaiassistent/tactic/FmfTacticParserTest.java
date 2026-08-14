@@ -46,8 +46,128 @@ class FmfTacticParserTest {
                 .hasMessageContaining("not a supported");
     }
 
+    @Test
+    void prefersRootTacticMatchingArchiveNameOverNestedDecoy() {
+        var metadata = parser.parse(fmfNamedRootWithNestedDecoy("4-2-4-press", "decoy"));
+
+        assertThat(metadata.tactic().name()).isEqualTo("4-2-4-press");
+        assertThat(metadata.resources()).containsExactly("4-2-4-press.tac", "extras/decoy.tac");
+    }
+
+    @Test
+    void prefersNamedTacticEvenWhenADecoyAppearsFirst() {
+        var metadata = parser.parse(fmfDecoyFirstThenNamedNested("4-2-4-press", "decoy"));
+
+        assertThat(metadata.tactic().name()).isEqualTo("4-2-4-press");
+        assertThat(metadata.resources()).containsExactly("decoy.tac", "extras/4-2-4-press.tac");
+    }
+
+    @Test
+    void rejectsAmbiguousUnmatchedTactics() {
+        assertThatThrownBy(() -> parser.parse(fmfTwoRootTactics("bundle", "alpha", "bravo")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("multiple tactic resources")
+                .hasMessageContaining("alpha.tac")
+                .hasMessageContaining("bravo.tac");
+    }
+
     static byte[] fmf(String name) {
-        byte[] tactic = tactic(name);
+        EncryptedResource resource = encryptResource(tactic(name));
+        ByteArrayOutputStream catalog = new ByteArrayOutputStream();
+        string(catalog, name);
+        writeFile(catalog, name, ".tac", 0, resource.stored().length, resource.rawLength());
+        integer(catalog, 0);
+        return archive(resource.stored(), catalog.toByteArray());
+    }
+
+    static byte[] fmfNamedRootWithNestedDecoy(String name, String decoyName) {
+        EncryptedResource matching = encryptResource(tactic(name));
+        EncryptedResource decoy = encryptResource(tactic(decoyName));
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        data.writeBytes(matching.stored());
+        data.writeBytes(decoy.stored());
+        ByteArrayOutputStream catalog = new ByteArrayOutputStream();
+        string(catalog, name);
+        writeFile(catalog, name, ".tac", 0, matching.stored().length, matching.rawLength());
+        integer(catalog, 1);
+        string(catalog, "extras");
+        writeFile(catalog, decoyName, ".tac", matching.stored().length, decoy.stored().length, decoy.rawLength());
+        integer(catalog, 0);
+        return archive(data.toByteArray(), catalog.toByteArray());
+    }
+
+    static byte[] fmfDecoyFirstThenNamedNested(String name, String decoyName) {
+        EncryptedResource decoy = encryptResource(tactic(decoyName));
+        EncryptedResource matching = encryptResource(tactic(name));
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        data.writeBytes(decoy.stored());
+        data.writeBytes(matching.stored());
+        ByteArrayOutputStream catalog = new ByteArrayOutputStream();
+        string(catalog, name);
+        writeFile(catalog, decoyName, ".tac", 0, decoy.stored().length, decoy.rawLength());
+        integer(catalog, 1);
+        string(catalog, "extras");
+        writeFile(catalog, name, ".tac", decoy.stored().length, matching.stored().length, matching.rawLength());
+        integer(catalog, 0);
+        return archive(data.toByteArray(), catalog.toByteArray());
+    }
+
+    static byte[] fmfTwoRootTactics(String rootName, String first, String second) {
+        EncryptedResource left = encryptResource(tactic(first));
+        EncryptedResource right = encryptResource(tactic(second));
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        data.writeBytes(left.stored());
+        data.writeBytes(right.stored());
+        ByteArrayOutputStream catalog = new ByteArrayOutputStream();
+        string(catalog, rootName);
+        integer(catalog, 2);
+        catalogFile(catalog, first, ".tac", 0, left.stored().length, left.rawLength());
+        catalogFile(catalog, second, ".tac", left.stored().length, right.stored().length, right.rawLength());
+        integer(catalog, 0);
+        return archive(data.toByteArray(), catalog.toByteArray());
+    }
+
+    private static void writeFile(
+            ByteArrayOutputStream catalog,
+            String baseName,
+            String extension,
+            long offset,
+            long storedLength,
+            long rawLength) {
+        integer(catalog, 1);
+        catalogFile(catalog, baseName, extension, offset, storedLength, rawLength);
+    }
+
+    private static void catalogFile(
+            ByteArrayOutputStream catalog,
+            String baseName,
+            String extension,
+            long offset,
+            long storedLength,
+            long rawLength) {
+        string(catalog, baseName);
+        string(catalog, extension);
+        longValue(catalog, offset);
+        longValue(catalog, storedLength);
+        longValue(catalog, rawLength);
+        catalog.writeBytes(new byte[16]);
+    }
+
+    private static byte[] archive(byte[] data, byte[] catalog) {
+        byte[] compressedCatalog = compress(catalog);
+        int catalogOffset = 26 + data.length;
+        byte[] header = new byte[26];
+        System.arraycopy(new byte[]{2, 1, 'a', 'f', 'e', '.', 8, 0, 0}, 0, header, 0, 9);
+        putLong(header, 9, catalogOffset - 9L);
+        ByteArrayOutputStream archive = new ByteArrayOutputStream();
+        archive.writeBytes(header);
+        archive.writeBytes(data);
+        archive.writeBytes(new byte[]{2, 1, 'f', 'm', 'f', '.', 8, 0, 0});
+        archive.writeBytes(compressedCatalog);
+        return archive.toByteArray();
+    }
+
+    private static EncryptedResource encryptResource(byte[] tactic) {
         byte[] compressedTactic = compress(tactic);
         byte[] key = new byte[]{
                 1, 2, 3, 4, 5, 6, 7, 8,
@@ -62,30 +182,10 @@ class FmfTacticParserTest {
         resource.writeBytes(key);
         resource.writeBytes(iv);
         resource.writeBytes(ciphertext);
+        return new EncryptedResource(resource.toByteArray(), tactic.length);
+    }
 
-        ByteArrayOutputStream catalog = new ByteArrayOutputStream();
-        string(catalog, name);
-        integer(catalog, 1);
-        string(catalog, name);
-        string(catalog, ".tac");
-        longValue(catalog, 0);
-        longValue(catalog, resource.size());
-        longValue(catalog, tactic.length);
-        catalog.writeBytes(new byte[16]);
-        integer(catalog, 0);
-        byte[] compressedCatalog = compress(catalog.toByteArray());
-
-        int catalogOffset = 26 + resource.size();
-        byte[] header = new byte[26];
-        System.arraycopy(new byte[]{2, 1, 'a', 'f', 'e', '.', 8, 0, 0}, 0, header, 0, 9);
-        putLong(header, 9, catalogOffset - 9L);
-
-        ByteArrayOutputStream archive = new ByteArrayOutputStream();
-        archive.writeBytes(header);
-        archive.writeBytes(resource.toByteArray());
-        archive.writeBytes(new byte[]{2, 1, 'f', 'm', 'f', '.', 8, 0, 0});
-        archive.writeBytes(compressedCatalog);
-        return archive.toByteArray();
+    private record EncryptedResource(byte[] stored, long rawLength) {
     }
 
     static byte[] tactic(String name) {

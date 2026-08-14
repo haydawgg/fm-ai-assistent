@@ -67,7 +67,8 @@ public class TacticContextService implements AiPromptContext {
         for (Path path : paths) {
             try {
                 validateSize(path, Files.size(path));
-                files.put(path.getFileName().toString(), new SourceFile(path.getFileName().toString(), path, null));
+                String key = sourceKey(requested, path);
+                files.put(key, new SourceFile(key, path, null));
             } catch (IOException exception) {
                 throw new IllegalArgumentException("Could not read " + path, exception);
             }
@@ -218,17 +219,40 @@ public class TacticContextService implements AiPromptContext {
                                 || name.contains("tactic")
                                 || name.contains("possession");
                     })
-                    .limit(100)
-                    .sorted(Comparator.comparing(Path::toString))
                     .toList();
-            long fmfCount = candidates.stream().filter(path -> ".fmf".equals(extension(path.toString()))).count();
-            if (fmfCount > 1) {
-                throw new IllegalArgumentException("This folder contains multiple FMF files; select the tactic FMF directly");
-            }
-            return candidates;
+            return capDiscoveredFiles(candidates);
         } catch (IOException exception) {
             throw new IllegalArgumentException("Could not inspect tactic folder " + directory, exception);
         }
+    }
+
+    static List<Path> capDiscoveredFiles(List<Path> candidates) {
+        List<Path> fmfs = candidates.stream()
+                .filter(path -> ".fmf".equals(extension(path.toString())))
+                .sorted(Comparator.comparing(Path::toString))
+                .toList();
+        if (fmfs.size() > 1) {
+            throw new IllegalArgumentException("This folder contains multiple FMF files; select the tactic FMF directly");
+        }
+        int remaining = Math.max(0, 100 - fmfs.size());
+        List<Path> others = candidates.stream()
+                .filter(path -> !".fmf".equals(extension(path.toString())))
+                .sorted(Comparator.comparing(Path::toString))
+                .limit(remaining)
+                .toList();
+        List<Path> selected = new ArrayList<>(fmfs.size() + others.size());
+        selected.addAll(fmfs);
+        selected.addAll(others);
+        return selected;
+    }
+
+    static String sourceKey(Path requested, Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        if (Files.isDirectory(requested)) {
+            Path relative = requested.toAbsolutePath().normalize().relativize(absolute);
+            return relative.toString().replace('\\', '/');
+        }
+        return absolute.getFileName().toString();
     }
 
     private void validateSize(Path path, long size) {

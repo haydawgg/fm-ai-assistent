@@ -84,9 +84,17 @@ public final class Positions {
     }
 
     public static int score(PlayerEntity player, String position) {
-        String column = column(position);
-        Object value = player.getColumnValue(column);
-        return value instanceof Number number ? number.intValue() : 0;
+        try {
+            String canonical = canonicalCode(position);
+            if (canonical == null) {
+                return 0;
+            }
+            String column = column(canonical);
+            Object value = player.getColumnValue(column);
+            return value instanceof Number number ? number.intValue() : 0;
+        } catch (IllegalArgumentException ignored) {
+            return 0;
+        }
     }
 
     public static int bestScore(PlayerEntity player) {

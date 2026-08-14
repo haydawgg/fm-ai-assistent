@@ -398,10 +398,46 @@ body {
     font-weight: 700;
 }
 
+.settings-intro {
+    color: var(--fmai-muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.settings-path {
+    color: var(--fmai-text-faint, #85948c);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.settings-content {
+    min-width: 0;
+}
+
+.player-name-cell {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 0;
+}
+
+.player-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.filter-chip-text {
+    cursor: pointer;
+}
+
 .workspace-hint {
     color: var(--fmai-muted);
     font-size: 12px;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .quick-filter-bar {
@@ -1061,7 +1097,7 @@ body {
 }
 
 .tactic-context-status {
-    color: var(--fmai-green-dark);
+    color: var(--fmai-green);
     font-size: 12px;
     font-weight: 700;
 }
@@ -1143,7 +1179,7 @@ body {
 
 .codex-conversation-button.selected {
     background: var(--fmai-green-soft);
-    color: var(--fmai-green-dark);
+    color: var(--fmai-green);
     font-weight: 750;
 }
 
@@ -1165,6 +1201,7 @@ body {
 .codex-chat-header {
     min-height: 62px;
     box-sizing: border-box;
+    flex-wrap: wrap;
     gap: 16px;
     padding: 10px 20px;
     border-bottom: 1px solid var(--fmai-border);
@@ -1192,14 +1229,14 @@ body {
 }
 
 .codex-status[data-state="ready"] {
-    color: var(--fmai-green-dark);
+    color: var(--fmai-green);
     font-weight: 700;
 }
 
 .codex-status[data-state="error"],
 .codex-status[data-state="unavailable"],
 .codex-status[data-state="authentication_required"] {
-    color: #a12d2d;
+    color: var(--fmai-danger, #e5484d);
 }
 
 .codex-login-link {

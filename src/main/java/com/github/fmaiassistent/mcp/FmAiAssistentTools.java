@@ -160,8 +160,8 @@ public class FmAiAssistentTools {
                         && inRange(asInteger(player.getAge()), ageMin, ageMax)
                         && inRange(player.getCa(), caMin, caMax)
                         && inRange(player.getPa(), paMin, paMax)
-                        && (askingPriceMax == null || value(player.getAskingPrice()) <= askingPriceMax)
-                        && (salaryWeeklyMax == null || value(player.getSalaryWeeklyRaw()) <= salaryWeeklyMax)
+                        && askingPriceWithinMax(player.getAskingPrice(), player.getClub(), askingPriceMax)
+                        && salaryWithinMax(player.getSalaryWeeklyRaw(), salaryWeeklyMax)
                         && inRange(player.getWorldReputation(), worldReputationMin, worldReputationMax)
                         && matchesBoolean(player.getTransferListed(), transferListed)
                         && matchesBoolean(player.getListedForLoan(), listedForLoan)
@@ -209,7 +209,7 @@ public class FmAiAssistentTools {
     @Transactional(readOnly = true)
     public Map<String, Object> getRoleAttributes(
             @ToolParam(required = false, description = "Phase exact filter: In Possession or Out of Possession") String phase,
-            @ToolParam(required = false, description = "Position group exact filter, for example Striker, Goalkeeper, Defender Central, Midfielder Central") String positionGroup,
+            @ToolParam(required = false, description = "Position group exact filter, for example Striker, Goalkeeper, Centre-Back, Central Midfielder") String positionGroup,
             @ToolParam(required = false, description = "Role name contains filter, for example Advanced Forward, Ball-Playing Centre-Back, Goalkeeper") String roleName,
             @ToolParam(required = false, description = "Maximum roles to return") Integer limit) {
         int safeLimit = safeLimit(limit);
@@ -219,7 +219,7 @@ public class FmAiAssistentTools {
         rows.stream()
                 .filter(row -> blank(phase) || equalsIgnoreCase(row.phase(), phase))
                 .filter(row -> blank(positionGroup) || equalsIgnoreCase(row.positionGroup(), positionGroup))
-                .filter(row -> contains(row.roleName(), roleName))
+                .filter(row -> blank(roleName) || rolesMatch(row.roleName(), roleName))
                 .forEach(row -> grouped
                         .computeIfAbsent(new RoleKey(row.game(), row.positionGroup(), row.roleName(), row.phase()), RoleBucket::new)
                         .add(row));
@@ -485,8 +485,11 @@ public class FmAiAssistentTools {
     public Map<String, Object> comparePlayers(
             @ToolParam(description = "First player name") String leftName,
             @ToolParam(description = "Second player name") String rightName) {
-        PlayerEntity left = requirePlayer(leftName);
-        PlayerEntity right = requirePlayer(rightName);
+        PlayerEntity left = requirePlayer(leftName, true);
+        PlayerEntity right = requirePlayer(rightName, true);
+        if (samePlayer(left, right)) {
+            throw new IllegalArgumentException("choose two different players to compare");
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("left", playerSummaryMap(left));
         out.put("right", playerSummaryMap(right));
@@ -551,7 +554,8 @@ public class FmAiAssistentTools {
     @Transactional(readOnly = true)
     public List<SquadAdvice.SellRow> sellRows(String managingClub) {
         ClubEntity club = requireClub(managingClub);
-        return SquadAdvice.sellShortlist(currentSquad(allPlayers(), club.getName()), club);
+        return SquadAdvice.sellShortlist(
+                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
     }
 
     /**
@@ -781,7 +785,7 @@ public class FmAiAssistentTools {
         long budget = Math.max(0L, value(club.getTransferBudget()));
         int safeReputationMargin = reputationMargin == null ? DEFAULT_REPUTATION_MARGIN : Math.max(0, reputationMargin);
         Period minimumTime = parsePeriod(minimumTimeAtCurrentClub, Period.ofYears(1));
-        long priceCap = maxAskingPrice == null ? budget : Math.min(Math.max(0L, maxAskingPrice), budget);
+        long priceCap = resolvePriceCap(maxAskingPrice, budget);
         long wageCeiling = maxWeeklySalary == null
                 ? inferredWeeklyWageCeiling(squad, club)
                 : Math.max(0L, maxWeeklySalary);
@@ -896,7 +900,7 @@ public class FmAiAssistentTools {
             if (priceKnown && askingPrice > priceCap) {
                 continue;
             }
-            if (maxWeeklySalary != null && value(player.getSalaryWeeklyRaw()) > maxWeeklySalary) {
+            if (!salaryWithinMax(player.getSalaryWeeklyRaw(), maxWeeklySalary)) {
                 continue;
             }
             ClubEntity sourceClub = clubsByName.get(normalize(player.getClub()));
@@ -957,7 +961,7 @@ public class FmAiAssistentTools {
         out.put("price_fit", candidate.freeAgent() ? "free_agent" : !candidate.priceKnown() ? "unknown"
                 : value(player.getAskingPrice()) <= priceCap ? "within_budget" : "over_budget");
         out.put("salary_weekly", player.getSalaryWeeklyRaw());
-        out.put("wage_fit", value(player.getSalaryWeeklyRaw()) <= wageCeiling);
+        out.put("wage_fit", wageFits(player.getSalaryWeeklyRaw(), wageCeiling));
         out.put("willingness", candidate.willingness().name().toLowerCase(Locale.ROOT));
         out.put("signals", candidateSignals(candidate, benchmarkCa));
         return out;
@@ -991,16 +995,38 @@ public class FmAiAssistentTools {
     }
 
     private PlayerEntity requirePlayer(String name) {
+        return requirePlayer(name, false);
+    }
+
+    private PlayerEntity requirePlayer(String name, boolean uniqueContains) {
+        return pickPlayer(allPlayers(), name, uniqueContains);
+    }
+
+    static PlayerEntity pickPlayer(List<PlayerEntity> players, String name, boolean uniqueContains) {
         String normalized = normalize(name);
-        List<PlayerEntity> exact = allPlayers().stream()
+        List<PlayerEntity> exact = players.stream()
                 .filter(player -> normalize(player.getName()).equals(normalized))
                 .toList();
         List<PlayerEntity> rows = exact.isEmpty()
-                ? allPlayers().stream().filter(player -> contains(player.getName(), name)).toList()
+                ? players.stream().filter(player -> contains(player.getName(), name)).toList()
                 : exact;
+        if (uniqueContains && rows.size() > 1) {
+            throw new IllegalArgumentException("player name is ambiguous: " + name);
+        }
         return rows.stream()
                 .max(Comparator.comparingInt(player -> value(player.getCa())))
                 .orElseThrow(() -> new IllegalArgumentException("player not found: " + name));
+    }
+
+    static boolean samePlayer(PlayerEntity left, PlayerEntity right) {
+        if (left == right) {
+            return true;
+        }
+        if (left.getId() != null && right.getId() != null) {
+            return left.getId().equals(right.getId());
+        }
+        return normalize(left.getName()).equals(normalize(right.getName()))
+                && normalize(left.getClub()).equals(normalize(right.getClub()));
     }
 
     private Double slotRoleFit(PlayerEntity player, SquadAdvice.XiSlot slot) {
@@ -1099,9 +1125,7 @@ public class FmAiAssistentTools {
     }
 
     private List<PlayerEntity> squadPlayers(String clubName) {
-        return allPlayers().stream()
-                .filter(player -> equalsIgnoreCase(player.getClub(), clubName) || equalsIgnoreCase(player.getPlayingClub(), clubName))
-                .toList();
+        return currentSquad(allPlayers(), clubName);
     }
 
     private static Map<String, ClubEntity> clubsByName(List<ClubEntity> clubs) {
@@ -1116,7 +1140,13 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    private static List<PlayerEntity> currentSquad(List<PlayerEntity> players, String clubName) {
+    static List<PlayerEntity> ownedSquad(List<PlayerEntity> squad, String clubName) {
+        return squad.stream()
+                .filter(player -> equalsIgnoreCase(player.getClub(), clubName))
+                .toList();
+    }
+
+    static List<PlayerEntity> currentSquad(List<PlayerEntity> players, String clubName) {
         return players.stream()
                 .filter(player -> equalsIgnoreCase(player.getPlayingClub(), clubName)
                         || (blank(player.getPlayingClub()) && equalsIgnoreCase(player.getClub(), clubName)))
@@ -1148,17 +1178,17 @@ public class FmAiAssistentTools {
                 .filter(row -> blank(phase) || equalsIgnoreCase(row.phase(), phase))
                 .toList();
         List<RoleAttributeRow> exactRows = positionRows.stream()
-                .filter(row -> equalsIgnoreCase(row.roleName(), roleName))
+                .filter(row -> roleKeysEqual(row.roleName(), roleName))
                 .toList();
         List<RoleAttributeRow> rows = exactRows.isEmpty()
-                ? positionRows.stream().filter(row -> contains(row.roleName(), roleName)).toList()
+                ? positionRows.stream().filter(row -> rolesMatch(row.roleName(), roleName)).toList()
                 : exactRows;
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("role not found for " + position.positionGroup() + ": " + roleName);
         }
         if (exactRows.isEmpty()) {
             String firstRole = rows.getFirst().roleName();
-            rows = rows.stream().filter(row -> equalsIgnoreCase(row.roleName(), firstRole)).toList();
+            rows = rows.stream().filter(row -> roleKeysEqual(row.roleName(), firstRole)).toList();
         }
 
         Map<String, Integer> weights = new LinkedHashMap<>();
@@ -1300,7 +1330,9 @@ public class FmAiAssistentTools {
         double price = freeAgent ? 1.0 : !priceKnown ? 0.35 : priceCap <= 0
                 ? 0.0
                 : clamp(1.0 - value(player.getAskingPrice()) / (double) priceCap);
-        double wage = value(player.getSalaryWeeklyRaw()) == 0 || wageCeiling <= 0
+        double wage = player.getSalaryWeeklyRaw() == null
+                ? 0.35
+                : value(player.getSalaryWeeklyRaw()) == 0 || wageCeiling <= 0
                 ? 1.0
                 : clamp(wageCeiling / (double) value(player.getSalaryWeeklyRaw()));
         double willingnessScore = willingness == Willingness.HIGH ? 1.0 : 0.6;
@@ -1350,7 +1382,7 @@ public class FmAiAssistentTools {
         long budget = Math.max(0L, value(club.getTransferBudget()));
         int safeReputationMargin = reputationMargin == null ? DEFAULT_REPUTATION_MARGIN : Math.max(0, reputationMargin);
         Period minimumTime = parsePeriod(minimumTimeAtCurrentClub, Period.ofYears(1));
-        long priceCap = maxAskingPrice == null ? budget : Math.min(Math.max(0L, maxAskingPrice), budget);
+        long priceCap = resolvePriceCap(maxAskingPrice, budget);
         long wageCeiling = maxWeeklySalary == null
                 ? inferredWeeklyWageCeiling(squad, club)
                 : Math.max(0L, maxWeeklySalary);
@@ -1424,7 +1456,7 @@ public class FmAiAssistentTools {
         out.put("price_fit", candidate.freeAgent() ? "free_agent" : !candidate.priceKnown() ? "unknown"
                 : value(player.getAskingPrice()) <= priceCap ? "within_budget" : "over_budget");
         out.put("salary_weekly", player.getSalaryWeeklyRaw());
-        out.put("wage_fit", value(player.getSalaryWeeklyRaw()) <= wageCeiling);
+        out.put("wage_fit", wageFits(player.getSalaryWeeklyRaw(), wageCeiling));
         out.put("willingness", candidate.willingness().name().toLowerCase(Locale.ROOT));
         out.put("player_reputation", highestReputation(player));
         out.put("reputation_gap", highestReputation(player) - value(managingClub.getReputation()));
@@ -1813,8 +1845,62 @@ public class FmAiAssistentTools {
         return blank(right) || normalize(left).equals(normalize(right));
     }
 
-    private static boolean inRange(Integer value, Integer min, Integer max) {
-        return value != null && (min == null || value >= min) && (max == null || value <= max);
+    static boolean inRange(Integer value, Integer min, Integer max) {
+        if (min == null && max == null) {
+            return true;
+        }
+        if (value == null) {
+            return false;
+        }
+        return (min == null || value >= min) && (max == null || value <= max);
+    }
+
+    /** Unknown asking prices are not free. Free agents (no club) still pass a max-price filter. */
+    static boolean askingPriceWithinMax(Long askingPrice, String club, Long max) {
+        if (max == null) {
+            return true;
+        }
+        if (askingPrice == null || askingPrice <= 0) {
+            return blank(club);
+        }
+        return askingPrice <= max;
+    }
+
+    static boolean salaryWithinMax(Integer salaryWeekly, Integer max) {
+        if (max == null) {
+            return true;
+        }
+        if (salaryWeekly == null) {
+            return false;
+        }
+        return salaryWeekly <= max;
+    }
+
+    static boolean wageFits(Integer salaryWeekly, long wageCeiling) {
+        return salaryWeekly != null && salaryWeekly <= wageCeiling;
+    }
+
+    static long resolvePriceCap(Long maxAskingPrice, long budget) {
+        return maxAskingPrice == null ? budget : Math.max(0L, maxAskingPrice);
+    }
+
+    static boolean rolesMatch(String catalogName, String query) {
+        if (blank(query)) {
+            return true;
+        }
+        String catalog = roleKey(catalogName);
+        String needle = roleKey(query);
+        return !catalog.isEmpty() && !needle.isEmpty()
+                && (catalog.equals(needle) || catalog.contains(needle) || needle.contains(catalog));
+    }
+
+    static boolean roleKeysEqual(String left, String right) {
+        return roleKey(left).equals(roleKey(right));
+    }
+
+    static String roleKey(String value) {
+        String normalized = normalize(value).replaceAll("\\bgk\\b", "goalkeeper");
+        return normalized.replaceAll("[^a-z0-9]", "");
     }
 
     private static boolean matchesBoolean(Boolean value, Boolean expected) {

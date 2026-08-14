@@ -185,6 +185,46 @@ class CodexConversationServiceTest {
         assertTrue(failingService.availability().message().contains("not installed"));
     }
 
+    @Test
+    void ignoresThreadScopedNotificationsWithoutThreadId() {
+        List<CodexEvent> events = new CopyOnWriteArrayList<>();
+        service.subscribe("thread-1", events::add);
+
+        notifications.accept(notification("turn/started", mapper.createObjectNode()
+                .set("turn", mapper.createObjectNode().put("id", "turn-1"))));
+        notifications.accept(notification("turn/completed", mapper.createObjectNode()
+                .set("turn", mapper.createObjectNode().put("id", "turn-1").put("status", "completed"))));
+
+        assertTrue(events.isEmpty());
+    }
+
+    @Test
+    void ignoresTurnStartedWithoutTurnId() {
+        List<CodexEvent> events = new CopyOnWriteArrayList<>();
+        service.subscribe("thread-1", events::add);
+
+        notifications.accept(notification("turn/started", mapper.createObjectNode()
+                .put("threadId", "thread-1")
+                .set("turn", mapper.createObjectNode().put("id", ""))));
+
+        assertTrue(events.isEmpty());
+    }
+
+    @Test
+    void interruptDuringStartAbortsWhenTurnIdArrives() throws Exception {
+        CompletableFuture<JsonNode> started = new CompletableFuture<>();
+        when(client.startTurn(org.mockito.ArgumentMatchers.eq("thread-1"),
+                org.mockito.ArgumentMatchers.eq("Hello"), any())).thenReturn(started);
+        when(client.interruptTurn("thread-1", "turn-1"))
+                .thenReturn(CompletableFuture.completedFuture(mapper.createObjectNode()));
+
+        CompletableFuture<String> turn = service.sendMessage("thread-1", "Hello");
+        service.interrupt("thread-1").get(1, TimeUnit.SECONDS);
+        started.complete(turnResponse("turn-1"));
+        assertEquals("turn-1", turn.get(1, TimeUnit.SECONDS));
+        verify(client).interruptTurn("thread-1", "turn-1");
+    }
+
     private JsonNode thread(String id, String preview, JsonNode turns) {
         return mapper.createObjectNode()
                 .put("id", id)

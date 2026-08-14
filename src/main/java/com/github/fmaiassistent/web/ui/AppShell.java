@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @CssImport("./styles/fmai-dark.css")
+@CssImport("./styles/chat-view.css")
+@CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 public class AppShell extends AppLayout implements RouterLayout, AfterNavigationObserver {
 
     private final Map<String, NavItem> navItems = new LinkedHashMap<>();

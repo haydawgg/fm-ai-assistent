@@ -67,7 +67,9 @@ public final class MarketValuation {
 
         private void add(PlayerEntity player) {
             prices.add(value(player.getAskingPrice()));
-            wages.add((long) value(player.getSalaryWeeklyRaw()));
+            if (player.getSalaryWeeklyRaw() != null) {
+                wages.add(player.getSalaryWeeklyRaw().longValue());
+            }
         }
     }
 
@@ -100,13 +102,13 @@ public final class MarketValuation {
             if (value(player.getAskingPrice()) <= 0 || !hasPlayablePosition(player)) {
                 continue;
             }
-            priced++;
             int position = bestPositionIndex(player);
             Integer ca = player.getCa();
             Integer age = asInteger(player.getAge());
             if (position < 0 || ca == null || ca <= 0 || age == null || age < 0) {
                 continue;
             }
+            priced++;
             Bucket key = new Bucket(position, ca / 10, age / 5, value(player.getPa()) / 20);
             level1.computeIfAbsent(key, ignored -> new PriceList()).add(player);
             level2.computeIfAbsent(key.withoutPa(), ignored -> new PriceList()).add(player);

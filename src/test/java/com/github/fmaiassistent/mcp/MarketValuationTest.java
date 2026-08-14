@@ -4,6 +4,7 @@ import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -106,6 +107,45 @@ class MarketValuationTest {
         assertNotNull(bucket);
         assertEquals(30, bucket.samples());
         assertEquals(10_000_000L, bucket.price());
+    }
+
+    @Test
+    void pricedPlayersCountsOnlyPlayersThatEnterBuckets() {
+        List<PlayerEntity> players = marketPlayers();
+        Map<String, Object> incomplete = new HashMap<>();
+        incomplete.put("name", "no-ca");
+        incomplete.put("asking_price", 8_000_000L);
+        incomplete.put("salary_weekly_raw", 15_000);
+        incomplete.put("age", 22);
+        incomplete.put("club", "Market FC");
+        incomplete.put("Striker", 16);
+        players.add(PlayerEntity.fromExportRow(incomplete));
+
+        MarketValuation market = MarketValuation.build(players);
+        assertEquals(30, market.pricedPlayers());
+    }
+
+    @Test
+    void unknownWagesAreOmittedFromWageMedian() {
+        List<PlayerEntity> players = new ArrayList<>();
+        for (int index = 0; index < 5; index++) {
+            players.add(player("paid-" + index, 10_000_000L, 20_000, "Market FC"));
+        }
+        for (int index = 0; index < 6; index++) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("name", "unknown-wage-" + index);
+            row.put("ca", 135);
+            row.put("pa", 150);
+            row.put("age", 22);
+            row.put("asking_price", 10_000_000L);
+            row.put("club", "Market FC");
+            row.put("Striker", 16);
+            players.add(PlayerEntity.fromExportRow(row));
+        }
+        MarketValuation market = MarketValuation.build(players);
+        MarketValuation.Market bucket = market.marketFor(player("target", 10_000_000L, 20_000, "Market FC"));
+        assertNotNull(bucket);
+        assertEquals(20_000L, bucket.wage());
     }
 
     @Test

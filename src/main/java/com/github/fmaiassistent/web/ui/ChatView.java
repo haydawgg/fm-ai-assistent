@@ -8,6 +8,7 @@ import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.DetachEvent;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.component.UIDetachedException;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
@@ -30,6 +31,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @Route(value = "chat", layout = AppShell.class)
 @PageTitle("Chat")
 @CssImport("./styles/chat-view.css")
+@CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 public class ChatView extends VerticalLayout {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final long STREAM_PAINT_NANOS = 80_000_000L;
@@ -69,6 +72,7 @@ public class ChatView extends VerticalLayout {
     private Disposable activeStream;
     private AssistantTurn activeTurn;
     private boolean applyingModel;
+    private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
 
     public ChatView(
             AssistantChatService chat,
@@ -120,6 +124,7 @@ public class ChatView extends VerticalLayout {
 
         model.setLabel("");
         model.setPlaceholder("Model");
+        model.setAriaLabel("Model");
         model.setWidth("18rem");
         model.addClassName("chat-model");
         model.addValueChangeListener(event -> {
@@ -220,10 +225,13 @@ public class ChatView extends VerticalLayout {
         send.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         send.addClickListener(event -> send());
         send.addClassName("chat-send");
+        send.getElement().setAttribute("aria-label", "Send message");
         stop.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
         stop.setVisible(false);
         stop.addClickListener(event -> stopStream());
         stop.addClassName("chat-stop");
+        stop.getElement().setAttribute("aria-label", "Stop generating");
+        clear.getElement().setAttribute("aria-label", "Start a new chat");
 
         Span hint = new Span("Enter to send · Shift + Enter for a new line");
         hint.addClassName("chat-composer-hint");
@@ -299,7 +307,9 @@ public class ChatView extends VerticalLayout {
         StringBuilder response = new StringBuilder();
         AtomicBoolean first = new AtomicBoolean(true);
         AtomicLong lastPaint = new AtomicLong(0);
-        activeStream = chat.stream(message.trim())
+        List<AssistantChatService.ChatTurn> prior = List.copyOf(history);
+        history.add(new AssistantChatService.ChatTurn(true, message.trim()));
+        activeStream = chat.stream(prior, message.trim())
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         token -> access(ui, () -> {
@@ -315,17 +325,25 @@ public class ChatView extends VerticalLayout {
                             }
                         }),
                         error -> access(ui, () -> {
+                            if (!turn.close()) {
+                                return;
+                            }
                             if (first.get()) {
                                 turn.showContent();
                             }
+                            rememberAssistant(response.toString());
                             turn.setError("I couldn't complete that request. " + safeMessage(error));
                             finishStream();
                         }),
                         () -> access(ui, () -> {
+                            if (!turn.close()) {
+                                return;
+                            }
                             if (first.get()) {
                                 turn.showContent();
                             }
                             turn.setMarkdown(response.toString());
+                            rememberAssistant(response.toString());
                             finishStream();
                             scrollToLatest();
                         }));
@@ -345,9 +363,17 @@ public class ChatView extends VerticalLayout {
 
     private void clearChat() {
         stopStream();
+        history.clear();
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
         updateConfigurationState();
+    }
+
+    private void rememberAssistant(String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        history.add(new AssistantChatService.ChatTurn(false, text));
     }
 
     private void stopStream() {
@@ -356,9 +382,13 @@ public class ChatView extends VerticalLayout {
             activeStream.dispose();
             activeStream = null;
         }
-        if (turn != null && !turn.hasContent()) {
-            turn.showContent();
-            turn.setMarkdown("Stopped.");
+        if (turn != null && turn.close()) {
+            if (!turn.hasContent()) {
+                turn.showContent();
+                turn.setMarkdown("Stopped.");
+            } else {
+                rememberAssistant(turn.rawText());
+            }
         }
         finishStream();
     }
@@ -374,8 +404,12 @@ public class ChatView extends VerticalLayout {
     }
 
     private void access(UI ui, Command action) {
-        if (ui != null) {
+        if (ui == null || !ui.isAttached()) {
+            return;
+        }
+        try {
             ui.access(action);
+        } catch (UIDetachedException ignored) {
         }
     }
 
@@ -401,6 +435,7 @@ public class ChatView extends VerticalLayout {
         private final Button copy = new Button(VaadinIcon.COPY.create());
         private String raw = "";
         private boolean contentVisible;
+        private final AtomicBoolean closed = new AtomicBoolean();
 
         private AssistantTurn() {
             root.addClassName("chat-message");
@@ -443,6 +478,10 @@ public class ChatView extends VerticalLayout {
             return dot;
         }
 
+        private boolean close() {
+            return closed.compareAndSet(false, true);
+        }
+
         private void showContent() {
             contentVisible = true;
             typing.setVisible(false);
@@ -452,6 +491,10 @@ public class ChatView extends VerticalLayout {
 
         private boolean hasContent() {
             return contentVisible && !raw.isBlank();
+        }
+
+        private String rawText() {
+            return raw;
         }
 
         private void setMarkdown(String markdown) {

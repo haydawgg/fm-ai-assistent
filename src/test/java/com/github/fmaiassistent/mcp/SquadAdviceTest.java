@@ -10,6 +10,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SquadAdviceTest {
@@ -86,6 +87,15 @@ class SquadAdviceTest {
                 STCR,,
                 """);
         assertEquals(List.of("DC", "MC", "ST"), slots.stream().map(SquadAdvice.XiSlot::position).toList());
+    }
+
+    @Test
+    void asNumberAcceptsNumbersOnly() {
+        assertEquals(12L, SquadAdvice.asNumber(12));
+        assertEquals(12L, SquadAdvice.asNumber(12L));
+        assertNull(SquadAdvice.asNumber("N/A"));
+        assertNull(SquadAdvice.asNumber("true"));
+        assertNull(SquadAdvice.asNumber(null));
     }
 
     private static ClubEntity club() {

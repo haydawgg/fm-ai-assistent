@@ -220,14 +220,14 @@ public class PlayerDatabaseService {
         return out;
     }
 
-    private static boolean matchesPlayerFilter(PlayerEntity player, PlayerFilterCriteria filter) {
+    static boolean matchesPlayerFilter(PlayerEntity player, PlayerFilterCriteria filter) {
         return contains(player.getName(), filter.name())
                 && equalsIgnoreCase(player.getGender(), filter.gender())
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getNation).orElse(null), filter.playingNation())
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getName).orElse(null), filter.playingCompetition())
                 && matchesClub(player, filter.club())
                 && inRange(player.getSalaryWeeklyRaw() == null ? null : player.getSalaryWeeklyRaw().longValue(),
-                        0L, filter.salaryMax())
+                        null, filter.salaryMax())
                 && equalsIgnoreCase(player.getNationality(), filter.nationality())
                 && inRange(asInt(player.getAge()), filter.ageMin(), filter.ageMax())
                 && inRange(player.getHeightCm(), filter.heightMin(), filter.heightMax())

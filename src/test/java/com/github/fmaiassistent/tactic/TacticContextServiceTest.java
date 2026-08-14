@@ -7,6 +7,7 @@ import org.springframework.util.unit.DataSize;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,6 +52,27 @@ class TacticContextServiceTest {
         assertThat(context.markdown()).contains("tempo", "higher");
         assertThat(service.clear().active()).isFalse();
         assertThat(service.enrich("copilot:session", "hello")).isEqualTo("hello");
+    }
+
+    @Test
+    void capKeepsFmfEvenWhenItWouldFallPastTheFileLimit() {
+        List<Path> files = new java.util.ArrayList<>();
+        for (int index = 0; index < 120; index++) {
+            files.add(Path.of("notes-" + index + ".xml"));
+        }
+        files.add(Path.of("zzz/tactic.fmf"));
+        List<Path> selected = TacticContextService.capDiscoveredFiles(files);
+        assertThat(selected.stream().map(path -> path.getFileName().toString())).contains("tactic.fmf");
+        assertThat(selected).hasSize(100);
+    }
+
+    @Test
+    void sourceKeyKeepsRelativePathsSoDuplicateNamesDoNotCollide() {
+        Path folder = temporaryDirectory;
+        Path left = folder.resolve("in").resolve("possession.png");
+        Path right = folder.resolve("out").resolve("possession.png");
+        assertThat(TacticContextService.sourceKey(folder, left)).isEqualTo("in/possession.png");
+        assertThat(TacticContextService.sourceKey(folder, right)).isEqualTo("out/possession.png");
     }
 
     private static TacticContextService service(TacticImageTextExtractor extractor) {

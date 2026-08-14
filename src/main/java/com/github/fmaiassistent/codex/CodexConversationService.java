@@ -32,6 +32,7 @@ public class CodexConversationService {
     private final Map<String, CopyOnWriteArrayList<Consumer<CodexEvent>>> listeners = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<CodexAvailability>> availabilityListeners = new CopyOnWriteArrayList<>();
     private final Map<String, String> activeTurns = new ConcurrentHashMap<>();
+    private final Set<String> pendingInterrupts = ConcurrentHashMap.newKeySet();
     private final Set<String> completedTurns = ConcurrentHashMap.newKeySet();
     private final Map<String, PendingApproval> approvals = new ConcurrentHashMap<>();
 
@@ -116,18 +117,24 @@ public class CodexConversationService {
         String enrichedPrompt = promptContext.enrich("codex:" + threadId, text);
         CompletableFuture<String> turn = readyThen(
                 () -> client.startTurn(threadId, enrichedPrompt, messageId)).thenApply(result -> {
-            String turnId = result.path("turn").path("id").asText();
+            String turnId = blankToNull(result.path("turn").path("id").asText());
+            if (turnId == null) {
+                activeTurns.remove(threadId, reservation);
+                throw new CodexException("Codex started a turn without an id");
+            }
             if (completedTurns.remove(turnId)) {
                 activeTurns.remove(threadId, reservation);
             } else {
                 activeTurns.compute(threadId, (ignored, current) -> reservation.equals(current) ? turnId : current);
             }
             log.info("Started Codex turn threadId={} turnId={}", threadId, turnId);
+            interruptIfPending(threadId, turnId);
             return turnId;
         });
         turn.whenComplete((ignored, error) -> {
             if (error != null) {
                 activeTurns.remove(threadId, reservation);
+                pendingInterrupts.remove(threadId);
             }
         });
         return turn;
@@ -139,7 +146,8 @@ public class CodexConversationService {
             return CompletableFuture.completedFuture(null);
         }
         if (turnId.startsWith("starting:")) {
-            return CompletableFuture.failedFuture(new CodexException("The Codex turn is still starting"));
+            pendingInterrupts.add(threadId);
+            return CompletableFuture.completedFuture(null);
         }
         return client.interruptTurn(threadId, turnId).thenApply(ignored -> {
             log.info("Interrupted Codex turn threadId={} turnId={}", threadId, turnId);
@@ -292,6 +300,7 @@ public class CodexConversationService {
         setAvailability(new CodexAvailability(CodexAvailability.State.ERROR, message));
         activeTurns.clear();
         completedTurns.clear();
+        pendingInterrupts.clear();
         listeners.forEach((threadId, threadListeners) ->
                 emit(new CodexEvent.Failure(threadId, message)));
     }
@@ -311,23 +320,56 @@ public class CodexConversationService {
                 return null;
             });
             case "turn/started" -> {
-                String turnId = params.path("turn").path("id").asText();
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                String turnId = blankToNull(params.path("turn").path("id").asText());
+                if (turnId == null) {
+                    log.debug("Ignoring Codex turn/started without turn id");
+                    return;
+                }
                 activeTurns.put(threadId, turnId);
                 emit(new CodexEvent.TurnStarted(threadId, turnId));
+                interruptIfPending(threadId, turnId);
             }
-            case "item/started" -> emitItemStarted(threadId, params.path("turnId").asText(), params.path("item"));
-            case "item/agentMessage/delta" -> emit(new CodexEvent.AssistantTextDelta(
-                    threadId,
-                    params.path("turnId").asText(),
-                    params.path("itemId").asText(),
-                    params.path("delta").asText()));
-            case "item/completed" -> emitItemCompleted(threadId, params.path("turnId").asText(), params.path("item"));
-            case "turn/completed" -> emitTurnCompleted(threadId, params.path("turn"));
-            case "mcpServer/startupStatus/updated" -> emit(new CodexEvent.McpStatusChanged(
-                    threadId,
-                    params.path("name").asText(),
-                    params.path("status").asText(),
-                    params.path("error").asText(null)));
+            case "item/started" -> {
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                emitItemStarted(threadId, params.path("turnId").asText(), params.path("item"));
+            }
+            case "item/agentMessage/delta" -> {
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                emit(new CodexEvent.AssistantTextDelta(
+                        threadId,
+                        params.path("turnId").asText(),
+                        params.path("itemId").asText(),
+                        params.path("delta").asText()));
+            }
+            case "item/completed" -> {
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                emitItemCompleted(threadId, params.path("turnId").asText(), params.path("item"));
+            }
+            case "turn/completed" -> {
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                emitTurnCompleted(threadId, params.path("turn"));
+            }
+            case "mcpServer/startupStatus/updated" -> {
+                if (missingThreadId(threadId, notification.method())) {
+                    return;
+                }
+                emit(new CodexEvent.McpStatusChanged(
+                        threadId,
+                        params.path("name").asText(),
+                        params.path("status").asText(),
+                        params.path("error").asText(null)));
+            }
             case "error" -> {
                 String message = params.path("error").path("message").asText("Codex reported an error");
                 if (threadId != null) {
@@ -585,6 +627,31 @@ public class CodexConversationService {
         if (threadListeners != null) {
             threadListeners.forEach(listener -> safelyAccept(listener, event));
         }
+    }
+
+    private void interruptIfPending(String threadId, String turnId) {
+        if (!pendingInterrupts.remove(threadId)) {
+            return;
+        }
+        client.interruptTurn(threadId, turnId).whenComplete((ignored, error) -> {
+            if (error != null) {
+                log.warn("Could not interrupt Codex turn threadId={} turnId={}", threadId, turnId, unwrap(error));
+            } else {
+                log.info("Interrupted Codex turn threadId={} turnId={}", threadId, turnId);
+            }
+        });
+    }
+
+    private static boolean missingThreadId(String threadId, String method) {
+        if (threadId != null && !threadId.isBlank()) {
+            return false;
+        }
+        log.debug("Ignoring Codex notification {} without threadId", method);
+        return true;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static <T> void safelyAccept(Consumer<T> listener, T value) {

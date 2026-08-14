@@ -151,11 +151,13 @@ public class AntigravityConversationService {
                     uiId, antigravityId, turnId);
             return CompletableFuture.completedFuture(turnId);
         } catch (RuntimeException ex) {
+            String message = friendlyMessage(ex, null);
             synchronized (state) {
+                persistFailure(state, turnId, message);
                 state.activeTurnId = null;
                 state.activeHandle = null;
             }
-            emit(new AntigravityEvent.Failure(uiId, turnId, friendlyMessage(ex, null)));
+            emit(new AntigravityEvent.Failure(uiId, turnId, message));
             return CompletableFuture.failedFuture(ex);
         }
     }
@@ -182,6 +184,11 @@ public class AntigravityConversationService {
             ConversationState state,
             String turnId,
             AntigravityStreamEvent event) {
+        synchronized (state) {
+            if (!turnId.equals(state.activeTurnId)) {
+                return;
+            }
+        }
         if (event instanceof AntigravityStreamEvent.Init init) {
             synchronized (state) {
                 if (init.conversationId() != null) {
@@ -277,7 +284,11 @@ public class AntigravityConversationService {
             String turnId,
             AntigravityStreamEvent.Result result) {
         String fallback = null;
+        String errorMessage = result.error() == null ? null : friendlyMessage(null, result.error());
         synchronized (state) {
+            if (!turnId.equals(state.activeTurnId)) {
+                return;
+            }
             if (result.conversationId() != null) {
                 state.antigravityConversationId = result.conversationId();
             }
@@ -293,6 +304,9 @@ public class AntigravityConversationService {
             } else {
                 completeAssistantItem(state, turnId);
             }
+            if (errorMessage != null) {
+                persistFailure(state, turnId, errorMessage);
+            }
             state.activeTurnId = null;
             state.activeHandle = null;
             state.updatedAt = Instant.now();
@@ -303,7 +317,7 @@ public class AntigravityConversationService {
                 turnId,
                 normalizeStatus(result.status()),
                 fallback,
-                result.error() == null ? null : friendlyMessage(null, result.error()),
+                errorMessage,
                 result.durationSeconds(),
                 result.totalTokens()));
         log.info("Completed Antigravity prompt uiConversationId={} conversationId={} turnId={} status={}",
@@ -335,12 +349,19 @@ public class AntigravityConversationService {
             return;
         }
         if (processResult != null && processResult.timedOut()) {
+            String timeout = "Antigravity exceeded the configured process timeout.";
+            synchronized (state) {
+                persistFailure(state, turnId, timeout);
+            }
             emit(new AntigravityEvent.Failure(
-                    state.uiId, turnId, "Antigravity exceeded the configured process timeout."));
+                    state.uiId, turnId, timeout));
             return;
         }
         String stderr = processResult == null ? null : processResult.stderr();
         String message = friendlyMessage(error, stderr);
+        synchronized (state) {
+            persistFailure(state, turnId, message);
+        }
         emit(new AntigravityEvent.Failure(state.uiId, turnId, message));
     }
 
@@ -371,6 +392,16 @@ public class AntigravityConversationService {
                 return;
             }
         }
+    }
+
+    private static void persistFailure(ConversationState state, String turnId, String message) {
+        completeAssistantItem(state, turnId);
+        state.items.add(new AntigravityConversationItem(
+                "error-" + turnId,
+                AntigravityConversationItem.Kind.SYSTEM,
+                message,
+                "failed",
+                null));
     }
 
     private static void upsert(ConversationState state, AntigravityConversationItem replacement) {

@@ -62,6 +62,8 @@ import org.slf4j.LoggerFactory;
 @Route(value = "", layout = AppShell.class)
 @PageTitle("FM AI Assistent")
 @CssImport("./styles/main-view.css")
+@CssImport("./styles/chat-view.css")
+@CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class MainView extends VerticalLayout {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);

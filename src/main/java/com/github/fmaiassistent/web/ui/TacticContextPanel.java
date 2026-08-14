@@ -41,6 +41,7 @@ final class TacticContextPanel extends Details {
 
         location.setPlaceholder("/path/to/tactic.fmf");
         location.setClearButtonVisible(true);
+        location.setAriaLabel("Tactic file path");
         location.addClassName("tactic-context-location");
         location.addKeyPressListener(Key.ENTER, ignored -> loadPath());
         load.addThemeVariants(ButtonVariant.LUMO_PRIMARY);

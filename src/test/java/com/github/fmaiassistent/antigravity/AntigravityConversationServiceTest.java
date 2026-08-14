@@ -114,6 +114,38 @@ class AntigravityConversationServiceTest {
         assertEquals("Fallback response", snapshot.items().getLast().text());
     }
 
+    @Test
+    void lateResultFromPreviousTurnDoesNotClearTheActiveTurn() {
+        AntigravityConversationSnapshot conversation = service.newConversation().join();
+        service.sendMessage(conversation.conversation().uiId(), "First").join();
+        streamListeners.getFirst().accept(new AntigravityStreamEvent.Result(
+                "agy-A", "SUCCESS", "done", null, 1, 10));
+        completions.getFirst().complete(new AntigravityProcessResult(0, "", false, false, true));
+
+        String secondTurn = service.sendMessage(conversation.conversation().uiId(), "Second").join();
+        streamListeners.getFirst().accept(new AntigravityStreamEvent.Result(
+                "agy-stale", "SUCCESS", "stale", null, 1, 10));
+        streamListeners.getFirst().accept(step("agy-stale", 9, "DONE", "agent_response", "late ", null, missing));
+
+        AntigravityConversationSnapshot snapshot = service.openConversation(conversation.conversation().uiId()).join();
+        assertEquals(secondTurn, snapshot.activeTurnId());
+        assertTrue(snapshot.items().stream().noneMatch(item -> "stale".equals(item.text()) || "late ".equals(item.text())));
+    }
+
+    @Test
+    void resultErrorsArePersistedOnTheConversation() {
+        AntigravityConversationSnapshot conversation = service.newConversation().join();
+        service.sendMessage(conversation.conversation().uiId(), "Hello").join();
+        streamListeners.getFirst().accept(new AntigravityStreamEvent.Result(
+                "agy-E", "ERROR", null, "CLI exploded", 1, 0));
+
+        AntigravityConversationSnapshot snapshot = service.openConversation(conversation.conversation().uiId()).join();
+        assertTrue(snapshot.items().stream().anyMatch(item ->
+                item.kind() == AntigravityConversationItem.Kind.SYSTEM
+                        && item.status().equals("failed")
+                        && item.text().contains("CLI exploded")));
+    }
+
     private AntigravityStreamEvent.Step step(
             String conversationId,
             int index,

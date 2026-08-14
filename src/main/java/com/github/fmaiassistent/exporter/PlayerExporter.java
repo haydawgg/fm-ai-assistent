@@ -525,9 +525,15 @@ public class PlayerExporter {
     private static Salary salaryValues(ProcessMemoryReader reader, long record) throws IOException {
         var registration = reader.qwordOrNull(record + 0xA8);
         if (registration.isEmpty()) {
-            return new Salary(0, 0);
+            return salaryFromWeeklyRaw(null);
         }
-        long weeklyRaw = reader.readU32(registration.get() + 0x20);
+        return salaryFromWeeklyRaw(reader.readU32(registration.get() + 0x20));
+    }
+
+    static Salary salaryFromWeeklyRaw(Long weeklyRaw) {
+        if (weeklyRaw == null) {
+            return new Salary(null, 0);
+        }
         long annualRaw = weeklyRaw * 52;
         return new Salary(weeklyRaw, Math.round(annualRaw / 1000.0) * 1000);
     }
@@ -661,7 +667,7 @@ public class PlayerExporter {
     private record DatePair(int day, int year) {
     }
 
-    private record Salary(long weeklyRaw, long annualRounded) {
+    static record Salary(Long weeklyRaw, long annualRounded) {
     }
 
     private record PlayerStatus(

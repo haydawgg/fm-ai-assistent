@@ -187,8 +187,8 @@ public class MoneyballView extends VerticalLayout {
                     value(minCa),
                     value(minPa),
                     value(maxAge),
-                    value(maxPrice) == null ? null : value(maxPrice).longValue(),
-                    value(maxWage));
+                    feePounds(),
+                    wagePounds());
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
             summary.setText("Pool " + result.candidatePoolSize() + " \u00b7 rated " + result.ratedCount()
@@ -249,6 +249,20 @@ public class MoneyballView extends VerticalLayout {
                 .distinct()
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .toList();
+    }
+
+    private Long feePounds() {
+        Integer displayed = value(maxPrice);
+        return displayed == null ? null : MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+    }
+
+    private Integer wagePounds() {
+        Integer displayed = value(maxWage);
+        if (displayed == null) {
+            return null;
+        }
+        long pounds = MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+        return pounds > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) pounds;
     }
 
     private static Integer value(IntegerField field) {

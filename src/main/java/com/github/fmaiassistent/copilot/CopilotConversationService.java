@@ -207,8 +207,7 @@ public class CopilotConversationService {
         }
         emit(new CopilotEvent.TurnStarted(sessionId, turnId));
         String enrichedPrompt = promptContext.enrich("copilot:" + sessionId, text);
-        return ensureResumed(state).thenCompose(
-                        session -> session.send(new MessageOptions().setPrompt(enrichedPrompt)))
+        return ensureResumed(state).thenCompose(session -> sendOrAbort(state, session, turnId, enrichedPrompt))
                 .thenApply(ignored -> turnId)
                 .whenComplete((ignored, error) -> {
                     if (error != null) {
@@ -217,12 +216,32 @@ public class CopilotConversationService {
                 });
     }
 
+    private CompletableFuture<?> sendOrAbort(
+            ConversationState state, CopilotSession session, String turnId, String prompt) {
+        boolean abort;
+        synchronized (state) {
+            abort = state.pendingAbort;
+            state.pendingAbort = false;
+            if (abort && !turnId.equals(state.activeTurnId)) {
+                abort = false;
+            }
+        }
+        if (abort) {
+            return session.abort();
+        }
+        return session.send(new MessageOptions().setPrompt(prompt));
+    }
+
     public CompletableFuture<Void> interrupt(String sessionId) {
         ConversationState state = requireConversation(sessionId);
         CopilotSession session;
         synchronized (state) {
-            if (state.activeTurnId == null || state.session == null) {
+            if (state.activeTurnId == null) {
                 return CompletableFuture.failedFuture(new IllegalStateException("No GitHub Copilot turn is active"));
+            }
+            if (state.session == null) {
+                state.pendingAbort = true;
+                return CompletableFuture.completedFuture(null);
             }
             session = state.session;
         }
@@ -406,12 +425,20 @@ public class CopilotConversationService {
     }
 
     private CopilotSession attachSession(ConversationState state, CopilotSession session) {
+        boolean abort = false;
         synchronized (state) {
             if (state.eventSubscription != null) {
                 closeQuietly(state.eventSubscription);
             }
             state.session = session;
             state.eventSubscription = session.on(event -> handleSdkEvent(state, event));
+            if (state.pendingAbort) {
+                state.pendingAbort = false;
+                abort = true;
+            }
+        }
+        if (abort) {
+            session.abort();
         }
         return session;
     }
@@ -536,12 +563,24 @@ public class CopilotConversationService {
             if (!turnId.equals(state.activeTurnId)) {
                 return;
             }
+            recordTurnFailure(state.items, turnId, message);
             state.activeTurnId = null;
             state.updatedAt = Instant.now();
-            state.items.add(new CopilotConversationItem("error-" + turnId,
-                    CopilotConversationItem.Kind.SYSTEM, message, "failed", null));
         }
         emit(new CopilotEvent.Failure(state.sessionId, turnId, message));
+    }
+
+    static void recordTurnFailure(List<CopilotConversationItem> items, String turnId, String message) {
+        for (int i = 0; i < items.size(); i++) {
+            CopilotConversationItem item = items.get(i);
+            if (item.id().equals("assistant-" + turnId)) {
+                items.set(i, new CopilotConversationItem(
+                        item.id(), item.kind(), item.text(), "completed", item.details()));
+                break;
+            }
+        }
+        items.add(new CopilotConversationItem("error-" + turnId,
+                CopilotConversationItem.Kind.SYSTEM, message, "failed", null));
     }
 
     private void rebuildHistory(ConversationState state, List<SessionEvent> events) {
@@ -755,6 +794,7 @@ public class CopilotConversationService {
         private volatile CompletableFuture<CopilotSession> resumeInFlight;
         private volatile Closeable eventSubscription;
         private volatile String activeTurnId;
+        private volatile boolean pendingAbort;
         private volatile String selectedModel;
         private volatile String title = "New Copilot chat";
         private volatile String preview = "No messages yet";

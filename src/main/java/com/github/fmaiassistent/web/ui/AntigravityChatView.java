@@ -146,9 +146,12 @@ final class AntigravityChatView extends Div {
     private void configureActions() {
         send.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         send.addClickListener(event -> sendMessage());
+        send.getElement().setAttribute("aria-label", "Send message");
         stop.addThemeVariants(ButtonVariant.LUMO_ERROR);
         stop.addClickListener(event -> stopTurn());
+        stop.getElement().setAttribute("aria-label", "Stop generating");
         newChat.addClickListener(event -> createConversation());
+        newChat.getElement().setAttribute("aria-label", "Start a new chat");
     }
 
     private void updateAvailability(AntigravityAvailability value) {

@@ -168,7 +168,7 @@
 
 .chat-message-meta {
     font-size: var(--lumo-font-size-xs);
-    opacity: 0.75;
+    opacity: 0.92;
 }
 
 .chat-message-user .chat-message-meta {
@@ -176,6 +176,7 @@
 }
 
 .chat-message-body {
+    overflow-wrap: anywhere;
     white-space: pre-wrap;
     line-height: 1.55;
 }
@@ -190,6 +191,7 @@
 }
 
 .chat-markdown {
+    overflow-wrap: anywhere;
     font-size: 0.95rem;
     line-height: 1.55;
     color: inherit;
@@ -296,4 +298,45 @@
     .chat-unconfigured {
         padding: var(--lumo-space-m);
     }
+}
+
+/* Shared agent chats (Codex / Copilot / Antigravity) — keep in this file so they
+   stay aligned with ChatView bubbles and composers. */
+vaadin-message-list.codex-messages {
+    background: transparent;
+    color: var(--fmai-text);
+}
+
+.codex-conversation-button.selected {
+    background: var(--fmai-accent-soft);
+    color: var(--fmai-accent);
+    font-weight: 750;
+}
+
+.codex-status[data-state="error"],
+.codex-status[data-state="unavailable"],
+.codex-status[data-state="authentication_required"] {
+    color: var(--fmai-danger);
+    font-weight: 700;
+}
+
+.codex-status[data-state="ready"] {
+    color: var(--fmai-accent);
+    font-weight: 700;
+}
+
+.tactic-context-status {
+    color: var(--fmai-accent);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.chat-send,
+.chat-stop,
+.codex-input-actions vaadin-button {
+    min-width: 6.5em;
+}
+
+.codex-chat-header {
+    flex-wrap: wrap;
 }

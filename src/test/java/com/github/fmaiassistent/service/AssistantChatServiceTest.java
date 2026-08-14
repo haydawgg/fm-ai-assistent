@@ -1,0 +1,44 @@
+package com.github.fmaiassistent.service;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class AssistantChatServiceTest {
+
+    @Test
+    void secondTurnIncludesTheFirstUserMessage() {
+        List<AssistantChatService.ChatTurn> history = List.of(
+                new AssistantChatService.ChatTurn(true, "Who is my best striker?"),
+                new AssistantChatService.ChatTurn(false, "Ada"));
+        List<Message> messages = AssistantChatService.promptMessages(history, "Why him?");
+
+        assertEquals(3, messages.size());
+        assertInstanceOf(UserMessage.class, messages.get(0));
+        assertEquals("Who is my best striker?", messages.get(0).getText());
+        assertInstanceOf(AssistantMessage.class, messages.get(1));
+        assertEquals("Ada", messages.get(1).getText());
+        assertInstanceOf(UserMessage.class, messages.get(2));
+        assertEquals("Why him?", messages.get(2).getText());
+    }
+
+    @Test
+    void historyIsCapped() {
+        List<AssistantChatService.ChatTurn> history = new ArrayList<>();
+        for (int index = 0; index < AssistantChatService.MAX_HISTORY_MESSAGES + 4; index++) {
+            history.add(new AssistantChatService.ChatTurn(index % 2 == 0, "m" + index));
+        }
+        List<Message> messages = AssistantChatService.promptMessages(history, "latest");
+        assertEquals(AssistantChatService.MAX_HISTORY_MESSAGES + 1, messages.size());
+        assertEquals("latest", messages.getLast().getText());
+        assertTrue(messages.getFirst().getText().startsWith("m"));
+    }
+}

@@ -18,6 +18,7 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
@@ -49,6 +50,7 @@ public class SquadTrimView extends VerticalLayout {
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
+            summary.addClassName("moneyball-empty");
             return;
         }
         clubFilter.setItems(clubs.findAllClubs().stream()
@@ -87,7 +89,23 @@ public class SquadTrimView extends VerticalLayout {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick a club to rank the squad.");
         grid.addColumn(SquadAdvice.SellRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::recommendation).setHeader("Call").setWidth("6em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.SellRow::recommendation)
+                .setHeader("Call")
+                .setRenderer(new ComponentRenderer<>(row -> {
+                    String call = row.recommendation() == null ? "" : row.recommendation();
+                    Span badge = new Span(call);
+                    badge.addClassName("row-badge");
+                    if ("sell".equals(call)) {
+                        badge.addClassName("row-badge-injury");
+                    } else if ("loan".equals(call)) {
+                        badge.addClassName("row-badge-loan");
+                    } else {
+                        badge.addClassName("row-badge-transfer");
+                    }
+                    return badge;
+                }))
+                .setWidth("6em")
+                .setFlexGrow(0);
         grid.addColumn(SquadAdvice.SellRow::name).setHeader("Name").setAutoWidth(true);
         grid.addColumn(SquadAdvice.SellRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.SellRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);

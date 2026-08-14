@@ -26,24 +26,56 @@
 
 .moneyball-filters {
     flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 12px;
     width: 100%;
-    padding: var(--lumo-space-s) var(--lumo-space-s) 0;
+    padding: 12px;
     background: var(--fmai-surface);
     border: 1px solid var(--fmai-border);
     border-radius: var(--fmai-radius-l);
     flex: 0 0 auto;
 }
 
+.moneyball-filters vaadin-integer-field {
+    width: 8.5em;
+    min-width: 7.5em;
+}
+
+.moneyball-filters vaadin-combo-box {
+    min-width: 8em;
+}
+
+.moneyball-filters vaadin-checkbox {
+    padding-bottom: 6px;
+}
+
 .moneyball-run {
     margin-bottom: 0;
 }
 
-.moneyball-summary,
-.moneyball-summary.moneyball-empty {
+.moneyball-summary {
     color: var(--fmai-text-muted);
     font-size: var(--lumo-font-size-s);
     padding: 0 var(--lumo-space-s);
     flex: 0 0 auto;
+    line-height: 1.45;
+}
+
+.moneyball-summary.moneyball-empty {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 12em;
+    margin: 0;
+    padding: 48px 24px;
+    border: 1px dashed var(--fmai-border);
+    border-radius: var(--fmai-radius-l);
+    background: var(--fmai-surface);
+    color: var(--fmai-text-muted);
+    font-size: 14px;
+    line-height: 1.5;
+    text-align: center;
 }
 
 .rating-cell {
@@ -96,12 +128,44 @@
 
 .moneyball-grid {
     flex: 1 1 0;
+    min-width: 0;
     min-height: 0;
 }
 
-.first-xi-upgrades {
-    flex: 0 0 16em;
+.first-xi-view vaadin-text-area {
+    flex: 0 0 auto;
+}
+
+.live-selected-xi {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 6px;
     min-height: 0;
+}
+
+.live-selected-xi .moneyball-grid {
+    flex: 0 0 auto;
+    max-height: 28vh;
+}
+
+.first-xi-boards {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+}
+
+.first-xi-grid {
+    flex: 1 1 0;
+    min-height: 12em;
+}
+
+.first-xi-upgrades {
+    flex: 0 1 14em;
+    min-height: 8em;
+    max-height: 32vh;
 }
 
 .first-xi-heading {
@@ -109,4 +173,19 @@
     color: var(--fmai-text-muted);
     font-size: var(--lumo-font-size-s);
     font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+@media (max-width: 900px) {
+    .moneyball-filters vaadin-integer-field,
+    .moneyball-filters vaadin-combo-box {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .first-xi-upgrades {
+        max-height: none;
+        flex: 1 1 12em;
+    }
 }

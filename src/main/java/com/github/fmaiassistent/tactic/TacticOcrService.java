@@ -114,10 +114,23 @@ class TacticOcrService implements TacticImageTextExtractor {
         }
         try {
             Path temporary = Files.createTempFile("fm26-tactic-shape-", ".png");
-            if (!ImageIO.write(gray, "png", temporary.toFile())) {
-                throw new IllegalStateException("Could not prepare tactic screenshot for OCR");
+            try {
+                if (!ImageIO.write(gray, "png", temporary.toFile())) {
+                    Files.deleteIfExists(temporary);
+                    throw new IllegalStateException("Could not prepare tactic screenshot for OCR");
+                }
+                return temporary;
+            } catch (IOException | RuntimeException exception) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException ignored) {
+                    log.debug("Could not delete temporary tactic OCR image {}", temporary, ignored);
+                }
+                if (exception instanceof IllegalStateException state) {
+                    throw state;
+                }
+                throw new IllegalStateException("Could not prepare tactic screenshot for OCR", exception);
             }
-            return temporary;
         } catch (IOException exception) {
             throw new IllegalStateException("Could not prepare tactic screenshot for OCR", exception);
         }

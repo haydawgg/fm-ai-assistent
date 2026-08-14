@@ -19,7 +19,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public final class SquadAdvice {
+    /** Depth, surplus, and best-at-position use a natural rating (typically 15+ in FM). */
     private static final int NATURAL_POSITION = 15;
+    /** First XI may fill with an accomplished player (10+); this is looser than {@link #NATURAL_POSITION}. */
+    private static final int XI_MIN_POSITION = 10;
     private static final Set<String> COMPARE_ATTRIBUTES = Set.of(
             "PASSING", "TACKLING", "MARKING", "POSITIONING", "PACE", "ACCELERATION",
             "STRENGTH", "STAMINA", "FIRST_TOUCH", "TECHNIQUE", "VISION", "COMPOSURE",
@@ -239,7 +242,7 @@ public final class SquadAdvice {
             int bestPosition = 0;
             for (PlayerEntity player : remaining) {
                 int positionScore = Positions.score(player, slot.position());
-                if (positionScore < 10) {
+                if (positionScore < XI_MIN_POSITION) {
                     continue;
                 }
                 Double fit = roleFit == null ? null : roleFit.apply(player, slot);
@@ -389,8 +392,8 @@ public final class SquadAdvice {
         return value == null ? null : value.longValue();
     }
 
-    private static Long asNumber(Object value) {
-        return value instanceof Number number ? number.longValue() : parseLong(String.valueOf(value));
+    static Long asNumber(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
     }
 
     private static Long parseLong(String value) {

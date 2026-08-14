@@ -18,6 +18,7 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
@@ -51,6 +52,7 @@ public class SquadCompareView extends VerticalLayout {
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
+            summary.addClassName("moneyball-empty");
             return;
         }
         List<String> names = clubs.findAllClubs().stream()
@@ -93,7 +95,15 @@ public class SquadCompareView extends VerticalLayout {
         grid.addColumn(SquadAdvice.SquadCompareRow::rightName).setHeader("Right player");
         grid.addColumn(SquadAdvice.SquadCompareRow::rightCa).setHeader("Right CA").setWidth("6em").setFlexGrow(0);
         grid.addColumn(row -> row.caGap() > 0 ? "+" + row.caGap() : String.valueOf(row.caGap()))
-                .setHeader("CA gap").setWidth("6em").setFlexGrow(0);
+                .setHeader("CA gap")
+                .setRenderer(new ComponentRenderer<>(row -> {
+                    int gap = row.caGap();
+                    Span value = new Span(gap > 0 ? "+" + gap : String.valueOf(gap));
+                    value.addClassName(gap >= 0 ? "gap-positive" : "gap-negative");
+                    return value;
+                }))
+                .setWidth("6em")
+                .setFlexGrow(0);
     }
 
     private void run() {

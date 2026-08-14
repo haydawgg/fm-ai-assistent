@@ -7,7 +7,7 @@
     --fmai-border-strong: rgba(255, 255, 255, 0.14);
     --fmai-text: #e8f0ec;
     --fmai-text-muted: #9aa8a1;
-    --fmai-text-faint: #6b7a72;
+    --fmai-text-faint: #85948c;
     --fmai-accent: #2ad18a;
     --fmai-accent-hover: #4ae0a0;
     --fmai-accent-soft: rgba(42, 209, 138, 0.12);
@@ -210,6 +210,14 @@ body {
     color: var(--fmai-accent);
 }
 
+.fmai-nav-item::part(label) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    justify-content: flex-start;
+}
+
 .fmai-nav-item vaadin-icon {
     width: 18px;
     height: 18px;
@@ -317,6 +325,7 @@ body {
 /* Focus visible rings */
 .fmai-nav-item:focus-visible,
 .fmai-sidebar-toggle:focus-visible,
+vaadin-drawer-toggle.fmai-sidebar-toggle:focus-visible,
 .toolbar-button:focus-visible,
 .load-button:focus-visible,
 .icon-button:focus-visible,
@@ -325,6 +334,11 @@ body {
 .drawer-compare:focus-visible,
 .filter-chip-clear:focus-visible,
 .chat-starter:focus-visible,
+.chat-send:focus-visible,
+.chat-stop:focus-visible,
+.moneyball-run:focus-visible,
+.codex-conversation-button:focus-visible,
+.codex-login-link:focus-visible,
 vaadin-button:focus-visible,
 vaadin-tab:focus-visible {
     outline: 2px solid var(--fmai-accent);

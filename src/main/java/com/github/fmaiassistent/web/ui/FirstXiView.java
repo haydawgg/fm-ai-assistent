@@ -11,6 +11,7 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
@@ -19,6 +20,7 @@ import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
@@ -59,6 +61,7 @@ public class FirstXiView extends VerticalLayout {
         setPadding(false);
         setSpacing(false);
         addClassName("moneyball-view");
+        addClassName("first-xi-view");
         String liveSlots = String.valueOf(players.metadata().getOrDefault("tactic_slots", ""));
         tactic.setValue(liveSlots.isBlank() ? DEFAULT_TACTIC : liveSlots);
         tactic.setWidthFull();
@@ -74,12 +77,20 @@ public class FirstXiView extends VerticalLayout {
         configureUpgrades();
         Span upgradesHeading = new Span("Suggested buys for holes");
         upgradesHeading.addClassName("first-xi-heading");
+        Span recommendedHeading = new Span("Recommended XI (role fit)");
+        recommendedHeading.addClassName("first-xi-heading");
         summary.addClassName("moneyball-summary");
-        add(header(), filterBar(), tactic, summary, grid, upgradesHeading, upgrades);
-        expand(grid);
+        Div boards = new Div(recommendedHeading, grid, upgradesHeading, upgrades);
+        boards.addClassName("first-xi-boards");
+        add(header(), new LiveSelectedXiPanel(players.metadata()), filterBar(), tactic, summary, boards);
+        expand(boards);
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
+            upgrades.setVisible(false);
+            recommendedHeading.setVisible(false);
+            upgradesHeading.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
+            summary.addClassName("moneyball-empty");
             return;
         }
         clubFilter.setItems(clubs.findAllClubs().stream()
@@ -111,6 +122,7 @@ public class FirstXiView extends VerticalLayout {
 
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
+        grid.addClassName("first-xi-grid");
         grid.setEmptyStateText("Pick a club and run.");
         grid.addColumn(SquadAdvice.XiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::playerName).setHeader("Player");
@@ -120,7 +132,17 @@ public class FirstXiView extends VerticalLayout {
         grid.addColumn(SquadAdvice.XiPick::roleFit).setHeader("Role fit").setWidth("6em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(pick -> pick.hole() ? "hole" : "filled").setHeader("Status").setWidth("6em").setFlexGrow(0);
+        grid.addColumn(pick -> pick.hole() ? "hole" : "filled")
+                .setHeader("Status")
+                .setRenderer(new ComponentRenderer<>(pick -> {
+                    boolean hole = pick.hole();
+                    Span badge = new Span(hole ? "hole" : "filled");
+                    badge.addClassName("row-badge");
+                    badge.addClassName(hole ? "row-badge-injury" : "row-badge-transfer");
+                    return badge;
+                }))
+                .setWidth("6em")
+                .setFlexGrow(0);
     }
 
     private void configureUpgrades() {

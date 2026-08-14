@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.TransferShortlistRow;
@@ -27,6 +28,8 @@ import com.vaadin.flow.router.Route;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Route(value = "shortlist", layout = AppShell.class)
 @PageTitle("Shortlist")
@@ -47,6 +50,7 @@ public class ShortlistView extends VerticalLayout {
     private final Span summary = new Span();
     private final Grid<TransferShortlistRow> grid = new Grid<>();
     private final MoneyCurrency currency;
+    private Map<String, ClubEntity> clubsByName = Map.of();
 
     public ShortlistView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
@@ -64,12 +68,13 @@ public class ShortlistView extends VerticalLayout {
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
+            summary.addClassName("moneyball-empty");
             return;
         }
-        clubFilter.setItems(clubs.findAllClubs().stream()
-                .map(club -> club.getName())
-                .filter(name -> name != null && !name.isBlank())
-                .distinct()
+        clubsByName = clubs.findAllClubs().stream()
+                .filter(club -> club.getName() != null && !club.getName().isBlank())
+                .collect(Collectors.toMap(ClubEntity::getName, club -> club, (left, right) -> left));
+        clubFilter.setItems(clubsByName.keySet().stream()
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .toList());
     }
@@ -136,6 +141,10 @@ public class ShortlistView extends VerticalLayout {
                 : MoneyDisplay.format(row.askingPrice(), currency)).setHeader("Fee");
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
         grid.addColumn(row -> capitalize(row.willingness())).setHeader("Willingness");
+        grid.addColumn(row -> row.transferListed() ? "Listed" : "").setHeader("Listed")
+                .setWidth("5.5em").setFlexGrow(0);
+        grid.addColumn(row -> row.injured() ? "Inj" : "").setHeader("Inj")
+                .setWidth("4em").setFlexGrow(0);
         grid.addColumn(row -> String.join(", ", row.signals())).setHeader("Signals").setFlexGrow(1);
     }
 
@@ -161,9 +170,13 @@ public class ShortlistView extends VerticalLayout {
         try {
             List<TransferShortlistRow> rows = tools.transferShortlistRows(
                     club, position, role, ageCap, value(minCa), value(minPa),
-                    value(maxPrice) == null ? null : value(maxPrice).longValue(), value(maxWage));
+                    feePounds(), wagePounds());
             grid.setItems(rows);
-            summary.setText(rows.size() + " candidates · same ranking as fm26_transfer_shortlist"
+            long listed = rows.stream().filter(TransferShortlistRow::transferListed).count();
+            long injured = rows.stream().filter(TransferShortlistRow::injured).count();
+            summary.setText(rows.size() + " candidates · " + listed + " listed · " + injured + " injured"
+                    + budgetSummary(club)
+                    + " · same ranking as fm26_transfer_shortlist"
                     + (Boolean.TRUE.equals(wonderkids.getValue()) ? " with wonderkid age cap" : ""));
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
@@ -171,6 +184,30 @@ public class ShortlistView extends VerticalLayout {
         } finally {
             runButton.setEnabled(true);
         }
+    }
+
+    private String budgetSummary(String clubName) {
+        ClubEntity club = clubsByName.get(clubName);
+        if (club == null) {
+            return "";
+        }
+        String fee = club.getTransferBudget() == null ? "unknown" : MoneyDisplay.format(club.getTransferBudget(), currency);
+        String wage = club.getPayrollBudget() == null ? "unknown" : MoneyDisplay.format(club.getPayrollBudget(), currency);
+        return " · transfer budget " + fee + " · wage budget/wk " + wage;
+    }
+
+    private Long feePounds() {
+        Integer displayed = value(maxPrice);
+        return displayed == null ? null : MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+    }
+
+    private Integer wagePounds() {
+        Integer displayed = value(maxWage);
+        if (displayed == null) {
+            return null;
+        }
+        long pounds = MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+        return pounds > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) pounds;
     }
 
     private static Integer value(IntegerField field) {
