@@ -28,6 +28,7 @@ public class AppSettingsService {
     private static final String SETTINGS_FILE = "fm-ai-assistent.properties";
     private static final String SETTINGS_FILE_PROPERTY = "fmaiassistent.settings.file";
     private static final String CURRENCY_KEY = "currency";
+    private static final String SESSION_CLUB_KEY = "session.club";
     private static final String PLAYER_VIEWS_KEY = "player.views";
     private static final String OPENROUTER_API_KEY = "openrouter.api.key";
     private static final String OPENROUTER_MODEL_KEY = "openrouter.model";
@@ -54,6 +55,25 @@ public class AppSettingsService {
         synchronized (settingsLock) {
             Properties properties = load();
             properties.setProperty(CURRENCY_KEY, (currency == null ? MoneyCurrency.POUND : currency).propertyValue());
+            save(properties);
+        }
+    }
+
+    public String sessionClub() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(SESSION_CLUB_KEY, "");
+            return value == null ? "" : value.strip();
+        }
+    }
+
+    public void saveSessionClub(String club) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (club == null || club.isBlank()) {
+                properties.remove(SESSION_CLUB_KEY);
+            } else {
+                properties.setProperty(SESSION_CLUB_KEY, club.strip());
+            }
             save(properties);
         }
     }

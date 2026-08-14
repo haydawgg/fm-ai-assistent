@@ -121,6 +121,36 @@ class SquadAdviceTest {
         assertNull(SquadAdvice.asNumber(null));
     }
 
+    @Test
+    void daysUntilExpiryUsesGameDate() {
+        PlayerEntity player = player("Expiring", 140, 24, 8_000, "Striker", 18, false, "2026-06-30", "2026-01-01");
+        assertEquals(180, SquadAdvice.daysUntilExpiry(player));
+    }
+
+    @Test
+    void contractQueueMapsKeepToRenewAndSkipsFarContracts() {
+        PlayerEntity renew = player("RenewMe", 150, 24, 8_000, "Striker", 18, false, "2026-03-01", "2026-01-01");
+        PlayerEntity later = player("Later", 148, 24, 8_000, "Striker", 17, false, "2028-01-01", "2026-01-01");
+        List<SquadAdvice.ContractRow> rows = SquadAdvice.contractQueue(List.of(renew, later), club());
+        assertEquals(1, rows.size());
+        assertEquals("RenewMe", rows.get(0).name());
+        assertEquals("renew", rows.get(0).action());
+        assertEquals(59, rows.get(0).daysUntilExpiry());
+    }
+
+    @Test
+    void wageHealthComparesBillToPayroll() {
+        ClubEntity club = club();
+        List<PlayerEntity> squad = List.of(
+                player("A", 140, 22, 8_000, "Striker", 18),
+                player("B", 138, 24, 12_000, "Goalkeeper", 17));
+        SquadAdvice.WageHealth health = SquadAdvice.wageHealth(squad, club);
+        assertEquals(20_000, health.wageBillWeekly());
+        assertEquals(100_000L, health.payrollBudget());
+        assertEquals(0.2, health.usedFraction(), 0.0001);
+        assertFalse(health.overBudget());
+    }
+
     private static ClubEntity club() {
         Map<String, Object> row = new HashMap<>();
         row.put("sourceAddress", 1L);
@@ -136,11 +166,24 @@ class SquadAdviceTest {
     }
 
     private static PlayerEntity player(String name, int ca, int age, int wage, String position, int positionScore) {
-        return player(name, ca, age, wage, position, positionScore, false);
+        return player(name, ca, age, wage, position, positionScore, false, null, null);
     }
 
     private static PlayerEntity player(
             String name, int ca, int age, int wage, String position, int positionScore, boolean injured) {
+        return player(name, ca, age, wage, position, positionScore, injured, null, null);
+    }
+
+    private static PlayerEntity player(
+            String name,
+            int ca,
+            int age,
+            int wage,
+            String position,
+            int positionScore,
+            boolean injured,
+            String contractEnd,
+            String ageAsOf) {
         Map<String, Object> row = new HashMap<>();
         row.put("name", name);
         row.put("ca", ca);
@@ -151,6 +194,12 @@ class SquadAdviceTest {
         row.put("playing_club", "Test FC");
         row.put(position, positionScore);
         row.put("injured", injured);
+        if (contractEnd != null) {
+            row.put("contract_end_date", contractEnd);
+        }
+        if (ageAsOf != null) {
+            row.put("age_as_of", ageAsOf);
+        }
         return PlayerEntity.fromExportRow(row);
     }
 

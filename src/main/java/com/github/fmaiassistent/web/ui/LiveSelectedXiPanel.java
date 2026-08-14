@@ -34,7 +34,7 @@ public class LiveSelectedXiPanel extends VerticalLayout {
 
         List<SelectedSlot> slots = parse(stringMeta(metadata, "tactic_selected"));
         if (slots.isEmpty()) {
-            grid.setEmptyStateText("No selected XI in this snapshot. Load from RAM with FM26 running.");
+            grid.setEmptyStateText("No selected XI in this snapshot. Load from the top bar with FM26 running.");
             grid.setItems(List.of());
         } else {
             grid.setItems(slots);

@@ -1,5 +1,10 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.service.AppSettingsService;
+import com.github.fmaiassistent.service.ClubDatabaseService;
+import com.github.fmaiassistent.service.OpenRouterModelCatalog;
+import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.HasElement;
 import com.vaadin.flow.component.UI;
@@ -7,6 +12,7 @@ import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.applayout.DrawerToggle;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
@@ -19,24 +25,41 @@ import com.vaadin.flow.router.AfterNavigationObserver;
 import com.vaadin.flow.router.RouterLayout;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @CssImport("./styles/fmai-dark.css")
 @CssImport("./styles/chat-view.css")
+@CssImport("./styles/pitch-board.css")
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 public class AppShell extends AppLayout implements RouterLayout, AfterNavigationObserver {
 
+    private final AppSettingsService settings;
+    private final OpenRouterModelCatalog catalog;
+    private final RamLoadCoordinator ramLoad;
     private final Map<String, NavItem> navItems = new LinkedHashMap<>();
     private final Span pageTitle = new Span();
     private final Div contentWrapper = new Div();
     private final VerticalLayout sidebarNav = new VerticalLayout();
+    private final Span snapshot = new Span();
+    private final ComboBox<String> club = new ComboBox<>();
+    private final Button loadButton = new Button("Load", VaadinIcon.DATABASE.create());
+    private final Button settingsButton = new Button(VaadinIcon.COG.create());
 
-    public AppShell() {
+    public AppShell(
+            AppSettingsService settings,
+            ClubDatabaseService clubs,
+            PlayerDatabaseService players,
+            RamLoadCoordinator ramLoad,
+            OpenRouterModelCatalog catalog) {
+        this.settings = settings;
+        this.catalog = catalog;
+        this.ramLoad = ramLoad;
         setPrimarySection(Section.DRAWER);
         addClassName("fmai-shell");
 
         buildSidebar();
-        buildTopbar();
+        buildTopbar(clubs, players);
 
         contentWrapper.addClassName("fmai-content");
         setContent(contentWrapper);
@@ -64,6 +87,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         addNavItem("Moneyball", VaadinIcon.TRENDING_UP, "moneyball");
         addNavItem("Squad trim", VaadinIcon.MINUS, "squad-trim");
         addNavItem("First XI", VaadinIcon.CLIPBOARD_TEXT, "first-xi");
+        addNavItem("Contracts", VaadinIcon.WALLET, "contracts");
         addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
         addNavItem("Chat", VaadinIcon.CHAT, "chat");
 
@@ -71,7 +95,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         addToDrawer(sidebar);
     }
 
-    private void buildTopbar() {
+    private void buildTopbar(ClubDatabaseService clubs, PlayerDatabaseService players) {
         HorizontalLayout topbar = new HorizontalLayout();
         topbar.addClassName("fmai-topbar");
         topbar.setWidthFull();
@@ -92,8 +116,72 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         left.setAlignItems(FlexComponent.Alignment.CENTER);
         left.setSpacing(true);
 
-        topbar.add(left);
+        snapshot.addClassName("fmai-snapshot");
+        refreshSnapshot(players);
+
+        Span currency = new Span(settings.currency().symbol() + " " + settings.currency().label());
+        currency.addClassName("fmai-currency");
+        currency.getElement().setAttribute("title", "Display currency — change in Settings");
+
+        List<String> names = SessionClub.names(clubs);
+        club.setPlaceholder("Your club");
+        club.setAriaLabel("Your club");
+        club.setClearButtonVisible(true);
+        club.addClassName("fmai-session-club");
+        club.setWidth("14rem");
+        SessionClub.prefill(club, settings, names);
+        club.addValueChangeListener(event -> {
+            if (event.isFromClient()) {
+                settings.saveSessionClub(event.getValue());
+                UI ui = UI.getCurrent();
+                if (ui != null) {
+                    ui.getPage().reload();
+                }
+            }
+        });
+
+        loadButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        loadButton.addClassName("fmai-load");
+        loadButton.getElement().setAttribute("aria-label", "Load from RAM");
+        loadButton.addClickListener(event -> RamLoadUi.start(ramLoad, loadButton));
+
+        settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        settingsButton.addClassName("icon-button");
+        settingsButton.setTooltipText("Settings");
+        settingsButton.getElement().setAttribute("aria-label", "Settings");
+        settingsButton.addClickListener(event -> SettingsDialog.open(
+                settings, catalog, settings.currency(), ignored -> {
+                    UI ui = UI.getCurrent();
+                    if (ui != null) {
+                        ui.getPage().reload();
+                    }
+                }));
+
+        HorizontalLayout actions = new HorizontalLayout(snapshot, currency, club, loadButton, settingsButton);
+        actions.setAlignItems(FlexComponent.Alignment.CENTER);
+        actions.setSpacing(true);
+        actions.addClassName("fmai-topbar-actions");
+
+        topbar.add(left, actions);
         addToNavbar(topbar);
+    }
+
+    private void refreshSnapshot(PlayerDatabaseService players) {
+        Map<String, Object> meta = players.metadata();
+        long count = players.countPlayers();
+        Object gameDate = meta.get("game_date");
+        Object loadedAt = meta.get("loaded_at");
+        if (count <= 0) {
+            snapshot.setText("No snapshot — Load with FM26 running");
+            snapshot.getElement().setAttribute("data-empty", "true");
+            return;
+        }
+        String date = gameDate == null || String.valueOf(gameDate).isBlank() ? "date unknown" : String.valueOf(gameDate);
+        snapshot.setText(count + " players · " + date);
+        snapshot.getElement().setAttribute("data-empty", "false");
+        if (loadedAt != null && !String.valueOf(loadedAt).isBlank()) {
+            snapshot.getElement().setAttribute("title", "Loaded " + loadedAt);
+        }
     }
 
     private void addNavItem(String label, VaadinIcon icon, String route) {

@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class ShortlistView extends VerticalLayout {
     private final FmAiAssistentTools tools;
-    private final ComboBox<String> clubFilter = new ComboBox<>("Club");
+    private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
     private final ComboBox<String> roleFilter = new ComboBox<>("In-possession role");
     private final IntegerField minCa = new IntegerField("Min CA");
@@ -57,6 +57,7 @@ public class ShortlistView extends VerticalLayout {
     public ShortlistView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
+        this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
         setPadding(false);
         setSpacing(false);
@@ -69,16 +70,19 @@ public class ShortlistView extends VerticalLayout {
         summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
-            summary.setText("Load from RAM on the scouting desk first.");
+            summary.setText("Load from the top bar with FM26 running.");
             summary.addClassName("moneyball-empty");
             return;
         }
         clubsByName = clubs.findAllClubs().stream()
                 .filter(club -> club.getName() != null && !club.getName().isBlank())
                 .collect(Collectors.toMap(ClubEntity::getName, club -> club, (left, right) -> left));
-        clubFilter.setItems(clubsByName.keySet().stream()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList());
+        if (sessionClub.isBlank()) {
+            summary.setText("Pick your club in the top bar.");
+            summary.addClassName("moneyball-empty");
+            return;
+        }
+        run();
     }
 
     private Component header() {
@@ -102,8 +106,6 @@ public class ShortlistView extends VerticalLayout {
         roleFilter.setItems(roles);
         roleFilter.setValue("Any");
         roleFilter.setWidth("16em");
-        clubFilter.setPlaceholder("Pick your club");
-        clubFilter.setWidth("16em");
         minCa.setPlaceholder("any");
         minPa.setPlaceholder("any");
         maxAge.setPlaceholder("any");
@@ -111,13 +113,8 @@ public class ShortlistView extends VerticalLayout {
         maxWage.setPlaceholder("auto");
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(event -> run());
-        clubFilter.addValueChangeListener(event -> {
-            if (event.getValue() != null) {
-                run();
-            }
-        });
         HorizontalLayout bar = new HorizontalLayout(
-                clubFilter, positionFilter, roleFilter, minCa, minPa, maxAge, maxPrice, maxWage, wonderkids, runButton);
+                positionFilter, roleFilter, minCa, minPa, maxAge, maxPrice, maxWage, wonderkids, runButton);
         bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
@@ -126,7 +123,7 @@ public class ShortlistView extends VerticalLayout {
 
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
-        grid.setEmptyStateText("Pick a club to rank signings.");
+        grid.setEmptyStateText("Pick your club in the top bar to rank signings.");
         grid.addColumn(TransferShortlistRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(row -> String.format(Locale.ROOT, "%.1f", row.score())).setHeader("Score").setWidth("5em").setFlexGrow(0);
         grid.addColumn(TransferShortlistRow::name).setHeader("Name").setAutoWidth(true);
@@ -151,9 +148,9 @@ public class ShortlistView extends VerticalLayout {
     }
 
     private void run() {
-        String club = clubFilter.getValue();
-        if (club == null || club.isBlank()) {
-            Notification.show("Pick a club first", 3000, Notification.Position.MIDDLE)
+        String club = sessionClub;
+        if (club.isBlank()) {
+            Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }

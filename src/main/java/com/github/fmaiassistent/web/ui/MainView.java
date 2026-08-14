@@ -174,24 +174,12 @@ public class MainView extends VerticalLayout {
     }
 
     private Component header() {
-        loadButton.addClickListener(event -> loadAllData());
-        settingsButton.addClickListener(event -> SettingsDialog.open(
-                settings, openRouterModels, currency, saved -> {
-                    currency = saved;
-                    refreshSelectedTab();
-                }));
         filterButton.addClickListener(event -> openFilterDialog());
-        loadButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        loadButton.addClassName("load-button");
         filterButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         filterButton.addClassName("toolbar-button");
-        settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        settingsButton.addClassName("icon-button");
-        settingsButton.setTooltipText("Settings");
-        settingsButton.getElement().setAttribute("aria-label", "Settings");
 
         status.addClassName("app-status");
-        HorizontalLayout appBar = new HorizontalLayout(status, loadButton, settingsButton);
+        HorizontalLayout appBar = new HorizontalLayout(status);
         appBar.setWidthFull();
         appBar.setAlignItems(Alignment.CENTER);
         appBar.setJustifyContentMode(FlexComponent.JustifyContentMode.END);

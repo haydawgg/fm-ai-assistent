@@ -75,6 +75,24 @@ public final class SquadAdvice {
             boolean hole) {
     }
 
+    public record WageHealth(long wageBillWeekly, Long payrollBudget, Double usedFraction) {
+        public boolean overBudget() {
+            return payrollBudget != null && payrollBudget > 0 && wageBillWeekly > payrollBudget;
+        }
+    }
+
+    public record ContractRow(
+            String name,
+            String position,
+            Integer age,
+            int ca,
+            int salaryWeekly,
+            String contractEnd,
+            Long daysUntilExpiry,
+            String action,
+            List<String> reasons) {
+    }
+
     public static List<SellRow> sellShortlist(List<PlayerEntity> squad, ClubEntity club) {
         List<PlayerEntity> playable = squad.stream().filter(MarketValuation::hasPlayablePosition).toList();
         int firstTeamCa = firstTeamAverageCa(playable);
@@ -159,6 +177,72 @@ public final class SquadAdvice {
                     row.caVsFirstTeam(), row.recommendation(), row.sellScore(), row.reasons()));
         }
         return ranked;
+    }
+
+    public static WageHealth wageHealth(List<PlayerEntity> squad, ClubEntity club) {
+        List<PlayerEntity> playable = squad.stream().filter(MarketValuation::hasPlayablePosition).toList();
+        long bill = playable.stream()
+                .map(PlayerEntity::getSalaryWeeklyRaw)
+                .filter(Objects::nonNull)
+                .mapToLong(Integer::longValue)
+                .sum();
+        Long payroll = club == null ? null : club.getPayrollBudget();
+        Double used = payroll == null || payroll <= 0 ? null : bill / (double) payroll;
+        return new WageHealth(bill, payroll, used);
+    }
+
+    public static Long daysUntilExpiry(PlayerEntity player) {
+        LocalDate end = parseDate(player.getContractEndDate());
+        LocalDate game = parseDate(player.getAgeAsOf());
+        if (end == null || game == null) {
+            return null;
+        }
+        return ChronoUnit.DAYS.between(game, end);
+    }
+
+    public static List<ContractRow> contractQueue(List<PlayerEntity> squad, ClubEntity club) {
+        Map<String, SellRow> byName = new HashMap<>();
+        for (SellRow row : sellShortlist(squad, club)) {
+            byName.put(row.name(), row);
+        }
+        List<ContractRow> rows = new ArrayList<>();
+        for (PlayerEntity player : squad.stream().filter(MarketValuation::hasPlayablePosition).toList()) {
+            Long days = daysUntilExpiry(player);
+            if (days == null || days < 0 || days > 180) {
+                continue;
+            }
+            SellRow sell = byName.get(player.getName());
+            String recommendation = sell == null ? "keep" : sell.recommendation();
+            String action = switch (recommendation) {
+                case "sell" -> "sell";
+                case "loan" -> "loan";
+                default -> "renew";
+            };
+            List<String> reasons = new ArrayList<>();
+            reasons.add("contract_expiring");
+            if (sell != null) {
+                for (String reason : sell.reasons()) {
+                    if (!"contract_expiring".equals(reason)) {
+                        reasons.add(reason);
+                    }
+                }
+            }
+            rows.add(new ContractRow(
+                    player.getName(),
+                    Positions.bestCode(player),
+                    parseAge(player.getAge()),
+                    nz(player.getCa()),
+                    nz(player.getSalaryWeeklyRaw()),
+                    player.getContractEndDate(),
+                    days,
+                    action,
+                    List.copyOf(reasons)));
+        }
+        rows.sort(Comparator
+                .comparingLong((ContractRow row) -> row.daysUntilExpiry() == null ? Long.MAX_VALUE : row.daysUntilExpiry())
+                .thenComparing(Comparator.comparingInt(ContractRow::salaryWeekly).reversed())
+                .thenComparing(ContractRow::name, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return rows;
     }
 
     public static Map<String, Object> compareSquads(
@@ -351,13 +435,8 @@ public final class SquadAdvice {
     }
 
     private static boolean contractExpiringSoon(PlayerEntity player) {
-        LocalDate end = parseDate(player.getContractEndDate());
-        LocalDate game = parseDate(player.getAgeAsOf());
-        if (end == null || game == null) {
-            return false;
-        }
-        long days = ChronoUnit.DAYS.between(game, end);
-        return days >= 0 && days <= 180;
+        Long days = daysUntilExpiry(player);
+        return days != null && days >= 0 && days <= 180;
     }
 
     private static LocalDate parseDate(String value) {

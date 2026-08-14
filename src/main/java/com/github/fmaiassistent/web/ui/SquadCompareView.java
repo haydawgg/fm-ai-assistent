@@ -53,18 +53,19 @@ public class SquadCompareView extends VerticalLayout {
         summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
-            summary.setText("Load from RAM on the scouting desk first.");
+            summary.setText("Load from the top bar with FM26 running.");
             summary.addClassName("moneyball-empty");
             return;
         }
-        List<String> names = clubs.findAllClubs().stream()
-                .map(club -> club.getName())
-                .filter(name -> name != null && !name.isBlank())
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+        List<String> names = SessionClub.names(clubs);
         leftClub.setItems(names);
         rightClub.setItems(names);
+        String session = SessionClub.resolved(settings, names);
+        if (!session.isBlank()) {
+            leftClub.setValue(session);
+            leftClub.setReadOnly(true);
+            leftClub.setHelperText("Your club from the top bar");
+        }
     }
 
     private Component header() {
@@ -75,7 +76,7 @@ public class SquadCompareView extends VerticalLayout {
     }
 
     private HorizontalLayout filterBar() {
-        leftClub.setPlaceholder("Pick a club");
+        leftClub.setPlaceholder("Pick your club in the top bar");
         rightClub.setPlaceholder("Pick a club");
         leftClub.setWidth("16em");
         rightClub.setWidth("16em");
@@ -112,7 +113,7 @@ public class SquadCompareView extends VerticalLayout {
         String left = leftClub.getValue();
         String right = rightClub.getValue();
         if (left == null || left.isBlank() || right == null || right.isBlank()) {
-            Notification.show("Pick both clubs", 3000, Notification.Position.MIDDLE)
+            Notification.show("Pick your club in the top bar and another club", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }

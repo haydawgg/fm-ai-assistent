@@ -110,7 +110,7 @@ public class FmAiAssistentTools {
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("club", clubMap(club));
-        out.put("squad_summary", squadSummary(squad));
+        out.put("squad_summary", squadSummary(squad, club));
         out.put("squad", squad.stream()
                 .limit(safeLimit(squadLimit))
                 .map(this::playerSummaryMap)
@@ -562,6 +562,26 @@ public class FmAiAssistentTools {
         ClubEntity club = requireClub(managingClub);
         return SquadAdvice.sellShortlist(
                 ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SquadAdvice.ContractRow> contractRows(String managingClub) {
+        ClubEntity club = requireClub(managingClub);
+        return SquadAdvice.contractQueue(
+                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+    }
+
+    @Transactional(readOnly = true)
+    public SquadAdvice.WageHealth wageHealth(String managingClub) {
+        ClubEntity club = requireClub(managingClub);
+        return SquadAdvice.wageHealth(
+                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> unavailableForClub(String managingClub) {
+        ClubEntity club = requireClub(managingClub);
+        return unavailablePlayers(currentSquad(allPlayers(), club.getName()));
     }
 
     /**
@@ -1740,7 +1760,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    private Map<String, Object> squadSummary(List<PlayerEntity> squad) {
+    private Map<String, Object> squadSummary(List<PlayerEntity> squad, ClubEntity club) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("player_count", squad.size());
         out.put("average_ca", averageInt(squad, PlayerEntity::getCa));
@@ -1751,6 +1771,13 @@ public class FmAiAssistentTools {
                 .filter(player -> inRange(asInteger(player.getAge()), null, 23))
                 .filter(player -> value(player.getPa()) >= 150)
                 .count());
+        SquadAdvice.WageHealth health = SquadAdvice.wageHealth(squad, club);
+        out.put("wage_bill_weekly", health.wageBillWeekly());
+        out.put("payroll_budget", health.payrollBudget());
+        if (health.payrollBudget() != null) {
+            out.put("payroll_headroom_weekly", health.payrollBudget() - health.wageBillWeekly());
+        }
+        out.put("wage_bill_used_fraction", health.usedFraction());
         return out;
     }
 

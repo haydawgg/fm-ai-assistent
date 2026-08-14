@@ -48,7 +48,7 @@ public class MoneyballView extends VerticalLayout {
 
     private final FmAiAssistentTools tools;
 
-    private final ComboBox<String> clubFilter = new ComboBox<>("Club");
+    private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
     private final IntegerField minCa = new IntegerField("Min CA");
     private final IntegerField minPa = new IntegerField("Min PA");
@@ -63,6 +63,7 @@ public class MoneyballView extends VerticalLayout {
     public MoneyballView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
+        this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
         setPadding(false);
         setSpacing(false);
@@ -78,11 +79,16 @@ public class MoneyballView extends VerticalLayout {
 
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
-            summary.setText("No FM data in the H2 database yet - open the Scouting desk and click \"Load from RAM\" first.");
+            summary.setText("Load from the top bar with FM26 running.");
             summary.addClassName("moneyball-empty");
             return;
         }
-        clubFilter.setItems(clubNames(clubs));
+        if (sessionClub.isBlank()) {
+            summary.setText("Pick your club in the top bar.");
+            summary.addClassName("moneyball-empty");
+            return;
+        }
+        run();
     }
 
     private Component header() {
@@ -101,8 +107,6 @@ public class MoneyballView extends VerticalLayout {
         positionFilter.setValue("Any");
         positionFilter.setWidth("7.5em");
 
-        clubFilter.setPlaceholder("Pick your club");
-        clubFilter.setWidth("16em");
         minCa.setPlaceholder("auto");
         minPa.setPlaceholder("any");
         maxAge.setPlaceholder("any");
@@ -112,14 +116,9 @@ public class MoneyballView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClassName("moneyball-run");
         runButton.addClickListener(event -> run());
-        clubFilter.addValueChangeListener(event -> {
-            if (event.getValue() != null) {
-                run();
-            }
-        });
 
         HorizontalLayout bar = new HorizontalLayout(
-                clubFilter, positionFilter, minCa, minPa, maxAge, maxPrice, maxWage, runButton);
+                positionFilter, minCa, minPa, maxAge, maxPrice, maxWage, runButton);
         bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
@@ -129,7 +128,7 @@ public class MoneyballView extends VerticalLayout {
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
         grid.setSelectionMode(Grid.SelectionMode.NONE);
-        grid.setEmptyStateText("Pick a club to see value signings.");
+        grid.setEmptyStateText("Pick your club in the top bar to see value signings.");
 
         grid.addColumn(MoneyballRow::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(ratingRenderer()).setHeader("Signing")
@@ -174,9 +173,9 @@ public class MoneyballView extends VerticalLayout {
     }
 
     private void run() {
-        String clubName = clubFilter.getValue();
-        if (clubName == null || clubName.isBlank()) {
-            Notification.show("Pick a club first", 3000, Notification.Position.MIDDLE)
+        String clubName = sessionClub;
+        if (clubName.isBlank()) {
+            Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
@@ -248,15 +247,6 @@ public class MoneyballView extends VerticalLayout {
             value.addClassName(gap >= 0 ? "gap-positive" : "gap-negative");
             return value;
         });
-    }
-
-    private static List<String> clubNames(ClubDatabaseService clubs) {
-        return clubs.findAllClubs().stream()
-                .map(club -> club.getName())
-                .filter(name -> name != null && !name.isBlank())
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
     }
 
     private Long feePounds() {
