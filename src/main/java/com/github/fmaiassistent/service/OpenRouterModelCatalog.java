@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class OpenRouterModelCatalog {
     public static final String BASE_URL = "https://openrouter.ai/api/v1";
-    public static final String DEFAULT_MODEL = "openai/gpt-4.1-mini";
+    public static final String DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free";
     public static final String HTTP_REFERER = "https://github.com/haydawgg/fm-ai-assistent";
     public static final String APP_TITLE = "FM AI Assistent";
 

@@ -2,6 +2,7 @@ package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.ai.AiPromptContext;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -19,6 +20,7 @@ import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -141,14 +143,21 @@ public class AssistantChatService {
                 cachedApiKey = apiKey;
                 cachedModel = model;
                 cachedClub = club;
+                OpenAiChatOptions options = chatOptions(apiKey, model);
+                OpenAIOkHttpClient.Builder syncBuilder = OpenAIOkHttpClient.builder()
+                        .apiKey(apiKey)
+                        .baseUrl(OpenRouterModelCatalog.BASE_URL)
+                        .putHeader("HTTP-Referer", OpenRouterModelCatalog.HTTP_REFERER)
+                        .putHeader("X-Title", OpenRouterModelCatalog.APP_TITLE);
+                OpenAIOkHttpClientAsync.Builder asyncBuilder = OpenAIOkHttpClientAsync.builder()
+                        .apiKey(apiKey)
+                        .baseUrl(OpenRouterModelCatalog.BASE_URL)
+                        .putHeader("HTTP-Referer", OpenRouterModelCatalog.HTTP_REFERER)
+                        .putHeader("X-Title", OpenRouterModelCatalog.APP_TITLE);
                 OpenAiChatModel chatModel = OpenAiChatModel.builder()
-                        .openAiClient(OpenAIOkHttpClient.builder()
-                                .apiKey(apiKey)
-                                .baseUrl(OpenRouterModelCatalog.BASE_URL)
-                                .putHeader("HTTP-Referer", OpenRouterModelCatalog.HTTP_REFERER)
-                                .putHeader("X-Title", OpenRouterModelCatalog.APP_TITLE)
-                                .build())
-                        .options(OpenAiChatOptions.builder().model(model).build())
+                        .openAiClient(syncBuilder.build())
+                        .openAiClientAsync(asyncBuilder.build())
+                        .options(options)
                         .build();
                 client = ChatClient.builder(chatModel)
                         .defaultSystem(systemPrompt(club))
@@ -197,6 +206,17 @@ public class AssistantChatService {
             String name = definition == null ? null : definition.name();
             onTool.accept(labelForTool(name));
         }
+    }
+
+    static OpenAiChatOptions chatOptions(String apiKey, String model) {
+        return OpenAiChatOptions.builder()
+                .model(model)
+                .apiKey(apiKey)
+                .baseUrl(OpenRouterModelCatalog.BASE_URL)
+                .customHeaders(Map.of(
+                        "HTTP-Referer", OpenRouterModelCatalog.HTTP_REFERER,
+                        "X-Title", OpenRouterModelCatalog.APP_TITLE))
+                .build();
     }
 
     static String systemPrompt(String sessionClub) {

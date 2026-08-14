@@ -71,7 +71,10 @@ class AssistantChatServiceTest {
     }
 
     @Test
-    void systemPromptNamesTheSessionClub() {
-        assertTrue(AssistantChatService.systemPrompt("Feyenoord").contains("Feyenoord"));
+    void chatOptionsTargetOpenRouter() {
+        var options = AssistantChatService.chatOptions("sk-or-test", "openai/gpt-4.1-mini");
+        assertEquals("https://openrouter.ai/api/v1", options.getBaseUrl());
+        assertEquals("sk-or-test", options.getApiKey());
+        assertEquals("openai/gpt-4.1-mini", options.getModel());
     }
 }

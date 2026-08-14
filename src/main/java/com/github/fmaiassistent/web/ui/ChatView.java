@@ -24,6 +24,7 @@ import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.BeforeEnterEvent;
 import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
@@ -241,6 +242,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         input.setMinHeight("4.5em");
         input.setMaxHeight("12em");
         input.setAriaLabel("Message");
+        input.setValueChangeMode(ValueChangeMode.EAGER);
         input.getElement().addEventListener("keydown", event -> send())
                 .setFilter("event.key === 'Enter' && !event.shiftKey")
                 .addEventData("event.preventDefault()");
