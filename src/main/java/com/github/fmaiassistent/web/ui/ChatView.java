@@ -24,6 +24,8 @@ import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
@@ -46,7 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @PageTitle("Chat")
 @CssImport("./styles/chat-view.css")
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
-public class ChatView extends VerticalLayout {
+public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final long STREAM_PAINT_NANOS = 32_000_000L;
     private static final List<String> STARTERS = List.of(
@@ -79,6 +81,7 @@ public class ChatView extends VerticalLayout {
     private boolean applyingModel;
     private String conversationId = newConversationId();
     private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
+    private String pendingPrompt = "";
 
     public ChatView(
             AssistantChatService chat,
@@ -113,10 +116,22 @@ public class ChatView extends VerticalLayout {
     }
 
     @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        pendingPrompt = event.getLocation().getQueryParameters().getSingleParameter("q").orElse("");
+    }
+
+    @Override
     protected void onAttach(AttachEvent event) {
         super.onAttach(event);
         refreshSnapshot();
         updateConfigurationState();
+        if (!pendingPrompt.isBlank() && chat.configured()) {
+            String prompt = pendingPrompt;
+            pendingPrompt = "";
+            event.getUI().getPage().getHistory().replaceState(null, "chat");
+            input.setValue(prompt);
+            send();
+        }
     }
 
     @Override
@@ -267,7 +282,7 @@ public class ChatView extends VerticalLayout {
     private void refreshSnapshot() {
         long count = players.countPlayers();
         snapshot.setText(count <= 0
-                ? "No RAM snapshot — load from Desk"
+                ? "No RAM snapshot — load from the top bar"
                 : count + " players loaded");
         snapshot.getElement().setAttribute("data-empty", count <= 0);
     }
@@ -519,7 +534,7 @@ public class ChatView extends VerticalLayout {
             }
             tools.add(name.strip());
             if (!contentVisible) {
-                typingLabel.setText("Using " + String.join(" · ", tools));
+                typingLabel.setText(String.join(" · ", tools));
                 typing.getElement().setAttribute("aria-label", typingLabel.getText());
             }
         }

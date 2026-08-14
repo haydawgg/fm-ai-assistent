@@ -51,6 +51,7 @@ public class AssistantChatService {
     private final Object clientLock = new Object();
     private String cachedApiKey;
     private String cachedModel;
+    private String cachedClub;
     private ChatClient client;
 
     public AssistantChatService(AppSettingsService settings, ToolCallbackProvider tools, AiPromptContext promptContext) {
@@ -131,12 +132,15 @@ public class AssistantChatService {
     private ChatClient chatClient() {
         String apiKey = settings.openRouterApiKey();
         String model = settings.openRouterModel();
+        String club = settings.sessionClub();
         synchronized (clientLock) {
             if (client == null
                     || !Objects.equals(apiKey, cachedApiKey)
-                    || !Objects.equals(model, cachedModel)) {
+                    || !Objects.equals(model, cachedModel)
+                    || !Objects.equals(club, cachedClub)) {
                 cachedApiKey = apiKey;
                 cachedModel = model;
+                cachedClub = club;
                 OpenAiChatModel chatModel = OpenAiChatModel.builder()
                         .openAiClient(OpenAIOkHttpClient.builder()
                                 .apiKey(apiKey)
@@ -147,7 +151,7 @@ public class AssistantChatService {
                         .options(OpenAiChatOptions.builder().model(model).build())
                         .build();
                 client = ChatClient.builder(chatModel)
-                        .defaultSystem(SYSTEM)
+                        .defaultSystem(systemPrompt(club))
                         .build();
             }
             return client;
@@ -191,7 +195,36 @@ public class AssistantChatService {
             }
             ToolDefinition definition = delegate.getToolDefinition();
             String name = definition == null ? null : definition.name();
-            onTool.accept(name == null || name.isBlank() ? "tool" : name);
+            onTool.accept(labelForTool(name));
         }
+    }
+
+    static String systemPrompt(String sessionClub) {
+        if (sessionClub == null || sessionClub.isBlank()) {
+            return SYSTEM;
+        }
+        return SYSTEM + "The manager's club this session is " + sessionClub.strip() + ".\n";
+    }
+
+    static String labelForTool(String name) {
+        if (name == null || name.isBlank()) {
+            return "Working";
+        }
+        return switch (name) {
+            case "fm26_status" -> "Checking snapshot";
+            case "fm26_find_players" -> "Searching players";
+            case "fm26_get_player_details" -> "Opening player";
+            case "fm26_get_club_context" -> "Reading club";
+            case "fm26_transfer_shortlist" -> "Searching shortlist";
+            case "fm26_moneyball_shortlist" -> "Ranking value signings";
+            case "fm26_wonderkid_shortlist" -> "Searching wonderkids";
+            case "fm26_sell_shortlist" -> "Ranking sales";
+            case "fm26_best_xi" -> "Picking first XI";
+            case "fm26_current_tactic" -> "Reading live tactic";
+            case "fm26_compare_squads" -> "Comparing squads";
+            case "fm26_compare_players" -> "Comparing players";
+            case "fm26_load_from_ram" -> "Loading from RAM";
+            default -> name.startsWith("fm26_") ? name.substring(5).replace('_', ' ') : name;
+        };
     }
 }

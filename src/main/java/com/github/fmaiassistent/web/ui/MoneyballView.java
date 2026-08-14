@@ -13,6 +13,7 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.grid.Grid;
+import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
@@ -57,6 +58,7 @@ public class MoneyballView extends VerticalLayout {
     private final IntegerField maxWage = new IntegerField();
     private final Button runButton = new Button("Find value", VaadinIcon.DIPLOMA.create());
     private final Span summary = new Span();
+    private final Div dealCards = new Div();
     private final Grid<MoneyballRow> grid = new Grid<>();
     private final MoneyCurrency currency;
 
@@ -73,7 +75,8 @@ public class MoneyballView extends VerticalLayout {
         maxWage.setLabel("Max wage/wk (" + currency.symbol() + ")");
 
         configureGrid();
-        add(header(), filterBar(), summary, grid);
+        dealCards.addClassName("deal-card-strip");
+        add(header(), filterBar(), summary, dealCards, grid);
         expand(grid);
         summary.addClassName("moneyball-summary");
 
@@ -129,6 +132,7 @@ public class MoneyballView extends VerticalLayout {
         grid.addClassName("moneyball-grid");
         grid.setSelectionMode(Grid.SelectionMode.NONE);
         grid.setEmptyStateText("Pick your club in the top bar to see value signings.");
+        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
 
         grid.addColumn(MoneyballRow::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(ratingRenderer()).setHeader("Signing")
@@ -194,6 +198,7 @@ public class MoneyballView extends VerticalLayout {
         ).thenAccept(result -> ui.access(() -> {
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
+            renderDealCards(result.rows());
             summary.setText("Pool " + result.candidatePoolSize() + " · rated " + result.ratedCount()
                     + " · market model: " + result.pricedPlayers() + " priced players in "
                     + result.bucketCount() + " buckets · sorted by signing_rating");
@@ -208,6 +213,50 @@ public class MoneyballView extends VerticalLayout {
             });
             return null;
         });
+    }
+
+    private void renderDealCards(List<MoneyballRow> rows) {
+        dealCards.removeAll();
+        int shown = 0;
+        for (MoneyballRow row : rows) {
+            if (shown >= 12) {
+                break;
+            }
+            dealCards.add(dealCard(row));
+            shown++;
+        }
+        dealCards.setVisible(shown > 0);
+    }
+
+    private Div dealCard(MoneyballRow row) {
+        Span tier = new Span(row.deal().tier());
+        tier.addClassName("tier-badge");
+        tier.addClassName("tier-" + row.deal().tier());
+        Span name = new Span(row.name());
+        name.addClassName("deal-card-name");
+        Span meta = new Span((row.age() == null ? "" : row.age() + " · ")
+                + (row.club() == null ? "" : row.club()));
+        meta.addClassName("deal-card-meta");
+        Span rating = new Span("Signing " + row.signingRating());
+        rating.addClassName("rating-value");
+        long gap = row.deal().marketCost() - row.deal().totalCost();
+        Span why = new Span(gap >= 0
+                ? "Cheap by " + money(gap) + " vs market (fee + 3-yr wages)"
+                : "Over market by " + money(Math.abs(gap)) + " on fee + 3-yr wages");
+        why.addClassName("deal-card-why");
+        Span cost = new Span((row.freeAgent() ? "Free" : money(row.costFee())) + " · 3-yr " + money(row.deal().totalCost()));
+        cost.addClassName("deal-card-cost");
+        Button dossier = new Button("Dossier", event -> PlayerDossier.openNamed(tools, row.name(), currency, sessionClub));
+        dossier.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        Button explain = new Button("Explain in Chat", event ->
+                ChatLaunch.open(ChatLaunch.explainDeal(row.name(), sessionClub)));
+        explain.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        HorizontalLayout actions = new HorizontalLayout(dossier, explain);
+        actions.setSpacing(true);
+        Div card = new Div(tier, name, meta, rating, cost, why, actions);
+        card.addClassName("deal-card");
+        card.addClassName("deal-card-" + row.deal().tier());
+        return card;
     }
 
     private static ComponentRenderer<HorizontalLayout, MoneyballRow> ratingRenderer() {

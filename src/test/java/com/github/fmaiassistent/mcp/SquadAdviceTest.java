@@ -151,6 +151,17 @@ class SquadAdviceTest {
         assertFalse(health.overBudget());
     }
 
+    @Test
+    void academyKeepsU21AndComparesToFirstTeam() {
+        PlayerEntity kid = player("Kid", 90, 18, 1_000, "Striker", 16);
+        PlayerEntity starter = player("Starter", 140, 24, 8_000, "Striker", 18);
+        List<SquadAdvice.AcademyRow> rows = SquadAdvice.academy(List.of(kid, starter), 21);
+        assertEquals(1, rows.size());
+        assertEquals("Kid", rows.get(0).name());
+        assertEquals(90 - SquadAdvice.firstTeamAverageCa(List.of(kid, starter)), rows.get(0).vsFirstTeam());
+        assertTrue(rows.get(0).dualPositions() >= 1);
+    }
+
     private static ClubEntity club() {
         Map<String, Object> row = new HashMap<>();
         row.put("sourceAddress", 1L);

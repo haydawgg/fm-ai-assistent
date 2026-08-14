@@ -98,6 +98,7 @@ public class ContractsView extends VerticalLayout {
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Nobody out of contract in the next 180 days.");
+        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
         grid.addColumn(SquadAdvice.ContractRow::action)
                 .setHeader("Action")
                 .setRenderer(new ComponentRenderer<>(row -> {

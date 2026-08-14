@@ -124,6 +124,7 @@ public class ShortlistView extends VerticalLayout {
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick your club in the top bar to rank signings.");
+        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
         grid.addColumn(TransferShortlistRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(row -> String.format(Locale.ROOT, "%.1f", row.score())).setHeader("Score").setWidth("5em").setFlexGrow(0);
         grid.addColumn(TransferShortlistRow::name).setHeader("Name").setAutoWidth(true);

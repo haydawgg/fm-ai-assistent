@@ -584,6 +584,21 @@ public class FmAiAssistentTools {
         return unavailablePlayers(currentSquad(allPlayers(), club.getName()));
     }
 
+    @Transactional(readOnly = true)
+    public PlayerEntity playerByName(String name) {
+        return pickPlayer(allPlayers(), name, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge) {
+        ClubEntity club = requireClub(managingClub);
+        int cap = maxAge == null ? 21 : maxAge;
+        List<PlayerEntity> youth = allPlayers().stream()
+                .filter(player -> belongsToClub(player, club.getName()))
+                .toList();
+        return SquadAdvice.academy(youth, cap);
+    }
+
     /**
      * Web UI entry point: the same pipeline as fm26_transfer_shortlist with no candidate cap.
      */
@@ -1669,7 +1684,7 @@ public class FmAiAssistentTools {
         return clamp(wageCeiling / (double) weeklyWage);
     }
 
-    static Long askingPriceOrNull(Long askingPrice) {
+    public static Long askingPriceOrNull(Long askingPrice) {
         return askingPrice == null || askingPrice == 0L ? null : askingPrice;
     }
 

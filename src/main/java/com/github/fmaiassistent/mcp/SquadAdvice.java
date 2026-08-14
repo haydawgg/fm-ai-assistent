@@ -81,6 +81,19 @@ public final class SquadAdvice {
         }
     }
 
+    public record AcademyRow(
+            String name,
+            String position,
+            Integer age,
+            int ca,
+            int pa,
+            int upside,
+            int vsFirstTeam,
+            int dualPositions,
+            int salaryWeekly,
+            String contractEnd) {
+    }
+
     public record ContractRow(
             String name,
             String position,
@@ -242,6 +255,41 @@ public final class SquadAdvice {
                 .comparingLong((ContractRow row) -> row.daysUntilExpiry() == null ? Long.MAX_VALUE : row.daysUntilExpiry())
                 .thenComparing(Comparator.comparingInt(ContractRow::salaryWeekly).reversed())
                 .thenComparing(ContractRow::name, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return rows;
+    }
+
+    public static List<AcademyRow> academy(List<PlayerEntity> squad, int maxAge) {
+        List<PlayerEntity> playable = squad.stream().filter(MarketValuation::hasPlayablePosition).toList();
+        int firstTeamCa = firstTeamAverageCa(playable);
+        List<AcademyRow> rows = new ArrayList<>();
+        for (PlayerEntity player : playable) {
+            Integer age = parseAge(player.getAge());
+            if (age == null || age > maxAge) {
+                continue;
+            }
+            int ca = nz(player.getCa());
+            int pa = nz(player.getPa());
+            int dual = 0;
+            for (String code : PositionCodes.CODES) {
+                if (Positions.score(player, code) >= NATURAL_POSITION) {
+                    dual++;
+                }
+            }
+            rows.add(new AcademyRow(
+                    player.getName(),
+                    Positions.bestCode(player),
+                    age,
+                    ca,
+                    pa,
+                    Math.max(0, pa - ca),
+                    ca - firstTeamCa,
+                    dual,
+                    nz(player.getSalaryWeeklyRaw()),
+                    player.getContractEndDate()));
+        }
+        rows.sort(Comparator.comparingInt(AcademyRow::pa).reversed()
+                .thenComparingInt(AcademyRow::upside).reversed()
+                .thenComparing(AcademyRow::name, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         return rows;
     }
 
@@ -423,7 +471,7 @@ public final class SquadAdvice {
         return ranked.indexOf(player);
     }
 
-    private static int firstTeamAverageCa(List<PlayerEntity> squad) {
+    public static int firstTeamAverageCa(List<PlayerEntity> squad) {
         return (int) Math.round(squad.stream()
                 .map(PlayerEntity::getCa)
                 .filter(Objects::nonNull)

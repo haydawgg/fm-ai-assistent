@@ -18,26 +18,27 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.data.renderer.ComponentRenderer;
+import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-@Route(value = "squad-trim", layout = AppShell.class)
-@PageTitle("Squad trim")
+@Route(value = "academy", layout = AppShell.class)
+@PageTitle("Academy")
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
-public class SquadTrimView extends VerticalLayout {
+public class AcademyView extends VerticalLayout {
     private final FmAiAssistentTools tools;
     private final String sessionClub;
-    private final Button runButton = new Button("Rank squad", VaadinIcon.MINUS.create());
-    private final Span summary = new Span();
-    private final Grid<SquadAdvice.SellRow> grid = new Grid<>();
     private final MoneyCurrency currency;
+    private final IntegerField maxAge = new IntegerField("Max age");
+    private final Button runButton = new Button("Show intake", VaadinIcon.ACADEMY_CAP.create());
+    private final Span summary = new Span();
+    private final Grid<SquadAdvice.AcademyRow> grid = new Grid<>();
 
-    public SquadTrimView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public AcademyView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
@@ -45,10 +46,13 @@ public class SquadTrimView extends VerticalLayout {
         setPadding(false);
         setSpacing(false);
         addClassName("moneyball-view");
+        maxAge.setValue(21);
+        maxAge.setMin(15);
+        maxAge.setMax(23);
         configureGrid();
+        summary.addClassName("moneyball-summary");
         add(header(), filterBar(), summary, grid);
         expand(grid);
-        summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from the top bar with FM26 running.");
@@ -56,6 +60,7 @@ public class SquadTrimView extends VerticalLayout {
             return;
         }
         if (sessionClub.isBlank()) {
+            grid.setVisible(false);
             summary.setText("Pick your club in the top bar.");
             summary.addClassName("moneyball-empty");
             return;
@@ -64,16 +69,17 @@ public class SquadTrimView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Sell, loan or keep: depth, CA vs first team, wages and contracts. Same ranking as fm26_sell_shortlist.");
+        Span hint = new Span("Your club's U21s vs first-team CA. Dual positions are natural ratings (15+). This is your intake, not a world wonderkid shop.");
         hint.addClassName("moneyball-hint");
         hint.setWidthFull();
         return hint;
     }
 
     private HorizontalLayout filterBar() {
+        maxAge.setWidth("8em");
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(event -> run());
-        HorizontalLayout bar = new HorizontalLayout(runButton);
+        HorizontalLayout bar = new HorizontalLayout(maxAge, runButton);
         bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
@@ -82,57 +88,37 @@ public class SquadTrimView extends VerticalLayout {
 
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
-        grid.setEmptyStateText("Pick your club in the top bar to rank the squad.");
-        grid.addItemClickListener(event -> {
-            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
-        });
-        grid.addColumn(SquadAdvice.SellRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::recommendation)
-                .setHeader("Call")
-                .setRenderer(new ComponentRenderer<>(row -> {
-                    String call = row.recommendation() == null ? "" : row.recommendation();
-                    Span badge = new Span(call);
-                    badge.addClassName("row-badge");
-                    if ("sell".equals(call)) {
-                        badge.addClassName("row-badge-injury");
-                    } else if ("loan".equals(call)) {
-                        badge.addClassName("row-badge-loan");
-                    } else {
-                        badge.addClassName("row-badge-transfer");
-                    }
-                    return badge;
-                }))
-                .setWidth("6em")
-                .setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(SquadAdvice.SellRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::caVsFirstTeam).setHeader("vs XI").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::depthAtPosition).setHeader("Depth").setWidth("5em").setFlexGrow(0);
+        grid.setEmptyStateText("No youth players at this age cap.");
+        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
+        grid.addColumn(SquadAdvice.AcademyRow::name).setHeader("Name").setAutoWidth(true);
+        grid.addColumn(SquadAdvice.AcademyRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.AcademyRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.AcademyRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.AcademyRow::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.AcademyRow::upside).setHeader("Upside").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(row -> row.vsFirstTeam() >= 0 ? "+" + row.vsFirstTeam() : String.valueOf(row.vsFirstTeam()))
+                .setHeader("vs XI").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadAdvice.AcademyRow::dualPositions).setHeader("Natural pos").setWidth("7em").setFlexGrow(0);
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
-        grid.addColumn(row -> row.askingPrice() == null ? "" : MoneyDisplay.format(row.askingPrice(), currency))
-                .setHeader("Asking");
-        grid.addColumn(SquadAdvice.SellRow::contractEnd).setHeader("Contract");
-        grid.addColumn(row -> String.join(", ", row.reasons())).setHeader("Reasons").setFlexGrow(1);
+        grid.addColumn(SquadAdvice.AcademyRow::contractEnd).setHeader("Contract");
     }
 
     private void run() {
-        String club = sessionClub;
-        if (club.isBlank()) {
+        if (sessionClub.isBlank()) {
             Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        Integer cap = maxAge.getValue() == null ? 21 : maxAge.getValue();
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        CompletableFuture.supplyAsync(() -> tools.sellRows(club))
+        CompletableFuture.supplyAsync(() -> tools.academyRows(sessionClub, cap))
                 .thenAccept(rows -> ui.access(() -> {
                     grid.setItems(rows);
-                    long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
-                    long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
-                    summary.setText(rows.size() + " players · " + sell + " sell · " + loan + " loan");
+                    long cover = rows.stream().filter(row -> row.vsFirstTeam() >= -8).count();
+                    summary.removeClassName("moneyball-empty");
+                    summary.setText(rows.size() + " players ≤" + cap
+                            + " · " + cover + " within 8 CA of the first-team average");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
                     ui.access(() -> {

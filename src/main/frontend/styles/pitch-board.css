@@ -170,9 +170,54 @@
     background: var(--fmai-surface);
 }
 
-.fmai-snapshot[data-empty="true"] {
+.fmai-snapshot[data-empty="true"],
+.fmai-snapshot[data-stale="true"] {
     color: #f0d27a;
     border-color: rgba(240, 210, 122, 0.35);
+}
+
+.deal-card-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    flex: 0 0 auto;
+}
+
+.deal-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 16.5rem;
+    padding: 12px;
+    border-radius: var(--fmai-radius-l);
+    background: var(--fmai-surface);
+    border: 1px solid var(--fmai-border);
+}
+
+.deal-card-name {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.deal-card-meta,
+.deal-card-cost,
+.deal-card-why {
+    color: var(--fmai-text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.dossier-grid,
+.dossier-attrs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+    gap: 8px 12px;
+}
+
+.dossier-attr {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .contracts-health {

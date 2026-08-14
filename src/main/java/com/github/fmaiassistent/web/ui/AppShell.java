@@ -88,6 +88,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         addNavItem("Squad trim", VaadinIcon.MINUS, "squad-trim");
         addNavItem("First XI", VaadinIcon.CLIPBOARD_TEXT, "first-xi");
         addNavItem("Contracts", VaadinIcon.WALLET, "contracts");
+        addNavItem("Academy", VaadinIcon.ACADEMY_CAP, "academy");
         addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
         addNavItem("Chat", VaadinIcon.CHAT, "chat");
 
@@ -118,6 +119,14 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
         snapshot.addClassName("fmai-snapshot");
         refreshSnapshot(players);
+        snapshot.getElement().setAttribute("role", "button");
+        snapshot.getStyle().set("cursor", "pointer");
+        snapshot.addClickListener(event -> {
+            if ("true".equals(snapshot.getElement().getAttribute("data-stale"))
+                    || "true".equals(snapshot.getElement().getAttribute("data-empty"))) {
+                RamLoadUi.start(ramLoad, loadButton);
+            }
+        });
 
         Span currency = new Span(settings.currency().symbol() + " " + settings.currency().label());
         currency.addClassName("fmai-currency");
@@ -167,21 +176,11 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     }
 
     private void refreshSnapshot(PlayerDatabaseService players) {
-        Map<String, Object> meta = players.metadata();
-        long count = players.countPlayers();
-        Object gameDate = meta.get("game_date");
-        Object loadedAt = meta.get("loaded_at");
-        if (count <= 0) {
-            snapshot.setText("No snapshot — Load with FM26 running");
-            snapshot.getElement().setAttribute("data-empty", "true");
-            return;
-        }
-        String date = gameDate == null || String.valueOf(gameDate).isBlank() ? "date unknown" : String.valueOf(gameDate);
-        snapshot.setText(count + " players · " + date);
-        snapshot.getElement().setAttribute("data-empty", "false");
-        if (loadedAt != null && !String.valueOf(loadedAt).isBlank()) {
-            snapshot.getElement().setAttribute("title", "Loaded " + loadedAt);
-        }
+        SnapshotHeartbeat.Status status = SnapshotHeartbeat.from(players.metadata(), players.countPlayers());
+        snapshot.setText(status.label());
+        snapshot.getElement().setAttribute("title", status.title());
+        snapshot.getElement().setAttribute("data-empty", status.empty());
+        snapshot.getElement().setAttribute("data-stale", status.stale());
     }
 
     private void addNavItem(String label, VaadinIcon icon, String route) {

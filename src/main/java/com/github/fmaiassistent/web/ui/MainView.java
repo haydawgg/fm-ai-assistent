@@ -1144,11 +1144,14 @@ public class MainView extends VerticalLayout {
                 ? "Waiting for second player"
                 : "Compare with another player");
         compare.getElement().setAttribute("aria-label", "Compare with another player");
+        Button argue = new Button("Argue in Chat", event ->
+                ChatLaunch.open(ChatLaunch.argueFor(player.getName(), settings.sessionClub())));
+        argue.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         close.addClassName("drawer-close");
         close.getElement().setAttribute("aria-label", "Close player details");
-        Div nav = new Div(compare, previous, next, close);
+        Div nav = new Div(argue, compare, previous, next, close);
         nav.addClassName("drawer-actions");
         Div header = new Div(title, nav);
         header.addClassName("drawer-header");
@@ -1176,6 +1179,11 @@ public class MainView extends VerticalLayout {
                         new DetailField("Asking Price", moneyDisplay(player.getAskingPrice())),
                         new DetailField("Joined Club Date", player.getJoinedClubDate()),
                         new DetailField("Contract End Date", player.getContractEndDate()))),
+                detailSection("Injury", List.of(
+                        new DetailField("Injured", Boolean.TRUE.equals(player.getInjured()) ? "Yes" : "No"),
+                        new DetailField("Injury", player.getInjury()),
+                        new DetailField("Expected return", player.getInjuryExpectedReturn()),
+                        new DetailField("Days remaining", player.getInjuryMinDaysRemaining()))),
                 detailSection("Reputation", List.of(
                         new DetailField("Current Reputation", player.getCurrentReputation()),
                         new DetailField("Home Reputation", player.getHomeReputation()),

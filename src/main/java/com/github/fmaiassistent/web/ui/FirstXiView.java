@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.mcp.SquadAdvice;
@@ -54,6 +55,7 @@ public class FirstXiView extends VerticalLayout {
 
     private final FmAiAssistentTools tools;
     private final String sessionClub;
+    private final MoneyCurrency currency;
     private final Map<String, Object> metadata;
     private final TextArea tactic = new TextArea("Tactic slots");
     private final Button runButton = new Button("Pick XI", VaadinIcon.CLIPBOARD_TEXT.create());
@@ -71,6 +73,7 @@ public class FirstXiView extends VerticalLayout {
         this.tools = tools;
         this.metadata = players.metadata();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
+        this.currency = settings.currency();
         setSizeFull();
         setPadding(false);
         setSpacing(false);
@@ -141,6 +144,14 @@ public class FirstXiView extends VerticalLayout {
         grid.addClassName("moneyball-grid");
         grid.addClassName("first-xi-grid");
         grid.setEmptyStateText("Pick your club in the top bar and run.");
+        grid.addItemClickListener(event -> {
+            SquadAdvice.XiPick pick = event.getItem();
+            if (pick.hole()) {
+                ChatLaunch.open(ChatLaunch.explainHole(pick.position(), sessionClub));
+                return;
+            }
+            PlayerDossier.openNamed(tools, pick.playerName(), currency, sessionClub);
+        });
         grid.addColumn(SquadAdvice.XiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::playerName).setHeader("Player");
         grid.addColumn(SquadAdvice.XiPick::inPossessionRole).setHeader("In possession");

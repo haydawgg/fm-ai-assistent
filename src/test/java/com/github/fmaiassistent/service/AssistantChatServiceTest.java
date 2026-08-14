@@ -61,6 +61,17 @@ class AssistantChatServiceTest {
         };
         ToolCallback[] wrapped = AssistantChatService.observing(new ToolCallback[] {delegate}, seen::add);
         assertEquals("{}", wrapped[0].call("ping"));
-        assertEquals(List.of("fm26_status", "ran:ping"), seen);
+        assertEquals(List.of("Checking snapshot", "ran:ping"), seen);
+    }
+
+    @Test
+    void toolLabelsAreHuman() {
+        assertEquals("Searching shortlist", AssistantChatService.labelForTool("fm26_transfer_shortlist"));
+        assertEquals("Working", AssistantChatService.labelForTool(""));
+    }
+
+    @Test
+    void systemPromptNamesTheSessionClub() {
+        assertTrue(AssistantChatService.systemPrompt("Feyenoord").contains("Feyenoord"));
     }
 }
