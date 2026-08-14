@@ -5,7 +5,6 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -34,7 +33,7 @@ public class DatabaseService {
             @CacheEvict(cacheNames = JCacheConfiguration.CLUB_CACHE, allEntries = true),
             @CacheEvict(cacheNames = JCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
     })
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void clearAllTables() {
 
         try {

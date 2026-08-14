@@ -11,8 +11,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CompetitionExporter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CompetitionExporter.class);
     public static final List<String> FIELD_NAMES = List.of("sourceAddress", "name", "nation", "reputation", "gender");
 
     private static final long NAME_REL = 0x40;
@@ -24,6 +27,7 @@ public class CompetitionExporter {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "CompetitionOffset");
             Map<Long, Map<String, Object>> byCompetition = new LinkedHashMap<>();
+            int skipped = 0;
             for (long index = 0; index < bounds.count(); index++) {
                 long slotAddress = bounds.start() + index * 8;
                 var competitionOpt = reader.qwordOrNull(slotAddress);
@@ -36,8 +40,13 @@ public class CompetitionExporter {
                     if (!row.isEmpty()) {
                         byCompetition.put(competition, row);
                     }
-                } catch (IOException | RuntimeException ignored) {
+                } catch (IOException | RuntimeException ex) {
+                    skipped++;
+                    LOGGER.debug("Skipping competition at slot {}: {}", index, ex.toString());
                 }
+            }
+            if (skipped > 0) {
+                LOGGER.warn("Skipped {} competition records that could not be decoded", skipped);
             }
             List<Map<String, Object>> rows = new ArrayList<>(byCompetition.values());
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
@@ -53,7 +62,7 @@ public class CompetitionExporter {
             return Map.of();
         }
         int reputation = reader.readU16(competition + REPUTATION_REL);
-        if (reputation <= 0 || reputation > 200) {
+        if (reputation <= 0 || reputation > 10_000) {
             return Map.of();
         }
         String nation = reader.qwordOrNull(competition + NATION_REL)

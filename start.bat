@@ -32,7 +32,7 @@ for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8080 .*LISTENING"') d
 )
 timeout /t 2 /nobreak >nul
 
-call "%MVN%" -DskipTests spring-boot:run
+call "%MVN%" -DskipTests -Dspring-boot.run.jvmArguments="-Xms1g -Xmx6g --enable-native-access=ALL-UNNAMED" spring-boot:run
 if errorlevel 1 goto :fail
 goto :eof
 

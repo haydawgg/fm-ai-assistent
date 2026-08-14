@@ -9,10 +9,15 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public final class FmOffsets {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FmOffsets.class);
     public static final int DEFAULT_BUILD = 0x238bdd;
     public static final String PEOPLE_SLOT = "PeopleOffset";
     private static final long MAX_SCAN_REGION_SIZE = 80_000_000L;
@@ -105,7 +110,7 @@ public final class FmOffsets {
 
     public static long findGamePluginBase(ProcessMemoryReader reader) throws IOException {
         return reader.maps().stream()
-                .filter(region -> region.path().contains("game_plugin.dll"))
+                .filter(region -> region.path().toLowerCase(Locale.ROOT).contains("game_plugin.dll"))
                 .mapToLong(region -> region.start())
                 .min()
                 .orElseThrow(() -> new IllegalStateException("game_plugin.dll not found in maps"));
@@ -134,18 +139,47 @@ public final class FmOffsets {
             return cached;
         }
 
-        Long knownRva = BUILD_TO_TABLE_RVA.get(build);
-        if (knownRva != null) {
-            long candidate = gamePluginBase + knownRva;
-            if (tableScore(reader, candidate) >= MIN_VALID_TABLE_SCORE) {
+        LinkedHashSet<Long> rvas = new LinkedHashSet<>();
+        Long preferred = BUILD_TO_TABLE_RVA.get(build);
+        if (preferred != null) {
+            rvas.add(preferred);
+        }
+        rvas.addAll(BUILD_TO_TABLE_RVA.values());
+
+        int bestKnownScore = 0;
+        long bestKnownTable = 0;
+        for (long rva : rvas) {
+            long candidate = gamePluginBase + rva;
+            int score = tableScore(reader, candidate);
+            if (score > bestKnownScore) {
+                bestKnownScore = score;
+                bestKnownTable = candidate;
+            }
+            if (score >= MIN_VALID_TABLE_SCORE) {
+                LOGGER.info("Using offset table at game_plugin+0x{} (score {})", Long.toHexString(rva), score);
                 DETECTED_TABLE_BASES.put(cacheKey, candidate);
                 return candidate;
             }
         }
 
-        long detected = scanOffsetTableBase(reader, gamePluginBase);
-        DETECTED_TABLE_BASES.put(cacheKey, detected);
-        return detected;
+        LOGGER.warn(
+                "Known offset RVAs scored at most {} (need {}). Scanning game_plugin.dll.",
+                bestKnownScore,
+                MIN_VALID_TABLE_SCORE);
+        try {
+            long detected = scanOffsetTableBase(reader, gamePluginBase);
+            DETECTED_TABLE_BASES.put(cacheKey, detected);
+            return detected;
+        } catch (IllegalStateException ex) {
+            Map<String, Long> counts = bestKnownScore > 0 ? tableCounts(reader, bestKnownTable) : Map.of();
+            throw new IllegalStateException(
+                    "FM offset table not found for game_plugin.dll base 0x"
+                            + Long.toHexString(gamePluginBase)
+                            + ". Best known-RVA score " + bestKnownScore + "/" + MIN_VALID_TABLE_SCORE
+                            + (counts.isEmpty() ? "" : " counts=" + counts)
+                            + ". Load a save in FM26 and try again.",
+                    ex);
+        }
     }
 
     private static long scanOffsetTableBase(ProcessMemoryReader reader, long gamePluginBase) throws IOException {
@@ -204,17 +238,17 @@ public final class FmOffsets {
             return 0;
         }
         int score = 0;
-        score += scoreExact(counts.get("ContinentOffset"), 7, 10);
-        score += scoreExact(counts.get("RegionOffset"), 28, 10);
-        score += scoreRange(counts.get("PeopleOffset"), 30_000, 120_000, 5);
-        score += scoreRange(counts.get("TeamOffset"), 30_000, 90_000, 4);
-        score += scoreRange(counts.get("ClubOffset"), 10_000, 50_000, 4);
-        score += scoreRange(counts.get("CompetitionOffset"), 1_000, 20_000, 3);
-        score += scoreRange(counts.get("NationOffset"), 150, 400, 3);
-        score += scoreRange(counts.get("CurrencyOffset"), 50, 300, 2);
-        score += scoreRange(counts.get("CityOffset"), 30_000, 120_000, 3);
-        score += scoreRange(counts.get("StadiumOffset"), 5_000, 50_000, 2);
-        score += scoreRange(counts.get("AgreementOffset"), 0, 1_000, 1);
+        score += scoreRange(counts.get("ContinentOffset"), 5, 12, 10);
+        score += scoreRange(counts.get("RegionOffset"), 20, 40, 10);
+        score += scoreRange(counts.get("PeopleOffset"), 20_000, 500_000, 5);
+        score += scoreRange(counts.get("TeamOffset"), 10_000, 200_000, 4);
+        score += scoreRange(counts.get("ClubOffset"), 5_000, 100_000, 4);
+        score += scoreRange(counts.get("CompetitionOffset"), 200, 50_000, 3);
+        score += scoreRange(counts.get("NationOffset"), 100, 800, 3);
+        score += scoreRange(counts.get("CurrencyOffset"), 20, 500, 2);
+        score += scoreRange(counts.get("CityOffset"), 10_000, 500_000, 3);
+        score += scoreRange(counts.get("StadiumOffset"), 1_000, 100_000, 2);
+        score += scoreRange(counts.get("AgreementOffset"), 0, 50_000, 1);
         return score;
     }
 
@@ -230,7 +264,7 @@ public final class FmOffsets {
                     return Map.of();
                 }
                 long count = (end - start) / 8;
-                if (count < 0 || count > 200_000) {
+                if (count < 0 || count > 2_000_000) {
                     return Map.of();
                 }
                 counts.put(slot.getKey(), count);
@@ -239,10 +273,6 @@ public final class FmOffsets {
             return Map.of();
         }
         return counts;
-    }
-
-    private static int scoreExact(Long value, long expected, int points) {
-        return value != null && value == expected ? points : 0;
     }
 
     private static int scoreRange(Long value, long min, long max, int points) {

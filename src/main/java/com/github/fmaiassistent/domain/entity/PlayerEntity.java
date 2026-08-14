@@ -818,7 +818,18 @@ public class PlayerEntity {
             return text;
         }
         if (targetType == Integer.class) {
-            return Integer.valueOf(text);
+            try {
+                long number = Long.parseLong(text);
+                if (number > Integer.MAX_VALUE) {
+                    return Integer.MAX_VALUE;
+                }
+                if (number < Integer.MIN_VALUE) {
+                    return Integer.MIN_VALUE;
+                }
+                return (int) number;
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
         if (targetType == Long.class) {
             return Long.valueOf(text);

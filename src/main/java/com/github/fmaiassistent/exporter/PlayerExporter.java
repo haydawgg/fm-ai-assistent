@@ -23,6 +23,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_ABILITY_REL;
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_REPUTATION_REL;
@@ -37,6 +42,7 @@ import static com.github.fmaiassistent.player.AttributeDefinitions.VISIBLE_FIELD
 import static com.github.fmaiassistent.player.AttributeDefinitions.WORLD_REPUTATION_REL;
 
 public class PlayerExporter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlayerExporter.class);
     private static final int HEIGHT_CM_REL = -0x5A;
     private static final int JOINED_CLUB_DATE_REL = -0x38;
     private static final int INJURY_REFERENCE_REL = -0x190;
@@ -75,37 +81,61 @@ public class PlayerExporter {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
             long total = bounds.count();
-            int threads = Math.min(Runtime.getRuntime().availableProcessors(), 8);
-            List<Map<String, Object>> rows = Collections.synchronizedList(new ArrayList<>());
+            int threads = Math.min(Runtime.getRuntime().availableProcessors(), 4);
+            int expected = total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+            List<Map<String, Object>> rows = Collections.synchronizedList(new ArrayList<>(Math.min(expected, 250_000)));
             Map<Long, String> clubNames = new ConcurrentHashMap<>();
             ExecutorService pool = Executors.newFixedThreadPool(threads);
+            AtomicInteger skipped = new AtomicInteger();
             try {
                 long chunk = (total + threads - 1) / threads;
                 List<Future<?>> futures = new ArrayList<>();
                 for (int worker = 0; worker < threads; worker++) {
                     long from = worker * chunk;
                     long to = Math.min(total, from + chunk);
-                    futures.add(pool.submit(() -> exportRange(reader, bounds.start(), from, to, clubNames, rows)));
+                    futures.add(pool.submit(() -> exportRange(reader, bounds.start(), from, to, clubNames, rows, skipped)));
                 }
                 for (Future<?> future : futures) {
                     try {
                         future.get();
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
+                        pool.shutdownNow();
                         throw new IOException("Interrupted while exporting players", e);
                     } catch (ExecutionException e) {
-                        throw new IOException("Player export failed", e.getCause());
+                        pool.shutdownNow();
+                        for (Future<?> pending : futures) {
+                            pending.cancel(true);
+                        }
+                        Throwable root = e.getCause() == null ? e : e.getCause();
+                        if (root instanceof OutOfMemoryError) {
+                            throw new IOException(
+                                    "Not enough memory to export " + total
+                                            + " people from RAM. Restart with start.bat (6 GB heap).",
+                                    root);
+                        }
+                        throw new IOException("Player export failed: " + root.getMessage(), root);
                     }
                 }
             } finally {
                 pool.shutdown();
+                try {
+                    if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                        pool.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    pool.shutdownNow();
+                }
             }
-            List<Map<String, Object>> sortedRows = new ArrayList<>(rows);
-            LocalDate gameDate = gameDateFinder.find(reader, sortedRows.size(), build, gamePluginBase).orElse(null);
-            applyGameDate(sortedRows, gameDate);
-            sortedRows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
+            if (skipped.get() > 0) {
+                LOGGER.warn("Skipped {} people records that could not be decoded", skipped.get());
+            }
+            LocalDate gameDate = gameDateFinder.find(reader, rows.size(), build, gamePluginBase).orElse(null);
+            applyGameDate(rows, gameDate);
+            rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
             TacticExporter.Snapshot tactic = TacticExporter.export(reader, build, gamePluginBase).orElse(null);
-            return new ExportResult(gameDate == null ? "" : gameDate.toString(), sortedRows, tactic);
+            return new ExportResult(gameDate == null ? "" : gameDate.toString(), rows, tactic);
         }
     }
 
@@ -115,7 +145,8 @@ public class PlayerExporter {
             long from,
             long to,
             Map<Long, String> clubNames,
-            List<Map<String, Object>> rows) {
+            List<Map<String, Object>> rows,
+            AtomicInteger skipped) {
         for (long index = from; index < to; index++) {
             long slotAddress = slotBase + index * 8;
             var recordOpt = reader.qwordOrNull(slotAddress);
@@ -145,7 +176,9 @@ public class PlayerExporter {
                     continue;
                 }
                 rows.add(row);
-            } catch (IOException | RuntimeException ignored) {
+            } catch (IOException | RuntimeException ex) {
+                skipped.incrementAndGet();
+                LOGGER.debug("Skipping person at slot {}: {}", index, ex.toString());
             }
         }
     }

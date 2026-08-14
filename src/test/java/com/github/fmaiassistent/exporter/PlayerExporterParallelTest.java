@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -111,9 +112,16 @@ class PlayerExporterParallelTest {
     private static List<Map<String, Object>> exportRange(
             ProcessMemoryReader reader, long from, long to, List<Map<String, Object>> rows) throws Exception {
         Method method = PlayerExporter.class.getDeclaredMethod(
-                "exportRange", ProcessMemoryReader.class, long.class, long.class, long.class, Map.class, List.class);
+                "exportRange",
+                ProcessMemoryReader.class,
+                long.class,
+                long.class,
+                long.class,
+                Map.class,
+                List.class,
+                AtomicInteger.class);
         method.setAccessible(true);
-        method.invoke(new PlayerExporter(), reader, SLOT_BASE, from, to, new ConcurrentHashMap<>(), rows);
+        method.invoke(new PlayerExporter(), reader, SLOT_BASE, from, to, new ConcurrentHashMap<>(), rows, new AtomicInteger());
         return rows;
     }
 

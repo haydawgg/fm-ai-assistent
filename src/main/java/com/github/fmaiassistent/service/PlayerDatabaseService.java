@@ -9,6 +9,7 @@ import com.github.fmaiassistent.exporter.PlayerExporter;
 import com.github.fmaiassistent.exporter.TacticExporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,11 +25,14 @@ import java.util.concurrent.TimeUnit;
 public class PlayerDatabaseService {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerDatabaseService.class);
 
+    private static final int INSERT_BATCH_SIZE = 500;
+
     private final PlayerRepository players;
     private final ClubRepository clubRepository;
     private final CompetitionRepository competitionRepository;
     private final ClubDatabaseService clubDatabaseService;
     private final LoadMetadataRepository metadata;
+    private final EntityManager entityManager;
     private final PlayerExporter exporter = new PlayerExporter();
 
     public PlayerDatabaseService(
@@ -36,26 +40,47 @@ public class PlayerDatabaseService {
             ClubRepository clubRepository,
             CompetitionRepository competitionRepository,
             ClubDatabaseService clubDatabaseService,
-            LoadMetadataRepository metadata) {
+            LoadMetadataRepository metadata,
+            EntityManager entityManager) {
         this.players = players;
         this.clubRepository = clubRepository;
         this.competitionRepository = competitionRepository;
         this.clubDatabaseService = clubDatabaseService;
         this.metadata = metadata;
+        this.entityManager = entityManager;
     }
 
     @Transactional
     public LoadResult loadAllPlayers(int pid, int build, Long gamePluginBase) throws IOException {
         clubDatabaseService.loadAllClubs(pid, build, gamePluginBase);
+        return saveExported(exporter.exportAllPlayers(pid, build, gamePluginBase));
+    }
+
+    @Transactional
+    public LoadResult saveExported(PlayerExporter.ExportResult result) {
         Map<Long, ClubEntity> clubsByAddress = clubsByAddress();
-        PlayerExporter.ExportResult result = exporter.exportAllPlayers(pid, build, gamePluginBase);
-        players.saveAll(result.rows().stream()
-                .map(row -> playerEntity(row, clubsByAddress))
-                .toList());
+        List<PlayerEntity> batch = new ArrayList<>(INSERT_BATCH_SIZE);
+        for (Map<String, Object> row : result.rows()) {
+            batch.add(playerEntity(row, clubsByAddress));
+            if (batch.size() >= INSERT_BATCH_SIZE) {
+                flushPlayerBatch(batch);
+            }
+        }
+        flushPlayerBatch(batch);
         metadata.save(new LoadMetadataEntity("game_date", result.gameDate()));
         metadata.save(new LoadMetadataEntity("loaded_at", OffsetDateTime.now().toString()));
         saveTactic(result);
         return new LoadResult(result.gameDate(), result.rows().size());
+    }
+
+    private void flushPlayerBatch(List<PlayerEntity> batch) {
+        if (batch.isEmpty()) {
+            return;
+        }
+        players.saveAll(batch);
+        players.flush();
+        entityManager.clear();
+        batch.clear();
     }
 
     private void saveTactic(PlayerExporter.ExportResult result) {
@@ -67,8 +92,22 @@ public class PlayerDatabaseService {
             return;
         }
         Map<String, String> namesByRecord = new HashMap<>();
-        for (Map<String, Object> row : result.rows()) {
-            namesByRecord.put(String.valueOf(row.get("record")), String.valueOf(row.get("name")));
+        Set<String> neededRecords = new HashSet<>();
+        for (long person : tactic.selectedPersonAddresses()) {
+            if (person != 0L) {
+                neededRecords.add("0x" + Long.toHexString(person));
+            }
+        }
+        if (!neededRecords.isEmpty()) {
+            for (Map<String, Object> row : result.rows()) {
+                String record = String.valueOf(row.get("record"));
+                if (neededRecords.contains(record)) {
+                    namesByRecord.put(record, String.valueOf(row.get("name")));
+                    if (namesByRecord.size() == neededRecords.size()) {
+                        break;
+                    }
+                }
+            }
         }
         List<String> selected = new ArrayList<>();
         for (int index = 0; index < tactic.positions().size(); index++) {

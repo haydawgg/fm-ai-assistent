@@ -11,8 +11,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ClubExporter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ClubExporter.class);
     public static final List<String> FIELD_NAMES = List.of(
             "sourceAddress", "name", "gender", "competition", "reputation", "nation", "balance", "transferBudget", "payrollBudget");
 
@@ -30,6 +33,7 @@ public class ClubExporter {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "TeamOffset");
             Map<String, Map<String, Object>> byClub = new LinkedHashMap<>();
+            int skipped = 0;
             for (long index = 0; index < bounds.count(); index++) {
                 long slotAddress = bounds.start() + index * 8;
                 var teamOpt = reader.qwordOrNull(slotAddress);
@@ -48,8 +52,13 @@ public class ClubExporter {
                     if (previous == null || score(row) > score(previous)) {
                         byClub.put(key, row);
                     }
-                } catch (IOException | RuntimeException ignored) {
+                } catch (IOException | RuntimeException ex) {
+                    skipped++;
+                    LOGGER.debug("Skipping team at slot {}: {}", index, ex.toString());
                 }
+            }
+            if (skipped > 0) {
+                LOGGER.warn("Skipped {} team records that could not be decoded", skipped);
             }
             List<Map<String, Object>> rows = new ArrayList<>(byClub.values());
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));

@@ -7,6 +7,7 @@ import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
+import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.LongByReference;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
@@ -19,7 +20,10 @@ import java.util.Locale;
 
 public final class WindowsProcessReader implements ProcessMemoryReader {
     private static final int PROCESS_QUERY_INFORMATION = 0x0400;
+    private static final int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
     private static final int PROCESS_VM_READ = 0x0010;
+    private static final int LIST_MODULES_ALL = 0x03;
+    private static final int ERROR_PARTIAL_COPY = 299;
     private static final int TH32CS_SNAPMODULE = 0x00000008;
     private static final int TH32CS_SNAPMODULE32 = 0x00000010;
     private static final int MEM_COMMIT = 0x1000;
@@ -43,9 +47,14 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
             throw new IOException("A 64-bit Java runtime is required to read the 64-bit FM26 process");
         }
         this.pid = pid;
-        this.process = Kernel32.INSTANCE.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+        Pointer handle = Kernel32.INSTANCE.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+        if (handle == null) {
+            handle = Kernel32.INSTANCE.OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, false, pid);
+        }
+        this.process = handle;
         if (process == null) {
-            throw win32Error("OpenProcess(" + pid + ") failed");
+            throw win32Error("OpenProcess(" + pid + ") failed. Run this app as the same Windows user as Football Manager");
         }
     }
 
@@ -128,6 +137,37 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     }
 
     private List<ModuleRange> modules() throws IOException {
+        IOException lastError = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                List<ModuleRange> modules = modulesViaToolhelp();
+                if (!modules.isEmpty()) {
+                    return modules;
+                }
+            } catch (IOException ex) {
+                lastError = ex;
+                if (!ex.getMessage().contains("Windows error " + ERROR_PARTIAL_COPY)) {
+                    break;
+                }
+            }
+            try {
+                Thread.sleep(50L * (attempt + 1));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while enumerating modules for PID " + pid, interrupted);
+            }
+        }
+        List<ModuleRange> viaPsapi = modulesViaPsapi();
+        if (!viaPsapi.isEmpty()) {
+            return viaPsapi;
+        }
+        if (lastError != null) {
+            throw lastError;
+        }
+        throw new IOException("No modules enumerated for PID " + pid);
+    }
+
+    private List<ModuleRange> modulesViaToolhelp() throws IOException {
         Pointer snapshot = Kernel32.INSTANCE.CreateToolhelp32Snapshot(
                 TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
         if (snapshot == null || INVALID_HANDLE_VALUE.equals(snapshot)) {
@@ -139,6 +179,9 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
             entry.dwSize = entry.size();
             entry.write();
             boolean found = Kernel32.INSTANCE.Module32FirstW(snapshot, entry);
+            if (!found) {
+                throw win32Error("Module32FirstW failed for PID " + pid);
+            }
             while (found) {
                 entry.read();
                 long start = Pointer.nativeValue(entry.modBaseAddr);
@@ -152,6 +195,36 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         } finally {
             Kernel32.INSTANCE.CloseHandle(snapshot);
         }
+    }
+
+    private List<ModuleRange> modulesViaPsapi() throws IOException {
+        IntByReference needed = new IntByReference();
+        Memory probe = new Memory(Native.POINTER_SIZE);
+        Kernel32.INSTANCE.K32EnumProcessModulesEx(process, probe, (int) probe.size(), needed, LIST_MODULES_ALL);
+        int bytes = needed.getValue();
+        if (bytes <= 0) {
+            return List.of();
+        }
+        Memory handles = new Memory(bytes);
+        if (!Kernel32.INSTANCE.K32EnumProcessModulesEx(process, handles, bytes, needed, LIST_MODULES_ALL)) {
+            return List.of();
+        }
+        int count = needed.getValue() / Native.POINTER_SIZE;
+        List<ModuleRange> modules = new ArrayList<>();
+        char[] pathBuffer = new char[260];
+        for (int index = 0; index < count; index++) {
+            Pointer module = handles.getPointer((long) index * Native.POINTER_SIZE);
+            ModuleInfo info = new ModuleInfo();
+            if (!Kernel32.INSTANCE.K32GetModuleInformation(process, module, info, info.size())) {
+                continue;
+            }
+            info.read();
+            int pathLength = Kernel32.INSTANCE.K32GetModuleFileNameExW(process, module, pathBuffer, pathBuffer.length);
+            String path = pathLength > 0 ? Native.toString(pathBuffer) : "";
+            long start = Pointer.nativeValue(info.lpBaseOfDll);
+            modules.add(new ModuleRange(start, start + Integer.toUnsignedLong(info.SizeOfImage), path));
+        }
+        return modules;
     }
 
     private static String permissions(int protect) {
@@ -215,6 +288,13 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         public char[] szExePath = new char[260];
     }
 
+    @Structure.FieldOrder({"lpBaseOfDll", "SizeOfImage", "EntryPoint"})
+    public static class ModuleInfo extends Structure {
+        public Pointer lpBaseOfDll;
+        public int SizeOfImage;
+        public Pointer EntryPoint;
+    }
+
     private interface Kernel32 extends StdCallLibrary {
         Kernel32 INSTANCE = Native.load("kernel32", Kernel32.class, W32APIOptions.DEFAULT_OPTIONS);
 
@@ -231,5 +311,12 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         boolean Module32NextW(Pointer snapshot, ModuleEntry32 entry);
 
         boolean CloseHandle(Pointer handle);
+
+        boolean K32EnumProcessModulesEx(
+                Pointer process, Pointer modules, int size, IntByReference needed, int filterFlag);
+
+        int K32GetModuleFileNameExW(Pointer process, Pointer module, char[] filename, int size);
+
+        boolean K32GetModuleInformation(Pointer process, Pointer module, ModuleInfo info, int size);
     }
 }

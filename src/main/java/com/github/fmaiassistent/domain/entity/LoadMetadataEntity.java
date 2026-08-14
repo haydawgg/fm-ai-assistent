@@ -12,7 +12,7 @@ public class LoadMetadataEntity {
     @Column(name = "meta_key", length = 100)
     private String key;
 
-    @Column(name = "meta_value", length = 1024)
+    @Column(name = "meta_value", length = 4096)
     private String value;
 
     protected LoadMetadataEntity() {
