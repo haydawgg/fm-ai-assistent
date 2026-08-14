@@ -4,6 +4,10 @@ import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.CompetitionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.service.*;
+import com.github.fmaiassistent.codex.CodexConversationService;
+import com.github.fmaiassistent.antigravity.AntigravityConversationService;
+import com.github.fmaiassistent.copilot.CopilotConversationService;
+import com.github.fmaiassistent.tactic.TacticContextService;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.repository.*;
 import com.github.fmaiassistent.player.AttributeDefinitions;
@@ -109,10 +113,12 @@ public class MainView extends VerticalLayout {
     private final Grid<PlayerEntity> playersGrid = new Grid<>();
     private final Grid<ClubEntity> clubsGrid = new Grid<>();
     private final Grid<CompetitionEntity> competitionsGrid = new Grid<>();
+    private final AiAssistantView aiAssistant;
 
     private final Tab playersTab = new Tab("Players");
     private final Tab clubsTab = new Tab("Clubs");
     private final Tab competitionsTab = new Tab("Competitions");
+    private final Tab aiAssistantTab = new Tab("AI assistent");
     private final TextField quickName = new TextField();
     private final ComboBox<String> quickClub = new ComboBox<>();
     private final IntegerField quickCaMin = new IntegerField();
@@ -134,18 +140,25 @@ public class MainView extends VerticalLayout {
             PlayerDatabaseService players,
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
-            AppSettingsService settings) {
+            AppSettingsService settings,
+            CodexConversationService codexConversations,
+            AntigravityConversationService antigravityConversations,
+            CopilotConversationService copilotConversations,
+            TacticContextService tacticContexts) {
         this.ramLoad = ramLoad;
         this.players = players;
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
+        this.aiAssistant = new AiAssistantView(
+                codexConversations, antigravityConversations, copilotConversations, tacticContexts);
         this.currency = settings.currency();
 
         setSizeFull();
         setPadding(false);
         setSpacing(false);
         addClassName("main-view");
+        content.addClassName("workspace-content");
 
         add(header(), content);
         expand(content);
@@ -245,12 +258,13 @@ public class MainView extends VerticalLayout {
     }
 
     private void configureTabs() {
-        tabs.add(playersTab, clubsTab, competitionsTab);
+        tabs.add(playersTab, clubsTab, competitionsTab, aiAssistantTab);
         tabs.setWidthFull();
         tabs.addClassName("workspace-tabs");
         playersTab.addComponentAsFirst(VaadinIcon.USERS.create());
         clubsTab.addComponentAsFirst(VaadinIcon.OFFICE.create());
         competitionsTab.addComponentAsFirst(VaadinIcon.TROPHY.create());
+        aiAssistantTab.addComponentAsFirst(VaadinIcon.CHAT.create());
         tabs.addSelectedChangeListener(event -> {
             boolean playersSelected = event.getSelectedTab() == playersTab;
             columnsButton.setVisible(playersSelected);
@@ -268,8 +282,10 @@ public class MainView extends VerticalLayout {
                 showPlayers();
             } else if (event.getSelectedTab() == clubsTab) {
                 showClubs();
-            } else {
+            } else if (event.getSelectedTab() == competitionsTab) {
                 showCompetitions();
+            } else {
+                showAiAssistant();
             }
         });
     }
@@ -469,9 +485,18 @@ public class MainView extends VerticalLayout {
             showPlayers();
         } else if (tabs.getSelectedTab() == clubsTab) {
             showClubs();
-        } else {
+        } else if (tabs.getSelectedTab() == competitionsTab) {
             showCompetitions();
+        } else {
+            showAiAssistant();
         }
+    }
+
+    private void showAiAssistant() {
+        content.removeAll();
+        content.removeClassName("data-workspace");
+        content.setSizeFull();
+        content.add(aiAssistant);
     }
 
     private void showPlayers() {

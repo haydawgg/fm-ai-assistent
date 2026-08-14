@@ -100,6 +100,147 @@ Money values are raw pounds. `asking_price=null` means unknown, not free.
 
 For a first XI, call `fm26_current_tactic` then `fm26_best_xi` with `managingClub`. Omit `tacticSlots` to use the RAM formation; pass `position,inPossessionRole,outOfPossessionRole` lines (not `DMC:`) when you want role fit.
 
+### FM26 tactic context
+
+The **AI assistent** tab has a collapsible **Tactic context** section. You can:
+
+- enter the location of a `.fmf` tactic file;
+- upload a `.fmf` tactic file; or
+- optionally select a folder containing an FMF plus extra screenshots/readable exports.
+
+The application reads the FM26 archive catalog, decrypts and decompresses the embedded tactic resource, and converts the tactic name, tactical style, mentality, in-possession roles/duties, and out-of-possession roles/duties into AI-readable text. The `.fmf` file is sufficient: screenshots and Football Manager Resource Archiver are not required. The resulting context is sent to the selected Codex, Antigravity, or GitHub Copilot conversation. The file is processed locally and is not uploaded to a separate conversion service.
+
+### Embedded Codex chat
+
+The **AI assistent** tab runs the locally installed `codex app-server`. It uses the Codex ChatGPT login and existing MCP configuration; it does not use or store an API key. On first use, select **Sign in with ChatGPT** in the tab and complete the browser flow.
+
+The terminal login command remains an optional alternative. The MCP configuration is still managed by Codex:
+
+```bash
+codex login
+codex mcp add fm-genie26 --url http://127.0.0.1:8080/mcp
+```
+
+Start FM AI Assistent normally, open `http://127.0.0.1:8080`, load the current FM26 save from RAM, and select **AI assistent**. Codex conversations are persisted by Codex and can be resumed from the conversation sidebar.
+
+The executable and workspace can be overridden without credentials:
+
+```properties
+app.codex.executable=codex
+app.codex.working-directory=.
+```
+
+Run `codex login status` and `codex mcp list` if the chat reports an authentication or MCP connectivity problem.
+
+### Embedded Antigravity chat
+
+Select **Antigravity** in the **AI assistent** tab. It runs the locally installed `agy` CLI in headless `stream-json` mode. It reuses Antigravity's Google login, MCP configuration, agent configuration, skills, and global permissions. FM AI Assistent does not read Google credentials or require a Gemini API key.
+
+First authenticate Antigravity normally from a terminal:
+
+```bash
+agy
+```
+
+Complete Google sign-in and approve the workspace if Antigravity asks. Exit Antigravity after authentication.
+
+Register the FM AI Assistent MCP server in Antigravity's user-level MCP configuration file:
+
+```text
+~/.gemini/config/mcp_config.json
+```
+
+The complete configuration is:
+
+```json
+{
+  "mcpServers": {
+    "fm-ai-assistent": {
+      "serverUrl": "http://127.0.0.1:8080/mcp"
+    }
+  }
+}
+```
+
+Antigravity headless mode cannot open an interactive approval prompt. Add explicit global permission grants for the application's six read-only MCP tools in:
+
+```text
+~/.gemini/antigravity-cli/settings.json
+```
+
+Merge the following entries into the existing `permissions.allow` array rather than replacing existing settings:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp(fm-ai-assistent/fm26_find_clubs)",
+      "mcp(fm-ai-assistent/fm26_find_players)",
+      "mcp(fm-ai-assistent/fm26_get_club_context)",
+      "mcp(fm-ai-assistent/fm26_get_player_details)",
+      "mcp(fm-ai-assistent/fm26_get_role_attributes)",
+      "mcp(fm-ai-assistent/fm26_transfer_shortlist)"
+    ]
+  }
+}
+```
+
+Exact per-tool grants are used instead of `--dangerously-skip-permissions`. They are global Antigravity permissions and therefore apply whenever this MCP server is configured under the name `fm-ai-assistent`.
+
+Start FM AI Assistent before verifying the connection, then inspect the effective global grants without spending model quota:
+
+```bash
+agy -p "/permissions" --output-format json
+```
+
+For an end-to-end check, open the **AI assistent** tab, select **Antigravity**, and ask:
+
+```text
+What agents or FM26 tools are available in my application?
+```
+
+If Antigravity reports that the MCP server is unavailable, confirm that FM AI Assistent is running at `http://127.0.0.1:8080` and that the server name in `mcp_config.json` exactly matches the `fm-ai-assistent` name used by the permission rules.
+
+### Embedded GitHub Copilot chat
+
+Select **GitHub Copilot** in the **AI assistent** tab. The application uses official GitHub Copilot Java SDK `1.0.9`, which owns one persistent local Copilot CLI process. Login credentials, instructions, skills, custom agents, session history, and MCP configuration remain owned by Copilot. FM AI Assistent does not read GitHub credentials or require a model API key.
+
+Install GitHub Copilot CLI and authenticate once:
+
+```bash
+copilot --version
+copilot login
+```
+
+Add FM AI Assistent's local HTTP MCP server to Copilot's normal user configuration:
+
+```bash
+copilot mcp add --transport http fm-ai-assistent http://127.0.0.1:8080/mcp
+copilot mcp list
+```
+
+If `copilot mcp list` already shows `fm-ai-assistent`, do not add it again. Start FM AI Assistent before testing MCP calls. Copilot permission requests appear in Vaadin with **Allow once** and **Deny** actions. Requests from the application's own `fm-ai-assistent` MCP server also offer **Always allow this MCP tool**. This persists an exact tool rule for the current workspace through Copilot's location-scoped permission API; it does not approve other MCP tools, shell commands, or file writes. The integration never uses `--allow-all` or `--yolo`.
+
+Optional runtime settings:
+
+```properties
+app.ai.copilot.enabled=true
+app.ai.copilot.executable=copilot
+app.ai.copilot.working-directory=.
+app.ai.copilot.startup-timeout=30s
+app.ai.copilot.permission-timeout=5m
+# app.ai.copilot.model=
+# app.ai.copilot.reasoning-effort=
+```
+
+For an end-to-end check, load FM26 data, select **GitHub Copilot**, then ask:
+
+```text
+What agents or FM26 tools are available in my application?
+```
+
+The web server binds to `127.0.0.1` by default. Keep this local: Copilot can run tools, access workspace files, and call the application MCP server.
+
 ### Codex
 
 Add the MCP server in a terminal:
