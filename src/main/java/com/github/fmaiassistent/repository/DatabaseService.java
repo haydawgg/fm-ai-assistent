@@ -13,10 +13,10 @@ import java.util.List;
 public class DatabaseService {
 
     private final List<String> TABLES_TO_TRUNCATE = List.of(
+            "LOAD_METADATA",
             "PLAYERS",
             "CLUBS",
-            "COMPETITIONS",
-            "LOAD_METADATA"
+            "COMPETITIONS"
     );
     private final JdbcTemplate jdbcTemplate;
 

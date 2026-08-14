@@ -7,6 +7,7 @@ import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballRow;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Moneyball scouting view: every value signing for a club ranked by signing_rating,
@@ -179,28 +181,34 @@ public class MoneyballView extends VerticalLayout {
             return;
         }
         String position = "Any".equals(positionFilter.getValue()) ? null : positionFilter.getValue();
+        UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        try {
-            MoneyballResult result = tools.moneyballRows(
-                    clubName,
-                    position,
-                    value(minCa),
-                    value(minPa),
-                    value(maxAge),
-                    feePounds(),
-                    wagePounds());
+        CompletableFuture.supplyAsync(() ->
+                tools.moneyballRows(
+                        clubName,
+                        position,
+                        value(minCa),
+                        value(minPa),
+                        value(maxAge),
+                        feePounds(),
+                        wagePounds())
+        ).thenAccept(result -> ui.access(() -> {
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
-            summary.setText("Pool " + result.candidatePoolSize() + " \u00b7 rated " + result.ratedCount()
-                    + " \u00b7 market model: " + result.pricedPlayers() + " priced players in "
-                    + result.bucketCount() + " buckets \u00b7 sorted by signing_rating");
+            summary.setText("Pool " + result.candidatePoolSize() + " · rated " + result.ratedCount()
+                    + " · market model: " + result.pricedPlayers() + " priced players in "
+                    + result.bucketCount() + " buckets · sorted by signing_rating");
             summary.removeClassName("moneyball-empty");
-        } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
             runButton.setEnabled(true);
-        }
+        })).exceptionally(ex -> {
+            ui.access(() -> {
+                Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
+                        5000, Notification.Position.MIDDLE)
+                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                runButton.setEnabled(true);
+            });
+            return null;
+        });
     }
 
     private static ComponentRenderer<HorizontalLayout, MoneyballRow> ratingRenderer() {

@@ -36,6 +36,7 @@ public class AppSettingsService {
 
     private final Path settingsPath;
     private final ObjectMapper objectMapper;
+    private final Object settingsLock = new Object();
 
     public AppSettingsService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -44,30 +45,36 @@ public class AppSettingsService {
     }
 
     public MoneyCurrency currency() {
-        return MoneyCurrency.fromPropertyValue(load().getProperty(CURRENCY_KEY));
+        synchronized (settingsLock) {
+            return MoneyCurrency.fromPropertyValue(load().getProperty(CURRENCY_KEY));
+        }
     }
 
     public void saveCurrency(MoneyCurrency currency) {
-        Properties properties = load();
-        properties.setProperty(CURRENCY_KEY, (currency == null ? MoneyCurrency.POUND : currency).propertyValue());
-        save(properties);
+        synchronized (settingsLock) {
+            Properties properties = load();
+            properties.setProperty(CURRENCY_KEY, (currency == null ? MoneyCurrency.POUND : currency).propertyValue());
+            save(properties);
+        }
     }
 
     public List<SavedPlayerView> playerViews() {
-        String json = load().getProperty(PLAYER_VIEWS_KEY, "[]");
-        try {
-            List<SavedPlayerView> views = objectMapper.readValue(json, new TypeReference<>() {
-            });
-            if (views == null || views.isEmpty()) {
+        synchronized (settingsLock) {
+            String json = load().getProperty(PLAYER_VIEWS_KEY, "[]");
+            try {
+                List<SavedPlayerView> views = objectMapper.readValue(json, new TypeReference<>() {
+                });
+                if (views == null || views.isEmpty()) {
+                    return List.of();
+                }
+                return views.stream()
+                        .filter(view -> view != null && view.name() != null && !view.name().isBlank())
+                        .map(this::normalizeView)
+                        .sorted(Comparator.comparing(view -> view.name().toLowerCase()))
+                        .toList();
+            } catch (JacksonException ex) {
                 return List.of();
             }
-            return views.stream()
-                    .filter(view -> view != null && view.name() != null && !view.name().isBlank())
-                    .map(this::normalizeView)
-                    .sorted(Comparator.comparing(view -> view.name().toLowerCase()))
-                    .toList();
-        } catch (JacksonException ex) {
-            return List.of();
         }
     }
 
@@ -75,22 +82,26 @@ public class AppSettingsService {
         if (view == null || view.name() == null || view.name().isBlank()) {
             throw new IllegalArgumentException("View name is required");
         }
-        SavedPlayerView normalized = normalizeView(view);
-        List<SavedPlayerView> views = new ArrayList<>(playerViews());
-        views.removeIf(existing -> existing.name().equalsIgnoreCase(normalized.name()));
-        views.add(normalized);
-        views.sort(Comparator.comparing(item -> item.name().toLowerCase()));
-        writePlayerViews(views);
+        synchronized (settingsLock) {
+            SavedPlayerView normalized = normalizeView(view);
+            List<SavedPlayerView> views = new ArrayList<>(playerViews());
+            views.removeIf(existing -> existing.name().equalsIgnoreCase(normalized.name()));
+            views.add(normalized);
+            views.sort(Comparator.comparing(item -> item.name().toLowerCase()));
+            writePlayerViews(views);
+        }
     }
 
     public void deletePlayerView(String name) {
         if (name == null || name.isBlank()) {
             return;
         }
-        List<SavedPlayerView> views = new ArrayList<>(playerViews());
-        boolean removed = views.removeIf(existing -> existing.name().equalsIgnoreCase(name));
-        if (removed) {
-            writePlayerViews(views);
+        synchronized (settingsLock) {
+            List<SavedPlayerView> views = new ArrayList<>(playerViews());
+            boolean removed = views.removeIf(existing -> existing.name().equalsIgnoreCase(name));
+            if (removed) {
+                writePlayerViews(views);
+            }
         }
     }
 
@@ -103,38 +114,44 @@ public class AppSettingsService {
     }
 
     public String openRouterApiKey() {
-        Properties properties = load();
-        String value = firstNonBlank(
-                properties.getProperty(OPENROUTER_API_KEY, ""),
-                properties.getProperty(LEGACY_OPENAI_API_KEY, ""),
-                System.getenv("OPENROUTER_API_KEY"),
-                System.getenv("OPENAI_API_KEY"));
-        return value == null ? "" : value;
+        synchronized (settingsLock) {
+            Properties properties = load();
+            String value = firstNonBlank(
+                    properties.getProperty(OPENROUTER_API_KEY, ""),
+                    properties.getProperty(LEGACY_OPENAI_API_KEY, ""),
+                    System.getenv("OPENROUTER_API_KEY"),
+                    System.getenv("OPENAI_API_KEY"));
+            return value == null ? "" : value;
+        }
     }
 
     public String openRouterModel() {
-        Properties properties = load();
-        String value = firstNonBlank(
-                properties.getProperty(OPENROUTER_MODEL_KEY, ""),
-                properties.getProperty(LEGACY_OPENAI_MODEL_KEY, ""));
-        if (value == null || value.isBlank()) {
-            return OpenRouterModelCatalog.DEFAULT_MODEL;
+        synchronized (settingsLock) {
+            Properties properties = load();
+            String value = firstNonBlank(
+                    properties.getProperty(OPENROUTER_MODEL_KEY, ""),
+                    properties.getProperty(LEGACY_OPENAI_MODEL_KEY, ""));
+            if (value == null || value.isBlank()) {
+                return OpenRouterModelCatalog.DEFAULT_MODEL;
+            }
+            return value.contains("/") ? value : "openai/" + value;
         }
-        return value.contains("/") ? value : "openai/" + value;
     }
 
     public void saveOpenRouter(String apiKey, String model) {
-        Properties properties = load();
-        if (apiKey == null || apiKey.isBlank()) {
-            properties.remove(OPENROUTER_API_KEY);
-        } else {
-            properties.setProperty(OPENROUTER_API_KEY, apiKey.trim());
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (apiKey == null || apiKey.isBlank()) {
+                properties.remove(OPENROUTER_API_KEY);
+            } else {
+                properties.setProperty(OPENROUTER_API_KEY, apiKey.trim());
+            }
+            properties.setProperty(OPENROUTER_MODEL_KEY,
+                    model == null || model.isBlank() ? OpenRouterModelCatalog.DEFAULT_MODEL : model.trim());
+            properties.remove(LEGACY_OPENAI_API_KEY);
+            properties.remove(LEGACY_OPENAI_MODEL_KEY);
+            save(properties);
         }
-        properties.setProperty(OPENROUTER_MODEL_KEY,
-                model == null || model.isBlank() ? OpenRouterModelCatalog.DEFAULT_MODEL : model.trim());
-        properties.remove(LEGACY_OPENAI_API_KEY);
-        properties.remove(LEGACY_OPENAI_MODEL_KEY);
-        save(properties);
     }
 
     public boolean chatConfigured() {

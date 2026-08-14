@@ -83,9 +83,12 @@ public class TacticContextService implements AiPromptContext {
         LinkedHashMap<String, SourceFile> files = new LinkedHashMap<>();
         uploads.forEach((name, data) -> {
             String safeName = Path.of(name).getFileName().toString();
-            validateSize(Path.of(safeName), data.length);
+            validateSize(Path.of(safeName), data == null ? 0 : data.length);
             if (!supported(safeName)) {
                 throw new IllegalArgumentException("Unsupported tactic file: " + safeName);
+            }
+            if (data == null) {
+                throw new IllegalArgumentException("Uploaded file is empty: " + safeName);
             }
             files.put(safeName, new SourceFile(safeName, null, data.clone()));
         });

@@ -6,6 +6,7 @@ import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
@@ -27,6 +28,7 @@ import com.vaadin.flow.router.Route;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Route(value = "first-xi", layout = AppShell.class)
 @PageTitle("First XI")
@@ -164,10 +166,14 @@ public class FirstXiView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        try {
+        CompletableFuture.supplyAsync(() -> {
             List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tactic.getValue());
-            List<SquadAdvice.XiPick> picks = tools.bestXiRows(club, slots);
+            return Map.entry(slots, tools.bestXiRows(club, slots));
+        }).thenAccept(pair -> ui.access(() -> {
+            List<SquadAdvice.XiSlot> slots = pair.getKey();
+            List<SquadAdvice.XiPick> picks = pair.getValue();
             grid.setItems(picks);
             List<String> holes = new ArrayList<>();
             for (SquadAdvice.XiPick pick : picks) {
@@ -194,11 +200,15 @@ public class FirstXiView extends VerticalLayout {
             upgrades.setItems(rows);
             summary.setText(holes.isEmpty() ? "XI filled" : "Holes: " + String.join(", ", holes)
                     + " — suggested buys from fm26_transfer_shortlist");
-        } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
             runButton.setEnabled(true);
-        }
+        })).exceptionally(ex -> {
+            ui.access(() -> {
+                Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
+                        5000, Notification.Position.MIDDLE)
+                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                runButton.setEnabled(true);
+            });
+            return null;
+        });
     }
 }

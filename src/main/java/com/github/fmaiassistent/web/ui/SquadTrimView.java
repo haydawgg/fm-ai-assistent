@@ -6,6 +6,7 @@ import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
@@ -23,6 +24,7 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Route(value = "squad-trim", layout = AppShell.class)
 @PageTitle("Squad trim")
@@ -127,18 +129,23 @@ public class SquadTrimView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        try {
-            List<SquadAdvice.SellRow> rows = tools.sellRows(club);
-            grid.setItems(rows);
-            long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
-            long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
-            summary.setText(rows.size() + " players · " + sell + " sell · " + loan + " loan");
-        } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
-            runButton.setEnabled(true);
-        }
+        CompletableFuture.supplyAsync(() -> tools.sellRows(club))
+                .thenAccept(rows -> ui.access(() -> {
+                    grid.setItems(rows);
+                    long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
+                    long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
+                    summary.setText(rows.size() + " players · " + sell + " sell · " + loan + " loan");
+                    runButton.setEnabled(true);
+                })).exceptionally(ex -> {
+                    ui.access(() -> {
+                        Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
+                                5000, Notification.Position.MIDDLE)
+                                .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        runButton.setEnabled(true);
+                    });
+                    return null;
+                });
     }
 }

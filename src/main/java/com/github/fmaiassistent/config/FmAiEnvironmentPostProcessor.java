@@ -20,7 +20,7 @@ public class FmAiEnvironmentPostProcessor implements EnvironmentPostProcessor {
         if (!environment.containsProperty("spring.datasource.url")) {
             Path dbFile = AppSettingsService.dataDirectory().resolve("fm-ai-assistent-db");
             properties.put("spring.datasource.url",
-                    "jdbc:h2:file:" + dbFile.toAbsolutePath() + ";DB_CLOSE_ON_EXIT=FALSE;AUTO_RECONNECT=TRUE");
+                    "jdbc:h2:file:" + dbFile.toAbsolutePath() + ";DB_CLOSE_ON_EXIT=FALSE;DB_CLOSE_DELAY=-1");
         }
         if (!environment.containsProperty("spring.ai.model.chat")) {
             properties.put("spring.ai.model.chat", "none");

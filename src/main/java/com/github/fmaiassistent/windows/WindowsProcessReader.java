@@ -76,7 +76,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
                     String command = info.command().orElse("");
                     String commandLine = info.commandLine().orElse(command);
                     String name = command.isBlank() ? "" : java.nio.file.Path.of(command).getFileName().toString();
-                    return new ProcessInfo(Math.toIntExact(handle.pid()), name, commandLine);
+                    return new ProcessInfo((int) Math.min(handle.pid(), Integer.MAX_VALUE), name, commandLine);
                 })
                 .filter(process -> (process.name() + " " + process.cmdline()).toLowerCase(Locale.ROOT).contains(needle))
                 .sorted(Comparator.comparingInt(ProcessInfo::pid))
@@ -93,14 +93,18 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
             return new byte[0];
         }
         Memory buffer = new Memory(size);
-        LongByReference bytesRead = new LongByReference();
-        boolean success = Kernel32.INSTANCE.ReadProcessMemory(
-                process, Pointer.createConstant(address), buffer, size, bytesRead);
-        if (!success || bytesRead.getValue() != size) {
-            throw win32Error("ReadProcessMemory failed at 0x" + Long.toHexString(address)
-                    + " (requested " + size + ", read " + bytesRead.getValue() + ")");
+        try {
+            LongByReference bytesRead = new LongByReference();
+            boolean success = Kernel32.INSTANCE.ReadProcessMemory(
+                    process, Pointer.createConstant(address), buffer, size, bytesRead);
+            if (!success || bytesRead.getValue() != size) {
+                throw win32Error("ReadProcessMemory failed at 0x" + Long.toHexString(address)
+                        + " (requested " + size + ", read " + bytesRead.getValue() + ")");
+            }
+            return buffer.getByteArray(0, size);
+        } finally {
+            buffer.close();
         }
-        return buffer.getByteArray(0, size);
     }
 
     @Override
@@ -200,31 +204,39 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     private List<ModuleRange> modulesViaPsapi() throws IOException {
         IntByReference needed = new IntByReference();
         Memory probe = new Memory(Native.POINTER_SIZE);
-        Kernel32.INSTANCE.K32EnumProcessModulesEx(process, probe, (int) probe.size(), needed, LIST_MODULES_ALL);
+        try {
+            Kernel32.INSTANCE.K32EnumProcessModulesEx(process, probe, (int) probe.size(), needed, LIST_MODULES_ALL);
+        } finally {
+            probe.close();
+        }
         int bytes = needed.getValue();
         if (bytes <= 0) {
             return List.of();
         }
         Memory handles = new Memory(bytes);
-        if (!Kernel32.INSTANCE.K32EnumProcessModulesEx(process, handles, bytes, needed, LIST_MODULES_ALL)) {
-            return List.of();
-        }
-        int count = needed.getValue() / Native.POINTER_SIZE;
-        List<ModuleRange> modules = new ArrayList<>();
-        char[] pathBuffer = new char[260];
-        for (int index = 0; index < count; index++) {
-            Pointer module = handles.getPointer((long) index * Native.POINTER_SIZE);
-            ModuleInfo info = new ModuleInfo();
-            if (!Kernel32.INSTANCE.K32GetModuleInformation(process, module, info, info.size())) {
-                continue;
+        try {
+            if (!Kernel32.INSTANCE.K32EnumProcessModulesEx(process, handles, bytes, needed, LIST_MODULES_ALL)) {
+                return List.of();
             }
-            info.read();
-            int pathLength = Kernel32.INSTANCE.K32GetModuleFileNameExW(process, module, pathBuffer, pathBuffer.length);
-            String path = pathLength > 0 ? Native.toString(pathBuffer) : "";
-            long start = Pointer.nativeValue(info.lpBaseOfDll);
-            modules.add(new ModuleRange(start, start + Integer.toUnsignedLong(info.SizeOfImage), path));
+            int count = needed.getValue() / Native.POINTER_SIZE;
+            List<ModuleRange> modules = new ArrayList<>();
+            char[] pathBuffer = new char[260];
+            for (int index = 0; index < count; index++) {
+                Pointer module = handles.getPointer((long) index * Native.POINTER_SIZE);
+                ModuleInfo info = new ModuleInfo();
+                if (!Kernel32.INSTANCE.K32GetModuleInformation(process, module, info, info.size())) {
+                    continue;
+                }
+                info.read();
+                int pathLength = Kernel32.INSTANCE.K32GetModuleFileNameExW(process, module, pathBuffer, pathBuffer.length);
+                String path = pathLength > 0 ? Native.toString(pathBuffer) : "";
+                long start = Pointer.nativeValue(info.lpBaseOfDll);
+                modules.add(new ModuleRange(start, start + Integer.toUnsignedLong(info.SizeOfImage), path));
+            }
+            return modules;
+        } finally {
+            handles.close();
         }
-        return modules;
     }
 
     private static String permissions(int protect) {

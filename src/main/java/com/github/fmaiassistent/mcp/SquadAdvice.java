@@ -314,9 +314,18 @@ public final class SquadAdvice {
     }
 
     private static Map<String, Long> depthByPosition(List<PlayerEntity> squad) {
+        Map<PlayerEntity, String> playerPrimary = new HashMap<>();
+        for (PlayerEntity player : squad) {
+            String best = Positions.bestCode(player);
+            if (best != null) {
+                playerPrimary.put(player, best);
+            }
+        }
         Map<String, Long> depth = new HashMap<>();
         for (String code : PositionCodes.CODES) {
-            depth.put(code, squad.stream().filter(player -> Positions.score(player, code) >= NATURAL_POSITION).count());
+            depth.put(code, playerPrimary.entrySet().stream()
+                    .filter(e -> e.getValue().equals(code))
+                    .count());
         }
         return depth;
     }

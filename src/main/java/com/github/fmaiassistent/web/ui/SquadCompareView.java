@@ -6,6 +6,7 @@ import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
@@ -24,6 +25,7 @@ import com.vaadin.flow.router.Route;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Route(value = "compare-squads", layout = AppShell.class)
 @PageTitle("Compare squads")
@@ -114,19 +116,24 @@ public class SquadCompareView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        try {
-            Map<String, Object> result = tools.compareSquads(left, right);
-            @SuppressWarnings("unchecked")
-            List<SquadAdvice.SquadCompareRow> rows = (List<SquadAdvice.SquadCompareRow>) result.get("positions");
-            grid.setItems(rows == null ? List.of() : rows);
-            summary.setText(cardText("Left", result.get("left")) + "  ·  " + cardText("Right", result.get("right")));
-        } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
-            runButton.setEnabled(true);
-        }
+        CompletableFuture.supplyAsync(() -> tools.compareSquads(left, right))
+                .thenAccept(result -> ui.access(() -> {
+                    @SuppressWarnings("unchecked")
+                    List<SquadAdvice.SquadCompareRow> rows = (List<SquadAdvice.SquadCompareRow>) result.get("positions");
+                    grid.setItems(rows == null ? List.of() : rows);
+                    summary.setText(cardText("Left", result.get("left")) + "  ·  " + cardText("Right", result.get("right")));
+                    runButton.setEnabled(true);
+                })).exceptionally(ex -> {
+                    ui.access(() -> {
+                        Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
+                                5000, Notification.Position.MIDDLE)
+                                .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        runButton.setEnabled(true);
+                    });
+                    return null;
+                });
     }
 
     private String cardText(String label, Object raw) {

@@ -426,8 +426,8 @@ public class PlayerExporter {
                 .orElse(new FutureTransfer(false, "", "", ""));
         InjuryStatus injury = injuryStatus(reader, record);
         return new PlayerStatus(
-                transferStatus == 1,
-                transferStatus == 2,
+                (transferStatus & 0x01) != 0,
+                (transferStatus & 0x02) != 0,
                 futureTransfer.transferAgreed(),
                 futureTransfer.club(),
                 futureTransfer.date(),

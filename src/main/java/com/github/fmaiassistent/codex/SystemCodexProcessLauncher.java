@@ -104,7 +104,15 @@ class SystemCodexProcessLauncher implements CodexProcessLauncher {
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 process.destroyForcibly();
+            } finally {
+                closeStreams();
             }
+        }
+
+        private void closeStreams() {
+            try { stdout.close(); } catch (IOException ignored) { }
+            try { stderr.close(); } catch (IOException ignored) { }
+            try { stdin.close(); } catch (IOException ignored) { }
         }
     }
 }

@@ -55,7 +55,14 @@ public class AssistantChatService {
             throw new IllegalStateException(
                     "Set an OpenRouter API key in Settings to use in-app chat, or connect Codex/Claude to http://127.0.0.1:8080/mcp");
         }
-        return chatClient().prompt().messages(promptMessages(history, userMessage)).stream().content();
+        if (userMessage == null || userMessage.isBlank()) {
+            return Flux.error(new IllegalArgumentException("Message cannot be empty"));
+        }
+        ChatClient snapshot;
+        synchronized (clientLock) {
+            snapshot = chatClient();
+        }
+        return snapshot.prompt().messages(promptMessages(history, userMessage)).stream().content();
     }
 
     static List<Message> promptMessages(List<ChatTurn> history, String userMessage) {

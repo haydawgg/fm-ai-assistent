@@ -1759,6 +1759,9 @@ public class FmAiAssistentTools {
     }
 
     private static String playerAttributeKey(String attributeName) {
+        if (attributeName == null || attributeName.isBlank()) {
+            return "";
+        }
         String normalized = attributeName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_");
         normalized = normalized.replaceAll("^_+|_+$", "");
         return switch (normalized) {

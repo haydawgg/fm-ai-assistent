@@ -116,11 +116,11 @@ public final class PlayerTraits {
             for (long index = 0; index < count; index++) {
                 Optional<Long> item = reader.qwordOrNull(start + index * 8);
                 if (item.isEmpty()) {
-                    return List.of();
+                    continue;
                 }
                 String name = traitName(reader, item.get());
                 if (name == null) {
-                    return List.of();
+                    continue;
                 }
                 if (!name.isBlank()) {
                     names.add(name);

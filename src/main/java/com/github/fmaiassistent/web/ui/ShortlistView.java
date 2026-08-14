@@ -8,6 +8,7 @@ import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.checkbox.Checkbox;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Route(value = "shortlist", layout = AppShell.class)
@@ -166,11 +168,14 @@ public class ShortlistView extends VerticalLayout {
         if (Boolean.TRUE.equals(wonderkids.getValue())) {
             ageCap = ageCap == null ? 21 : Math.min(ageCap, 21);
         }
+        Integer finalAgeCap = ageCap;
+        UI ui = UI.getCurrent();
         runButton.setEnabled(false);
-        try {
-            List<TransferShortlistRow> rows = tools.transferShortlistRows(
-                    club, position, role, ageCap, value(minCa), value(minPa),
-                    feePounds(), wagePounds());
+        CompletableFuture.supplyAsync(() ->
+                tools.transferShortlistRows(
+                        club, position, role, finalAgeCap, value(minCa), value(minPa),
+                        feePounds(), wagePounds())
+        ).thenAccept(rows -> ui.access(() -> {
             grid.setItems(rows);
             long listed = rows.stream().filter(TransferShortlistRow::transferListed).count();
             long injured = rows.stream().filter(TransferShortlistRow::injured).count();
@@ -178,12 +183,16 @@ public class ShortlistView extends VerticalLayout {
                     + budgetSummary(club)
                     + " · same ranking as fm26_transfer_shortlist"
                     + (Boolean.TRUE.equals(wonderkids.getValue()) ? " with wonderkid age cap" : ""));
-        } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
             runButton.setEnabled(true);
-        }
+        })).exceptionally(ex -> {
+            ui.access(() -> {
+                Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
+                        5000, Notification.Position.MIDDLE)
+                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                runButton.setEnabled(true);
+            });
+            return null;
+        });
     }
 
     private String budgetSummary(String clubName) {

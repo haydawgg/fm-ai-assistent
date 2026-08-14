@@ -110,10 +110,18 @@ public class CompetitionEntity {
             return text;
         }
         if (targetType == Integer.class) {
-            return Integer.valueOf(text);
+            try {
+                return Integer.valueOf(text);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
         if (targetType == Long.class) {
-            return Long.valueOf(text);
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
         throw new IllegalArgumentException("unsupported competition field type: " + targetType.getName());
     }

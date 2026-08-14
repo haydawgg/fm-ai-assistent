@@ -15,6 +15,7 @@ import jakarta.persistence.Table;
 import java.lang.reflect.Field;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 @Entity
 @Table(name = "players")
@@ -279,8 +280,8 @@ public class PlayerEntity {
             entity.setExportField(exportField, row.get(exportField));
         }
         if (entity.club == null || entity.club.isBlank()) {
-            entity.askingPrice = 0L;
-            entity.askingPriceRaw = 0L;
+            entity.askingPrice = entity.askingPrice == null ? 0L : entity.askingPrice;
+            entity.askingPriceRaw = entity.askingPriceRaw == null ? 0L : entity.askingPriceRaw;
         }
         return entity;
     }
@@ -796,6 +797,18 @@ public class PlayerEntity {
         return assists;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PlayerEntity that)) return false;
+        return id != null && Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? Objects.hash(id) : 0;
+    }
+
     private void setExportField(String exportField, Object value) {
         try {
             Field field = PlayerEntity.class.getDeclaredField(PlayerColumnNames.toEntityFieldName(exportField));
@@ -832,7 +845,11 @@ public class PlayerEntity {
             }
         }
         if (targetType == Long.class) {
-            return Long.valueOf(text);
+            try {
+                return Long.valueOf(text);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
         if (targetType == Boolean.class) {
             return Boolean.valueOf(text);
