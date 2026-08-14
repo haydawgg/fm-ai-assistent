@@ -83,6 +83,8 @@ Or start directly with Maven:
 mvn.cmd spring-boot:run
 ```
 
+On Windows, double-click `start.bat` in this folder. It opens a terminal, sets `JAVA_HOME`, and runs `mvn.cmd spring-boot:run`.
+
 The application starts on http://127.0.0.1:8080. Keep FM26 running with a save loaded, then click "Load from RAM" in the UI before using the MCP tools.
 
 ## Use AI Assistent
