@@ -35,7 +35,7 @@ import java.util.Locale;
  * Moneyball scouting view: every value signing for a club ranked by signing_rating,
  * sharing the exact rating pipeline with the fm26_moneyball_shortlist MCP tool.
  */
-@Route("moneyball")
+@Route(value = "moneyball", layout = AppShell.class)
 @PageTitle("Moneyball")
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
@@ -91,7 +91,7 @@ public class MoneyballView extends VerticalLayout {
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);
         titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock, WorkspaceLinks.buttons());
+        HorizontalLayout header = new HorizontalLayout(titleBlock);
         header.setWidthFull();
         header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);

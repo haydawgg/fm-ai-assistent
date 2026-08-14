@@ -51,7 +51,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
-@Route("")
+@Route(value = "", layout = AppShell.class)
 @PageTitle("FM AI Assistent")
 @CssImport("./styles/main-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
@@ -191,7 +191,7 @@ public class MainView extends VerticalLayout {
         brand.addClassName("brand");
 
         status.addClassName("app-status");
-        HorizontalLayout actions = new HorizontalLayout(status, loadButton, WorkspaceLinks.buttons(), settingsButton);
+        HorizontalLayout actions = new HorizontalLayout(status, loadButton, settingsButton);
         actions.setAlignItems(Alignment.CENTER);
         actions.setSpacing(true);
         actions.addClassName("app-actions");

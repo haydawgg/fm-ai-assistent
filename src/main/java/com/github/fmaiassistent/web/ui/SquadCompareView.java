@@ -24,9 +24,10 @@ import com.vaadin.flow.router.Route;
 import java.util.List;
 import java.util.Map;
 
-@Route("compare-squads")
+@Route(value = "compare-squads", layout = AppShell.class)
 @PageTitle("Compare squads")
 @CssImport("./styles/moneyball-view.css")
+@CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class SquadCompareView extends VerticalLayout {
     private final FmAiAssistentTools tools;
     private final ComboBox<String> leftClub = new ComboBox<>("Your club");
@@ -69,7 +70,7 @@ public class SquadCompareView extends VerticalLayout {
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);
         titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock, WorkspaceLinks.buttons());
+        HorizontalLayout header = new HorizontalLayout(titleBlock);
         header.setWidthFull();
         header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);

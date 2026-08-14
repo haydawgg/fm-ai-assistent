@@ -3,7 +3,9 @@ package com.github.fmaiassistent.web.ui;
 import com.github.fmaiassistent.service.AssistantChatService;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.Key;
+import com.vaadin.flow.component.KeyModifier;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.server.Command;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dependency.CssImport;
@@ -24,7 +26,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-@Route("chat")
+@Route(value = "chat", layout = AppShell.class)
 @PageTitle("Chat")
 @CssImport("./styles/moneyball-view.css")
 public class ChatView extends VerticalLayout {
@@ -66,7 +68,7 @@ public class ChatView extends VerticalLayout {
         input.setMaxHeight("12em");
         input.setHelperText("Enter to send · Shift + Enter for a new line");
         input.addKeyDownListener(Key.ENTER, event -> {
-            if (!event.isShiftKey()) {
+            if (!event.getModifiers().contains(KeyModifier.SHIFT)) {
                 send();
             }
         });
@@ -92,7 +94,7 @@ public class ChatView extends VerticalLayout {
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);
         titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock, WorkspaceLinks.buttons());
+        HorizontalLayout header = new HorizontalLayout(titleBlock);
         header.setWidthFull();
         header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);
@@ -251,7 +253,7 @@ public class ChatView extends VerticalLayout {
         transcript.getElement().executeJs("this.scrollTop = this.scrollHeight");
     }
 
-    private void access(UI ui, Runnable action) {
+    private void access(UI ui, Command action) {
         if (ui != null) {
             ui.access(action);
         }

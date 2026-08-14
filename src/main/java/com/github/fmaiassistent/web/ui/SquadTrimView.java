@@ -23,9 +23,10 @@ import com.vaadin.flow.router.Route;
 
 import java.util.List;
 
-@Route("squad-trim")
+@Route(value = "squad-trim", layout = AppShell.class)
 @PageTitle("Squad trim")
 @CssImport("./styles/moneyball-view.css")
+@CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class SquadTrimView extends VerticalLayout {
     private final FmAiAssistentTools tools;
     private final ComboBox<String> clubFilter = new ComboBox<>("Club");
@@ -65,7 +66,7 @@ public class SquadTrimView extends VerticalLayout {
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);
         titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock, WorkspaceLinks.buttons());
+        HorizontalLayout header = new HorizontalLayout(titleBlock);
         header.setWidthFull();
         header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);
