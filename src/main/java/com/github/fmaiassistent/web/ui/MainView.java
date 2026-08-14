@@ -171,7 +171,8 @@ public class MainView extends VerticalLayout {
         filterButton.addClickListener(event -> openFilterDialog());
         loadButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         loadButton.addClassName("load-button");
-        filterButton.addClassName("filter-button");
+        filterButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        filterButton.addClassName("toolbar-button");
         settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         settingsButton.addClassName("icon-button");
         settingsButton.setTooltipText("Settings");
@@ -204,7 +205,8 @@ public class MainView extends VerticalLayout {
         appBar.setSpacing(false);
         appBar.addClassName("app-bar");
 
-        columnsButton.addClassName("columns-button");
+        columnsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        columnsButton.addClassName("toolbar-button");
         columnsButton.addClickListener(event -> {
             showAllPlayerColumns = !showAllPlayerColumns;
             columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
@@ -221,10 +223,12 @@ public class MainView extends VerticalLayout {
                 applySavedView(event.getValue());
             }
         });
-        saveViewButton.addClassName("save-view-button");
+        saveViewButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        saveViewButton.addClassName("toolbar-button");
         saveViewButton.addClickListener(event -> openSaveViewDialog());
-        deleteViewButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        deleteViewButton.addClassName("delete-view-button");
+        deleteViewButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        deleteViewButton.addClassName("toolbar-button");
+        deleteViewButton.addClassName("toolbar-button-danger");
         deleteViewButton.setTooltipText("Delete selected view");
         deleteViewButton.getElement().setAttribute("aria-label", "Delete selected view");
         deleteViewButton.addClickListener(event -> deleteSelectedView());
@@ -898,7 +902,8 @@ public class MainView extends VerticalLayout {
             dialog.close();
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        Button cancel = new Button("Cancel", event -> dialog.close());
+        Button cancel = new Button("Cancel", VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(cancel, save);
         dialog.open();
         name.focus();
@@ -1097,6 +1102,7 @@ public class MainView extends VerticalLayout {
         compare.setTooltipText(awaitingCompareSelection
                 ? "Waiting for second player"
                 : "Compare with another player");
+        compare.getElement().setAttribute("aria-label", "Compare with another player");
         Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         close.addClassName("drawer-close");
@@ -1297,6 +1303,7 @@ public class MainView extends VerticalLayout {
         });
         save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         Button cancel = new Button("Cancel", VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(cancel, save);
         dialog.open();
     }
@@ -1454,7 +1461,9 @@ public class MainView extends VerticalLayout {
             updateStatus(null);
             dialog.close();
         });
+        clear.addThemeVariants(ButtonVariant.LUMO_ERROR);
         Button cancel = new Button("Cancel", VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
         dialog.add(dialogTabs, dialogContent);
         dialog.getFooter().add(clear, cancel, apply);

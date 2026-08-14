@@ -51,8 +51,8 @@ public class ChatView extends VerticalLayout {
     public ChatView(AssistantChatService chat) {
         this.chat = chat;
         setSizeFull();
-        setPadding(true);
-        setSpacing(true);
+        setPadding(false);
+        setSpacing(false);
         addClassName("moneyball-view");
         addClassName("chat-view");
 

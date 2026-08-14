@@ -57,6 +57,8 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
         collapseButton.addClassName("fmai-sidebar-toggle");
         collapseButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        collapseButton.getElement().setAttribute("aria-label", "Toggle sidebar");
+        collapseButton.getElement().setAttribute("aria-expanded", "true");
         collapseButton.addClickListener(e -> toggleSidebar());
 
         header.add(logo, title, collapseButton);
@@ -110,6 +112,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
     private void toggleSidebar() {
         collapsed = !collapsed;
+        collapseButton.getElement().setAttribute("aria-expanded", String.valueOf(!collapsed));
         getElement().executeJs(
                 "const sidebar = this.querySelector('.fmai-sidebar');" +
                 "if (sidebar) sidebar.classList.toggle('collapsed', $0);",

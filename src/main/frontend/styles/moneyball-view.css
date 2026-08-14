@@ -1,5 +1,9 @@
 .moneyball-view {
     background: var(--fmai-bg);
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
 }
 
 .moneyball-title {
@@ -92,25 +96,12 @@
     min-height: 60vh;
 }
 
-.assistant-launcher {
-    position: fixed;
-    right: var(--lumo-space-l);
-    bottom: var(--lumo-space-l);
-    z-index: 10;
-    border-radius: 999px;
-    padding: 0.7em 1em;
-    color: var(--fmai-bg);
-    background: var(--fmai-accent);
-    box-shadow: var(--fmai-shadow-l);
-    font-weight: 700;
-}
-
-.assistant-launcher:hover {
-    background: var(--fmai-accent-hover);
-}
-
 .chat-view {
     min-width: 0;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
 }
 
 .chat-header {
@@ -151,6 +142,7 @@
     border: 1px solid var(--fmai-border);
     border-radius: var(--fmai-radius-l);
     background: var(--fmai-surface);
+    flex: 1;
 }
 
 .chat-rail {
@@ -196,11 +188,17 @@
     border: 1px solid var(--fmai-border-strong);
     background: var(--fmai-surface-elevated);
     color: var(--fmai-text);
+    transition: background var(--fmai-transition), border-color var(--fmai-transition),
+                transform var(--fmai-transition);
 }
 
 .chat-starter:hover {
     background: var(--fmai-surface-hover);
     border-color: var(--fmai-accent);
+}
+
+.chat-starter:active {
+    transform: scale(0.98);
 }
 
 .chat-message {
@@ -271,19 +269,6 @@
 }
 
 @media (max-width: 650px) {
-    .assistant-launcher {
-        right: var(--lumo-space-m);
-        bottom: var(--lumo-space-m);
-        width: 3.2em;
-        height: 3.2em;
-        padding: 0;
-        font-size: 0;
-    }
-
-    .assistant-launcher vaadin-icon {
-        font-size: var(--lumo-icon-size-m);
-    }
-
     .chat-composer {
         flex-wrap: wrap;
     }

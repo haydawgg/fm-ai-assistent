@@ -275,7 +275,7 @@ body {
 .fmai-content {
     flex: 1;
     overflow: auto;
-    padding: 20px;
+    padding: 0;
     min-height: 0;
 }
 
@@ -337,7 +337,168 @@ body {
     }
 }
 
-/* Utility classes */
+/* Focus visible rings */
+.fmai-nav-item:focus-visible,
+.fmai-sidebar-toggle:focus-visible,
+.toolbar-button:focus-visible,
+.load-button:focus-visible,
+.icon-button:focus-visible,
+.drawer-nav:focus-visible,
+.drawer-close:focus-visible,
+.drawer-compare:focus-visible,
+.filter-chip-clear:focus-visible,
+.chat-starter:focus-visible,
+vaadin-button:focus-visible,
+vaadin-tab:focus-visible {
+    outline: 2px solid var(--fmai-accent);
+    outline-offset: 2px;
+}
+
+/* Transitions */
+.fmai-nav-item,
+.fmai-sidebar-toggle,
+.toolbar-button,
+.load-button,
+.icon-button,
+.drawer-nav,
+.drawer-close,
+.drawer-compare,
+.filter-chip-clear,
+.chat-starter,
+.chat-message,
+.filter-chip,
+.empty-state,
+.app-toast {
+    transition: background var(--fmai-transition), color var(--fmai-transition),
+                border-color var(--fmai-transition), opacity var(--fmai-transition),
+                transform var(--fmai-transition), box-shadow var(--fmai-transition);
+}
+
+/* Drawer animation */
+@keyframes fmai-drawer-in {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.player-drawer {
+    animation: fmai-drawer-in var(--fmai-transition-slow) ease-out;
+}
+
+/* Chat message animation */
+@keyframes fmai-message-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.chat-message {
+    animation: fmai-message-in var(--fmai-transition) ease-out;
+}
+
+/* Typing indicator pulse */
+@keyframes fmai-typing-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.chat-typing {
+    animation: fmai-typing-pulse 1.2s ease-in-out infinite;
+}
+
+/* Filter chip animation */
+@keyframes fmai-chip-in {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.filter-chip {
+    animation: fmai-chip-in var(--fmai-transition) ease-out;
+}
+
+/* Empty state fade */
+@keyframes fmai-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.empty-state {
+    animation: fmai-fade-in var(--fmai-transition-slow) ease-out;
+}
+
+/* Toast slide down */
+@keyframes fmai-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.app-toast {
+    animation: fmai-toast-in var(--fmai-transition) ease-out;
+}
+
+/* Grid fade on update */
+.data-grid,
+.players-grid,
+.moneyball-grid {
+    transition: opacity var(--fmai-transition);
+}
+
+.data-grid.updating,
+.players-grid.updating,
+.moneyball-grid.updating {
+    opacity: 0.6;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .player-drawer,
+    .chat-message,
+    .chat-typing,
+    .filter-chip,
+    .empty-state,
+    .app-toast {
+        animation: none;
+    }
+
+    .fmai-nav-item,
+    .fmai-sidebar-toggle,
+    .toolbar-button,
+    .load-button,
+    .icon-button,
+    .drawer-nav,
+    .drawer-close,
+    .drawer-compare,
+    .filter-chip-clear,
+    .chat-starter,
+    .chat-message,
+    .filter-chip,
+    .empty-state,
+    .app-toast {
+        transition: none;
+    }
+}
 .fmai-card {
     background: var(--fmai-surface);
     border: 1px solid var(--fmai-border);

@@ -41,6 +41,7 @@ body {
     background: var(--fmai-canvas);
     font-family: var(--fmai-font-body);
     overflow: hidden;
+    padding: 0;
 }
 
 .app-header {
@@ -235,6 +236,37 @@ body {
     background: var(--fmai-surface);
 }
 
+.toolbar-button {
+    min-width: 108px;
+    min-height: 34px;
+    border: 1px solid var(--fmai-border-strong);
+    border-radius: 8px;
+    background: var(--fmai-surface);
+    color: var(--fmai-ink);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    transition: background var(--fmai-transition), color var(--fmai-transition),
+                border-color var(--fmai-transition);
+}
+
+.toolbar-button:hover {
+    border-color: var(--fmai-border-strong);
+    background: var(--fmai-surface-hover);
+}
+
+.toolbar-button:active {
+    background: var(--fmai-surface-elevated);
+}
+
+.toolbar-button-danger {
+    color: var(--fmai-danger);
+}
+
+.toolbar-button-danger:hover {
+    border-color: var(--fmai-danger);
+    background: var(--fmai-danger-soft);
+}
+
 .columns-button,
 .filter-button {
     min-width: 108px;
@@ -245,6 +277,8 @@ body {
     color: var(--fmai-ink);
     font-weight: 700;
     letter-spacing: -0.01em;
+    transition: background var(--fmai-transition), color var(--fmai-transition),
+                border-color var(--fmai-transition);
 }
 
 .columns-button:hover,
@@ -307,9 +341,11 @@ body {
     flex-direction: column;
     gap: 8px;
     box-sizing: border-box;
-    padding: 12px;
+    padding: 16px;
     overflow: hidden;
     background: transparent;
+    width: 100%;
+    height: 100%;
 }
 
 .workspace-toolbar {
@@ -407,6 +443,12 @@ body {
     min-width: 24px;
     height: 24px;
     color: var(--fmai-green);
+    transition: background var(--fmai-transition), color var(--fmai-transition);
+}
+
+.filter-chip-clear:hover {
+    background: var(--fmai-green-soft);
+    border-radius: 50%;
 }
 
 .loan-legend {
@@ -482,12 +524,24 @@ body {
     min-width: 30px;
     height: 30px;
     color: var(--fmai-muted);
+    transition: background var(--fmai-transition), color var(--fmai-transition);
 }
 
 .drawer-nav:hover,
 .drawer-close:hover {
     color: var(--fmai-ink);
     background: var(--fmai-surface-hover);
+}
+
+.drawer-compare {
+    color: var(--fmai-muted);
+    font-weight: 600;
+    transition: background var(--fmai-transition), color var(--fmai-transition);
+}
+
+.drawer-compare:hover {
+    color: var(--fmai-accent);
+    background: var(--fmai-accent-soft);
 }
 
 .drawer-nav-hint {

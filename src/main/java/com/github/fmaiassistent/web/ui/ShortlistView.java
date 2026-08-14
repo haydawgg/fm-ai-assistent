@@ -52,8 +52,8 @@ public class ShortlistView extends VerticalLayout {
         this.tools = tools;
         this.currency = settings.currency();
         setSizeFull();
-        setPadding(true);
-        setSpacing(true);
+        setPadding(false);
+        setSpacing(false);
         addClassName("moneyball-view");
         maxPrice.setLabel("Max fee (" + currency.symbol() + ")");
         maxWage.setLabel("Max wage/wk (" + currency.symbol() + ")");

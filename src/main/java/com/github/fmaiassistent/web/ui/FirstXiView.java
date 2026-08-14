@@ -56,8 +56,8 @@ public class FirstXiView extends VerticalLayout {
     public FirstXiView(FmAiAssistentTools tools, ClubDatabaseService clubs, PlayerDatabaseService players) {
         this.tools = tools;
         setSizeFull();
-        setPadding(true);
-        setSpacing(true);
+        setPadding(false);
+        setSpacing(false);
         addClassName("moneyball-view");
         String liveSlots = String.valueOf(players.metadata().getOrDefault("tactic_slots", ""));
         tactic.setValue(liveSlots.isBlank() ? DEFAULT_TACTIC : liveSlots);

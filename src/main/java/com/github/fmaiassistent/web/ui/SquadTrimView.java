@@ -39,8 +39,8 @@ public class SquadTrimView extends VerticalLayout {
         this.tools = tools;
         this.currency = settings.currency();
         setSizeFull();
-        setPadding(true);
-        setSpacing(true);
+        setPadding(false);
+        setSpacing(false);
         addClassName("moneyball-view");
         configureGrid();
         add(header(), filterBar(), summary, grid);
