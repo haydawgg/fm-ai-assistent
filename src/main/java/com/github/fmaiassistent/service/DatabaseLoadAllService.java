@@ -3,6 +3,7 @@ package com.github.fmaiassistent.service;
 import com.github.fmaiassistent.config.JCacheConfiguration;
 import com.github.fmaiassistent.linux.FmOffsets;
 import com.github.fmaiassistent.linux.ProcessInfo;
+import com.github.fmaiassistent.memory.ProcessMemoryReader;
 import com.github.fmaiassistent.memory.ProcessReaders;
 import com.github.fmaiassistent.repository.DatabaseService;
 import org.springframework.cache.annotation.CacheEvict;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.Map;
 
 @Service
 public class DatabaseLoadAllService {
@@ -47,6 +49,13 @@ public class DatabaseLoadAllService {
                 playerResult.count(),
                 clubs.countClubs(),
                 competitions.countCompetitions());
+    }
+
+    public Map<String, Long> ramSlotCounts() throws IOException {
+        int pid = detectFmPid();
+        try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
+            return FmOffsets.slotCounts(reader, LoadAllResult.defaultBuild(), null);
+        }
     }
 
     public int detectFmPid() throws IOException {

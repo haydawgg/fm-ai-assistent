@@ -5,6 +5,7 @@
 ### Most important
 
 - New `fm26_moneyball_shortlist` MCP tool: moneyball value signings, sorted by `signing_rating` (0-100) — a composite of CA, age-adjusted PA and transfer value (fee + 3 years of wages vs the market median). Each candidate carries `deal_tier` (excellent/good/average/overpriced), market value, 3-year total cost and the saving vs market.
+- Squad advice: `fm26_sell_shortlist`, `fm26_wonderkid_shortlist`, `fm26_compare_squads`, `fm26_compare_players`, `fm26_best_xi`, plus Squad trim / First XI / optional Chat views. Snapshots persist in file-backed H2 next to the settings file.
 
 ### Other features
 

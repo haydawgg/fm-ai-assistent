@@ -2,7 +2,10 @@ package com.github.fmaiassistent.mcp;
 
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
+import com.github.fmaiassistent.service.CompetitionDatabaseService;
+import com.github.fmaiassistent.service.DatabaseLoadAllService;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.player.AttributeDefinitions;
 import com.github.fmaiassistent.player.FieldDef;
@@ -14,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.Period;
@@ -39,18 +43,32 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_MIN_POSITION_SCORE = 15;
     private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
     private static final int DEFAULT_MONEYBALL_MAX_AGE = 40;
+    private static final int DEFAULT_WONDERKID_MAX_AGE = 21;
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
 
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
+    private final CompetitionDatabaseService competitions;
     private final PlayerMapper playerMapper;
     private final JdbcTemplate jdbc;
+    private final RamLoadCoordinator ramLoad;
+    private final DatabaseLoadAllService loadAll;
 
-    public FmAiAssistentTools(PlayerDatabaseService players, ClubDatabaseService clubs, PlayerMapper playerMapper, JdbcTemplate jdbc) {
+    public FmAiAssistentTools(
+            PlayerDatabaseService players,
+            ClubDatabaseService clubs,
+            CompetitionDatabaseService competitions,
+            PlayerMapper playerMapper,
+            JdbcTemplate jdbc,
+            RamLoadCoordinator ramLoad,
+            DatabaseLoadAllService loadAll) {
         this.players = players;
         this.clubs = clubs;
+        this.competitions = competitions;
         this.playerMapper = playerMapper;
         this.jdbc = jdbc;
+        this.ramLoad = ramLoad;
+        this.loadAll = loadAll;
     }
 
     @Tool(name = "fm26_find_clubs", description = "Find FM26 clubs by name, nation, competition, reputation and finances. Money values are raw pounds.")
@@ -122,8 +140,16 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Transfer-agreed filter. Use true for players who already agreed a future move, false to exclude them.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Future transfer destination club exact filter.") String futureTransferClub,
             @ToolParam(required = false, description = "Injury filter. Use true for only injured players, false for only currently fit players.") Boolean injured,
+            @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
+            @ToolParam(required = false, description = "Minimum position ability 1-20 when position is supplied. Defaults to 15.") Integer minimumPositionScore,
+            @ToolParam(required = false, description = "If true, return full attributes. Defaults to compact summaries; use fm26_get_player_details for finalists.") Boolean details,
             @ToolParam(required = false, description = "Maximum players to return") Integer limit) {
         int safeLimit = safeLimit(limit);
+        PositionSpec positionSpec = resolvePosition(position);
+        int positionMinimum = positionSpec == null
+                ? 1
+                : Math.max(1, Math.min(20, minimumPositionScore == null ? DEFAULT_MIN_POSITION_SCORE : minimumPositionScore));
+        boolean fullDetails = Boolean.TRUE.equals(details);
         Predicate<PlayerEntity> filter = player ->
                 contains(player.getName(), name)
                         && (blank(gender) || equalsIgnoreCase(player.getGender(), gender))
@@ -141,7 +167,8 @@ public class FmAiAssistentTools {
                         && matchesBoolean(player.getListedForLoan(), listedForLoan)
                         && matchesBoolean(player.getTransferAgreed(), transferAgreed)
                         && (blank(futureTransferClub) || equalsIgnoreCase(player.getFutureTransferClub(), futureTransferClub))
-                        && matchesBoolean(player.getInjured(), injured);
+                        && matchesBoolean(player.getInjured(), injured)
+                        && (positionSpec == null || positionScore(player, positionSpec) >= positionMinimum);
         List<Map<String, Object>> rows = allPlayers().stream()
                 .filter(filter)
                 .sorted(Comparator
@@ -149,7 +176,7 @@ public class FmAiAssistentTools {
                         .thenComparing((PlayerEntity player) -> value(player.getCa())).reversed()
                         .thenComparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .limit(safeLimit)
-                .map(this::playerFullMap)
+                .map(fullDetails ? this::playerFullMap : this::playerSummaryMap)
                 .toList();
         return result("players", rows, safeLimit);
     }
@@ -407,6 +434,175 @@ public class FmAiAssistentTools {
         out.put("deal_tier_legend", "deal_tier compares total cost (fee + 3 years of wages) with the market median for comparable players: excellent = cost below 60% of market, good = 60-80%, average = 80-120%, overpriced = above 120%. deal_score is market_cost divided by total_cost, so above 1 means below market.");
         out.put("guidance", "Ranked estimates, not guaranteed transfers. Candidates are sorted by signing_rating; deal_tier labels only the value component. asking_price=null means unknown, not free; only players with a known fee or no club are rated. Call fm26_get_player_details only for finalists and fm26_transfer_shortlist when role fit matters more than value.");
         return out;
+    }
+
+    @Tool(name = "fm26_status", description = "Snapshot status: in-game date, last RAM load time, and player/club/competition counts. Call this before recruitment tools.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> status() {
+        Map<String, Object> out = new LinkedHashMap<>(players.metadata());
+        out.put("clubs", clubs.countClubs());
+        out.put("competitions", competitions.countCompetitions());
+        out.put("loading", ramLoad.loading());
+        out.put("guidance", "If count is 0, call fm26_load_from_ram or click Load from RAM in the UI with FM26 running.");
+        return out;
+    }
+
+    @Tool(name = "fm26_load_from_ram", description = "Load the current FM26 save from RAM into the local database. FM26 must be running with a save loaded. Slow; do not call repeatedly.")
+    public Map<String, Object> loadFromRam() {
+        try {
+            DatabaseLoadAllService.LoadAllResult result = ramLoad.loadFromRam();
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("pid", result.pid());
+            out.put("game_date", result.gameDate());
+            out.put("players", result.players());
+            out.put("clubs", result.clubs());
+            out.put("competitions", result.competitions());
+            return out;
+        } catch (IOException | RuntimeException ex) {
+            throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
+        }
+    }
+
+    @Tool(name = "fm26_find_competitions", description = "Find FM26 competitions by name, nation, gender and reputation.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> findCompetitions(
+            @ToolParam(required = false, description = "Competition name contains filter") String name,
+            @ToolParam(required = false, description = "Nation exact filter") String nation,
+            @ToolParam(required = false, description = "Gender exact filter: male or female") String gender,
+            @ToolParam(required = false, description = "Maximum competitions to return") Integer limit) {
+        int safeLimit = safeLimit(limit);
+        List<Map<String, Object>> rows = competitions.findCompetitions(name, nation, gender, safeLimit);
+        return result("competitions", rows, safeLimit);
+    }
+
+    @Tool(name = "fm26_ram_table_counts", description = "Research helper: live FM26 offset-table slot counts (People, Team, Club, Nation, Stadium, Agreement, ...). Does not invent player fields. Requires fm.exe.")
+    public Map<String, Object> ramTableCounts() {
+        try {
+            Map<String, Long> counts = loadAll.ramSlotCounts();
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("slots", counts);
+            out.put("decoded_today", List.of("PeopleOffset", "TeamOffset", "CompetitionOffset"));
+            out.put("not_decoded", List.of("NationOffset", "StadiumOffset", "AgreementOffset", "ClubOffset",
+                    "CityOffset", "ContinentOffset", "RegionOffset", "CurrencyOffset"));
+            out.put("guidance", "Counts only. Traits, morale, form and current tactic are not exported until offsets are validated against a live save.");
+            return out;
+        } catch (IOException | RuntimeException ex) {
+            throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
+        }
+    }
+
+    @Tool(name = "fm26_sell_shortlist", description = "Squad trim. Rank the managing club's own players for sell / loan / keep using depth, CA vs first team, wages and contract. Money values are raw pounds.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> sellShortlist(
+            @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
+            @ToolParam(required = false, description = "Maximum rows. Defaults to 20.") Integer limit) {
+        ClubEntity club = requireClub(managingClub);
+        List<SquadAdvice.SellRow> rows = sellRows(managingClub);
+        int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, MAX_LIMIT));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("club", recruitmentClubMap(club));
+        out.put("returned", Math.min(safeLimit, rows.size()));
+        out.put("players", rows.stream().limit(safeLimit).map(this::sellMap).toList());
+        out.put("guidance", "Estimates from the RAM snapshot. Listed and surplus players rank higher. Call fm26_get_player_details before confirming a sale.");
+        return out;
+    }
+
+    @Tool(name = "fm26_wonderkid_shortlist", description = "Young high-PA signings. Same recruitment filters as fm26_transfer_shortlist with a default max age of 21. Money values are raw pounds.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> wonderkidShortlist(
+            @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
+            @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
+            @ToolParam(required = false, description = "Optional FM26 role name") String roleName,
+            @ToolParam(required = false, description = "Role phase: In Possession or Out of Possession") String phase,
+            @ToolParam(required = false, description = "Maximum age. Defaults to 21.") Integer maxAge,
+            @ToolParam(required = false, description = "Minimum potential ability") Integer minPotentialAbility,
+            @ToolParam(required = false, description = "Maximum asking price in pounds") Long maxAskingPrice,
+            @ToolParam(required = false, description = "Maximum candidates. Defaults to 8.") Integer limit) {
+        return transferShortlist(
+                managingClub, position, roleName, phase, null,
+                maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge,
+                null, minPotentialAbility, maxAskingPrice, null, null, null, null, null, null, null, limit);
+    }
+
+    @Tool(name = "fm26_compare_squads", description = "Compare two clubs' squads: CA/PA, wage bill, age, and best player per position.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> compareSquads(
+            @ToolParam(description = "First club name") String leftClub,
+            @ToolParam(description = "Second club name") String rightClub) {
+        ClubEntity left = requireClub(leftClub);
+        ClubEntity right = requireClub(rightClub);
+        return SquadAdvice.compareSquads(left.getName(), right.getName(),
+                currentSquad(allPlayers(), left.getName()),
+                currentSquad(allPlayers(), right.getName()));
+    }
+
+    @Tool(name = "fm26_compare_players", description = "Compare two players on CA/PA, wages, contract and key attributes.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> comparePlayers(
+            @ToolParam(description = "First player name") String leftName,
+            @ToolParam(description = "Second player name") String rightName) {
+        PlayerEntity left = requirePlayer(leftName);
+        PlayerEntity right = requirePlayer(rightName);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("left", playerSummaryMap(left));
+        out.put("right", playerSummaryMap(right));
+        out.put("metrics", SquadAdvice.comparePlayers(left, right).stream().map(this::compareMetricMap).toList());
+        return out;
+    }
+
+    @Tool(name = "fm26_best_xi", description = "Pick a first XI from the managing club for a pasted tactic. Pass 11 slots as lines: position,inPossessionRole,outOfPossessionRole")
+    @Transactional(readOnly = true)
+    public Map<String, Object> bestXi(
+            @ToolParam(description = "Managing club name") String managingClub,
+            @ToolParam(description = "Eleven tactic slots, one per line: GK,Ball Playing GK,Sweeper Keeper") String tacticSlots) {
+        ClubEntity club = requireClub(managingClub);
+        List<SquadAdvice.XiSlot> slots = parseTacticSlots(tacticSlots);
+        List<PlayerEntity> squad = currentSquad(allPlayers(), club.getName());
+        List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(squad, slots, this::slotRoleFit);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("club", recruitmentClubMap(club));
+        out.put("xi", picks.stream().map(this::xiMap).toList());
+        List<String> holes = picks.stream().filter(SquadAdvice.XiPick::hole).map(SquadAdvice.XiPick::position).toList();
+        out.put("holes", holes);
+        out.put("suggested_buys", suggestedBuys(managingClub, picks));
+        out.put("guidance", "Current tactic is not read from RAM. Upgrade holes with fm26_transfer_shortlist using the same position and in-possession role.");
+        return out;
+    }
+
+    @Transactional(readOnly = true)
+    public List<SquadAdvice.SellRow> sellRows(String managingClub) {
+        ClubEntity club = requireClub(managingClub);
+        return SquadAdvice.sellShortlist(currentSquad(allPlayers(), club.getName()), club);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SquadAdvice.XiPick> bestXiRows(String managingClub, List<SquadAdvice.XiSlot> slots) {
+        ClubEntity club = requireClub(managingClub);
+        return SquadAdvice.bestXi(currentSquad(allPlayers(), club.getName()), slots, this::slotRoleFit);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> suggestedBuys(String managingClub, List<SquadAdvice.XiPick> picks) {
+        List<Map<String, Object>> upgrades = new ArrayList<>();
+        for (SquadAdvice.XiPick pick : picks) {
+            if (!pick.hole()) {
+                continue;
+            }
+            boolean already = upgrades.stream().anyMatch(row -> pick.position().equals(row.get("position")));
+            if (already) {
+                continue;
+            }
+            Map<String, Object> shortlist = transferShortlist(
+                    managingClub, pick.position(), pick.inPossessionRole(), "In Possession",
+                    null, null, null, null, null, null, null, null, null, null, null, null, 5);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("position", pick.position());
+            row.put("in_possession_role", pick.inPossessionRole());
+            row.put("tool", "fm26_transfer_shortlist");
+            row.put("candidates", shortlist.get("candidates"));
+            upgrades.add(row);
+        }
+        return upgrades;
     }
 
     /** Typed moneyball candidate, shared by the MCP tool and the web UI. */
@@ -735,6 +931,114 @@ public class FmAiAssistentTools {
                 .orElseThrow(() -> new IllegalArgumentException("club not found: " + clubName));
     }
 
+    private PlayerEntity requirePlayer(String name) {
+        String normalized = normalize(name);
+        List<PlayerEntity> exact = allPlayers().stream()
+                .filter(player -> normalize(player.getName()).equals(normalized))
+                .toList();
+        List<PlayerEntity> rows = exact.isEmpty()
+                ? allPlayers().stream().filter(player -> contains(player.getName(), name)).toList()
+                : exact;
+        return rows.stream()
+                .max(Comparator.comparingInt(player -> value(player.getCa())))
+                .orElseThrow(() -> new IllegalArgumentException("player not found: " + name));
+    }
+
+    private Double slotRoleFit(PlayerEntity player, SquadAdvice.XiSlot slot) {
+        PositionSpec spec = resolvePosition(slot.position());
+        RoleProfile inPossession = tryRoleProfile(spec, slot.inPossessionRole(), "In Possession");
+        RoleProfile outOfPossession = tryRoleProfile(spec, slot.outOfPossessionRole(), "Out of Possession");
+        Double inFit = roleFit(player, inPossession).score();
+        Double outFit = roleFit(player, outOfPossession).score();
+        if (inFit == null) {
+            return outFit;
+        }
+        if (outFit == null) {
+            return inFit;
+        }
+        return round1((inFit + outFit) / 2.0);
+    }
+
+    private RoleProfile tryRoleProfile(PositionSpec spec, String roleName, String phase) {
+        if (blank(roleName) || spec == null) {
+            return RoleProfile.empty();
+        }
+        try {
+            return resolveRoleProfile(spec, roleName, phase);
+        } catch (IllegalArgumentException ex) {
+            return RoleProfile.empty();
+        }
+    }
+
+    public static List<SquadAdvice.XiSlot> parseTacticSlots(String tacticSlots) {
+        if (tacticSlots == null || tacticSlots.isBlank()) {
+            throw new IllegalArgumentException("tacticSlots is required. One line per slot: position,inPossessionRole,outOfPossessionRole");
+        }
+        List<SquadAdvice.XiSlot> slots = new ArrayList<>();
+        for (String line : tacticSlots.split("\\R")) {
+            if (line.isBlank() || line.toLowerCase(Locale.ROOT).startsWith("player")) {
+                continue;
+            }
+            String[] parts = line.split(",", -1);
+            if (parts.length < 1 || parts[0].isBlank()) {
+                continue;
+            }
+            String position = Positions.canonicalCode(parts[0].trim());
+            String inPossession = parts.length > 1 ? parts[1].trim() : "";
+            String outOfPossession = parts.length > 2 ? parts[2].trim() : "";
+            slots.add(new SquadAdvice.XiSlot(position, inPossession, outOfPossession));
+        }
+        if (slots.isEmpty()) {
+            throw new IllegalArgumentException("no tactic slots parsed");
+        }
+        if (slots.size() > 11) {
+            throw new IllegalArgumentException("expected at most 11 tactic slots, got " + slots.size());
+        }
+        return slots;
+    }
+
+    private Map<String, Object> sellMap(SquadAdvice.SellRow row) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("rank", row.rank());
+        out.put("name", row.name());
+        out.put("age", row.age());
+        out.put("position", row.position());
+        out.put("ca", row.ca());
+        out.put("pa", row.pa());
+        out.put("salary_weekly", row.salaryWeekly());
+        out.put("asking_price", row.askingPrice());
+        out.put("contract_end", row.contractEnd());
+        out.put("depth_at_position", row.depthAtPosition());
+        out.put("ca_vs_first_team", row.caVsFirstTeam());
+        out.put("recommendation", row.recommendation());
+        out.put("sell_score", row.sellScore());
+        out.put("reasons", row.reasons());
+        return out;
+    }
+
+    private Map<String, Object> compareMetricMap(SquadAdvice.PlayerCompareMetric metric) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("label", metric.label());
+        out.put("left", metric.left());
+        out.put("right", metric.right());
+        out.put("winner", metric.winner() == null ? "tie" : metric.winner() < 0 ? "left" : "right");
+        return out;
+    }
+
+    private Map<String, Object> xiMap(SquadAdvice.XiPick pick) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("position", pick.position());
+        out.put("in_possession_role", pick.inPossessionRole());
+        out.put("out_of_possession_role", pick.outOfPossessionRole());
+        out.put("player", pick.playerName());
+        out.put("position_score", pick.positionScore());
+        out.put("role_fit", pick.roleFit());
+        out.put("ca", pick.ca());
+        out.put("pa", pick.pa());
+        out.put("hole", pick.hole());
+        return out;
+    }
+
     private List<PlayerEntity> squadPlayers(String clubName) {
         return allPlayers().stream()
                 .filter(player -> equalsIgnoreCase(player.getClub(), clubName) || equalsIgnoreCase(player.getPlayingClub(), clubName))
@@ -772,25 +1076,8 @@ public class FmAiAssistentTools {
         if (blank(position)) {
             return null;
         }
-        String key = normalize(position).replaceAll("[^a-z0-9]+", "");
-        return switch (key) {
-            case "gk", "goalkeeper" -> new PositionSpec("GK", "GOALKEEPER", "Goalkeeper");
-            case "dl", "defenderleft", "leftback", "lb" -> new PositionSpec("DL", "DEFENDER_LEFT", "Full-Back / Wing-Back");
-            case "dc", "cb", "defendercentral", "centraldefender", "centreback", "centerback" -> new PositionSpec("DC", "DEFENDER_CENTRAL", "Centre-Back");
-            case "dr", "defenderright", "rightback", "rb" -> new PositionSpec("DR", "DEFENDER_RIGHT", "Full-Back / Wing-Back");
-            case "wbl", "wingbackleft", "leftwingback", "lwb" -> new PositionSpec("WBL", "WING_BACK_LEFT", "Full-Back / Wing-Back");
-            case "dmc", "dm", "defensivemidfielder" -> new PositionSpec("DMC", "DEFENSIVE_MIDFIELDER", "Defensive Midfielder");
-            case "wbr", "wingbackright", "rightwingback", "rwb" -> new PositionSpec("WBR", "WING_BACK_RIGHT", "Full-Back / Wing-Back");
-            case "ml", "midfielderleft", "leftmidfielder", "lm" -> new PositionSpec("ML", "MIDFIELDER_LEFT", "Wide Midfielder / Winger");
-            case "mc", "cm", "midfieldercentral", "centralmidfielder" -> new PositionSpec("MC", "MIDFIELDER_CENTRAL", "Central Midfielder");
-            case "mr", "midfielderright", "rightmidfielder", "rm" -> new PositionSpec("MR", "MIDFIELDER_RIGHT", "Wide Midfielder / Winger");
-            case "aml", "attackingmidfielderleft", "leftwinger", "lw" -> new PositionSpec("AML", "ATTACKING_MIDFIELDER_LEFT", "Wide Midfielder / Winger");
-            case "amc", "am", "attackingmidfieldercentral", "attackingmidfielder" -> new PositionSpec("AMC", "ATTACKING_MIDFIELDER_CENTRAL", "Attacking Midfielder");
-            case "amr", "attackingmidfielderright", "rightwinger", "rw" -> new PositionSpec("AMR", "ATTACKING_MIDFIELDER_RIGHT", "Wide Midfielder / Winger");
-            case "st", "striker", "forward", "cf", "centreforward", "centerforward" -> new PositionSpec("ST", "STRIKER", "Striker");
-            default -> throw new IllegalArgumentException("unsupported position: " + position
-                    + ". Use GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST");
-        };
+        String code = Positions.canonicalCode(position);
+        return new PositionSpec(code, Positions.column(code), Positions.positionGroup(code));
     }
 
     private RoleProfile resolveRoleProfile(PositionSpec position, String roleName, String phase) {

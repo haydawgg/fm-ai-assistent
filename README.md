@@ -10,19 +10,25 @@ The app also includes a frontend where you can search and filter the data yourse
 
 ### Option 1: Native Image
 
-Download the native image.
-
-Make it executable:
+Build (GraalVM native-image required):
 
 ```bash
-chmod +x ./fm-ai-assistent
+mvn.cmd -Pnative -DskipTests native:compile
+```
+
+The binary is written to `target/fm-ai-assistent`. Make it executable on Linux:
+
+```bash
+chmod +x ./target/fm-ai-assistent
 ```
 
 Start it from a terminal:
 
 ```bash
-./fm-ai-assistent
+./target/fm-ai-assistent
 ```
+
+Or download a prebuilt native image if one is published for your OS.
 
 ### Option 2: Java Jar
 
@@ -47,6 +53,8 @@ The application starts on:
 ```text
 http://127.0.0.1:8080
 ```
+
+RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. Optional in-app chat uses an OpenAI key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
 
 ### Option 3: Run from source (development)
 

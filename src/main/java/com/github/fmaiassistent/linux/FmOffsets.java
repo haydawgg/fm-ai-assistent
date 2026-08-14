@@ -80,6 +80,9 @@ public final class FmOffsets {
             0x238bdd, 0x4df3c18L
     );
 
+    // Named object tables in game_plugin.dll. People, Team and Competition are decoded.
+    // Nation, Stadium, Agreement, Club, City, Continent, Region and Currency are counted
+    // only (see fm26_ram_table_counts) until field layouts are validated on a live save.
     private static final Map<String, Long> SLOTS = new LinkedHashMap<>();
     private static final Map<String, Long> DETECTED_TABLE_BASES = new ConcurrentHashMap<>();
 
@@ -285,7 +288,26 @@ public final class FmOffsets {
     }
 
     static Long windowsCurrentDateRva(int build) {
-        return BUILD_TO_WINDOWS_CURRENT_DATE_RVA.get(build);
+        Long known = BUILD_TO_WINDOWS_CURRENT_DATE_RVA.get(build);
+        if (known != null) {
+            return known;
+        }
+        return BUILD_TO_WINDOWS_CURRENT_DATE_RVA.get(DEFAULT_BUILD);
+    }
+
+    /**
+     * Slot counts from the live offset table. Unused slots (Nation, Stadium, Agreement, Club)
+     * are listed so RAM research can start from real table sizes, not invented field layouts.
+     */
+    public static Map<String, Long> slotCounts(ProcessMemoryReader reader, int build, Long gamePluginBase)
+            throws java.io.IOException {
+        long base = gamePluginBase == null ? findGamePluginBase(reader) : gamePluginBase;
+        long tableBase = findOffsetTableBase(reader, build, base);
+        return tableCounts(reader, tableBase);
+    }
+
+    public static List<String> slotNames() {
+        return List.copyOf(SLOTS.keySet());
     }
 
     public record Bounds(long start, long end) {

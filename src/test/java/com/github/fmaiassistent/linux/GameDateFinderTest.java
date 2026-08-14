@@ -77,6 +77,19 @@ class GameDateFinderTest {
         assertEquals(LocalDate.of(2026, 6, 8), date);
     }
 
+    @Test
+    void fallsBackToDefaultWindowsCurrentDateRvaForUnknownBuild() throws IOException {
+        FakeReader reader = new FakeReader(ProcessMemoryReader.Platform.WINDOWS);
+        reader.putU16(GAME_PLUGIN_BASE + BUILD_238BDD_WINDOWS_CURRENT_DATE_RVA, 0x0200 | 295);
+        reader.putU16(GAME_PLUGIN_BASE + BUILD_238BDD_WINDOWS_CURRENT_DATE_RVA + 2, 2025);
+
+        LocalDate date = new GameDateFinder()
+                .find(reader, 0, 0x00beef, GAME_PLUGIN_BASE)
+                .orElseThrow();
+
+        assertEquals(LocalDate.of(2025, 10, 22), date);
+    }
+
     private static void putGameStateDates(FakeReader reader) {
         reader.putU64(GAME_PLUGIN_BASE + BUILD_238BDD_DATE_RVA, GAME_STATE);
         reader.putU16(GAME_STATE + 0x70, 0x3400 | 360);

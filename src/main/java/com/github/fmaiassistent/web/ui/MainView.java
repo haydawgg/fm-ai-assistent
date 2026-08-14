@@ -35,6 +35,7 @@ import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
 import com.vaadin.flow.component.textfield.IntegerField;
+import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.component.dependency.CssImport;
@@ -79,7 +80,7 @@ public class MainView extends VerticalLayout {
             "NAME", "AGE", "CLUB", "POSITION", "CA", "PA",
             "SALARY_WEEKLY_RAW", "ASKING_PRICE", "CONTRACT_END_DATE");
 
-    private final DatabaseLoadAllService loadAll;
+    private final RamLoadCoordinator ramLoad;
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
@@ -121,12 +122,12 @@ public class MainView extends VerticalLayout {
     private List<PlayerEntity> visiblePlayers = List.of();
 
     public MainView(
-            DatabaseLoadAllService loadAll,
+            RamLoadCoordinator ramLoad,
             PlayerDatabaseService players,
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
             AppSettingsService settings) {
-        this.loadAll = loadAll;
+        this.ramLoad = ramLoad;
         this.players = players;
         this.clubs = clubs;
         this.competitions = competitions;
@@ -176,11 +177,6 @@ public class MainView extends VerticalLayout {
         settingsButton.setTooltipText("Settings");
         settingsButton.getElement().setAttribute("aria-label", "Settings");
 
-        Button moneyballButton = new Button("Moneyball", VaadinIcon.TRENDING_UP.create());
-        moneyballButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        moneyballButton.setTooltipText("Value signings");
-        moneyballButton.addClickListener(event -> getUI().ifPresent(ui -> ui.navigate("moneyball")));
-
         Span brandMonogram = new Span("FM");
         brandMonogram.addClassName("brand-monogram");
         Div brandIcon = new Div(brandMonogram);
@@ -195,7 +191,7 @@ public class MainView extends VerticalLayout {
         brand.addClassName("brand");
 
         status.addClassName("app-status");
-        HorizontalLayout actions = new HorizontalLayout(status, loadButton, moneyballButton, settingsButton);
+        HorizontalLayout actions = new HorizontalLayout(status, loadButton, WorkspaceLinks.buttons(), settingsButton);
         actions.setAlignItems(Alignment.CENTER);
         actions.setSpacing(true);
         actions.addClassName("app-actions");
@@ -392,11 +388,7 @@ public class MainView extends VerticalLayout {
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return loadAll.loadAll(
-                                null,
-                                DatabaseLoadAllService.LoadAllResult.defaultBuild(),
-                                null
-                        );
+                        return ramLoad.loadFromRam();
                     } catch (IOException ex) {
                         throw new CompletionException(ex);
                     }
@@ -1263,12 +1255,20 @@ public class MainView extends VerticalLayout {
         currencySelect.setItemLabelGenerator(MoneyCurrency::label);
         currencySelect.setValue(currency);
 
-        Span intro = new Span("Display currency for money columns and player sheets.");
+        PasswordField apiKey = new PasswordField("OpenAI API key");
+        apiKey.setWidthFull();
+        apiKey.setValue(settings.openaiApiKey());
+        apiKey.setPlaceholder("sk-... or leave empty to use MCP only");
+        TextField model = new TextField("OpenAI model");
+        model.setWidthFull();
+        model.setValue(settings.openaiModel());
+
+        Span intro = new Span("Display currency and optional in-app chat. Chat is unused if the key is empty; Codex/Claude can still use /mcp.");
         intro.addClassName("settings-intro");
         Span file = new Span("Stored in " + settings.settingsPath());
         file.addClassName("settings-path");
 
-        VerticalLayout layout = new VerticalLayout(intro, currencySelect, file);
+        VerticalLayout layout = new VerticalLayout(intro, currencySelect, apiKey, model, file);
         layout.setPadding(false);
         layout.setSpacing(true);
         layout.addClassName("settings-content");
@@ -1277,6 +1277,7 @@ public class MainView extends VerticalLayout {
         Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
             currency = currencySelect.getValue() == null ? MoneyCurrency.POUND : currencySelect.getValue();
             settings.saveCurrency(currency);
+            settings.saveOpenAi(apiKey.getValue(), model.getValue());
             refreshSelectedTab();
             Notification saved = Notification.show("Settings saved", 2500, Notification.Position.TOP_CENTER);
             saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);

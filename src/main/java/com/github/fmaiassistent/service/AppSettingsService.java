@@ -29,6 +29,9 @@ public class AppSettingsService {
     private static final String SETTINGS_FILE_PROPERTY = "fmaiassistent.settings.file";
     private static final String CURRENCY_KEY = "currency";
     private static final String PLAYER_VIEWS_KEY = "player.views";
+    private static final String OPENAI_API_KEY = "openai.api.key";
+    private static final String OPENAI_MODEL_KEY = "openai.model";
+    private static final String DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 
     private final Path settingsPath;
     private final ObjectMapper objectMapper;
@@ -92,6 +95,39 @@ public class AppSettingsService {
 
     public Path settingsPath() {
         return settingsPath;
+    }
+
+    public static Path dataDirectory() {
+        return applicationDirectory();
+    }
+
+    public String openaiApiKey() {
+        String value = load().getProperty(OPENAI_API_KEY, "");
+        if (value == null || value.isBlank()) {
+            String env = System.getenv("OPENAI_API_KEY");
+            return env == null ? "" : env;
+        }
+        return value;
+    }
+
+    public String openaiModel() {
+        String value = load().getProperty(OPENAI_MODEL_KEY, DEFAULT_OPENAI_MODEL);
+        return value == null || value.isBlank() ? DEFAULT_OPENAI_MODEL : value;
+    }
+
+    public void saveOpenAi(String apiKey, String model) {
+        Properties properties = load();
+        if (apiKey == null || apiKey.isBlank()) {
+            properties.remove(OPENAI_API_KEY);
+        } else {
+            properties.setProperty(OPENAI_API_KEY, apiKey.trim());
+        }
+        properties.setProperty(OPENAI_MODEL_KEY, model == null || model.isBlank() ? DEFAULT_OPENAI_MODEL : model.trim());
+        save(properties);
+    }
+
+    public boolean chatConfigured() {
+        return !openaiApiKey().isBlank();
     }
 
     private void writePlayerViews(List<SavedPlayerView> views) {

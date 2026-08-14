@@ -25,7 +25,6 @@ import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import com.vaadin.flow.router.RouterLink;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -92,9 +91,7 @@ public class MoneyballView extends VerticalLayout {
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);
         titleBlock.setPadding(false);
-        RouterLink back = new RouterLink("Scouting desk", MainView.class);
-        back.addClassName("back-link");
-        HorizontalLayout header = new HorizontalLayout(titleBlock, back);
+        HorizontalLayout header = new HorizontalLayout(titleBlock, WorkspaceLinks.buttons());
         header.setWidthFull();
         header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);

@@ -36,6 +36,7 @@ public class NativeHintsConfig {
             hints.reflection().registerType(com.github.fmaiassistent.repository.PlayerFilterCriteria.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
 
             hints.resources().registerPattern("db/changelog/**");
+            hints.resources().registerPattern("db/data/**");
         }
     }
 }
