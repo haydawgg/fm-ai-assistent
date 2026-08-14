@@ -4,6 +4,7 @@ import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.ClubDatabaseService;
+import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -51,17 +52,22 @@ public class FirstXiView extends VerticalLayout {
     private final Grid<SquadAdvice.XiPick> grid = new Grid<>();
     private final Grid<UpgradeRow> upgrades = new Grid<>();
 
-    public FirstXiView(FmAiAssistentTools tools, ClubDatabaseService clubs) {
+    public FirstXiView(FmAiAssistentTools tools, ClubDatabaseService clubs, PlayerDatabaseService players) {
         this.tools = tools;
         setSizeFull();
         setPadding(true);
         setSpacing(true);
         addClassName("moneyball-view");
-        tactic.setValue(DEFAULT_TACTIC);
+        String liveSlots = String.valueOf(players.metadata().getOrDefault("tactic_slots", ""));
+        tactic.setValue(liveSlots.isBlank() ? DEFAULT_TACTIC : liveSlots);
         tactic.setWidthFull();
         tactic.setMinHeight("12em");
+        String formation = String.valueOf(players.metadata().getOrDefault("tactic_formation", ""));
         tactic.setHelperText("One line per slot: " + String.join(", ", PositionCodes.CODES)
-                + " plus in-possession and out-of-possession roles. Current tactic is not read from RAM.");
+                + " plus in-possession and out-of-possession roles."
+                + (formation.isBlank()
+                        ? " Load from RAM to fill the live formation."
+                        : " Live formation: " + formation + ". Roles still need pasting."));
         configureGrid();
         configureUpgrades();
         add(header(), filterBar(), tactic, summary, grid, new Span("Suggested buys for holes"), upgrades);
@@ -82,7 +88,7 @@ public class FirstXiView extends VerticalLayout {
     private Component header() {
         Span title = new Span("First XI");
         title.addClassName("moneyball-title");
-        Span hint = new Span("Paste a tactic. Best available squad player is assigned per slot. Same pipeline as fm26_best_xi.");
+        Span hint = new Span("Uses the live RAM formation when loaded. Paste roles if you want fit scoring. Same pipeline as fm26_best_xi.");
         hint.addClassName("moneyball-hint");
         VerticalLayout titleBlock = new VerticalLayout(title, hint);
         titleBlock.setSpacing(false);

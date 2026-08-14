@@ -20,6 +20,7 @@ public class NativeHintsConfig {
 
             hints.reflection().registerType(CreateTableChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
             hints.reflection().registerType(AddColumnChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
+            hints.reflection().registerType(ModifyDataTypeChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
             hints.reflection().registerType(DropColumnChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
             hints.reflection().registerType(DropTableChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
             hints.reflection().registerType(CreateIndexChange.class, MemberCategory.INVOKE_PUBLIC_METHODS, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);

@@ -15,7 +15,7 @@ public class AssistantChatService {
             Use the fm26_* tools for save data. Call fm26_status first if you are unsure whether RAM is loaded.
             For buys use fm26_transfer_shortlist or fm26_moneyball_shortlist.
             For sells use fm26_sell_shortlist. For wonderkids use fm26_wonderkid_shortlist.
-            For a pasted tactic use fm26_best_xi. Money values are raw pounds.
+            For the live tactic use fm26_current_tactic. For a first XI use fm26_best_xi; omit tacticSlots to use the RAM formation.
             asking_price=null means unknown, not free.
             """;
 

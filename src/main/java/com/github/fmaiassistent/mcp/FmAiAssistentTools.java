@@ -443,7 +443,7 @@ public class FmAiAssistentTools {
         out.put("clubs", clubs.countClubs());
         out.put("competitions", competitions.countCompetitions());
         out.put("loading", ramLoad.loading());
-        out.put("guidance", "If count is 0, call fm26_load_from_ram or click Load from RAM in the UI with FM26 running.");
+            out.put("guidance", "If count is 0, call fm26_load_from_ram or click Load from RAM in the UI with FM26 running. tactic_formation is the live tactic when RAM load found it.");
         return out;
     }
 
@@ -484,7 +484,7 @@ public class FmAiAssistentTools {
             out.put("decoded_today", List.of("PeopleOffset", "TeamOffset", "CompetitionOffset"));
             out.put("not_decoded", List.of("NationOffset", "StadiumOffset", "AgreementOffset", "ClubOffset",
                     "CityOffset", "ContinentOffset", "RegionOffset", "CurrencyOffset"));
-            out.put("guidance", "Counts only. Traits, morale, form and current tactic are not exported until offsets are validated against a live save.");
+            out.put("guidance", "Counts only. Traits are read when preferred-move name vectors match. Morale, form and match stats stay empty until those offsets are validated.");
             return out;
         } catch (IOException | RuntimeException ex) {
             throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
@@ -550,22 +550,50 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_best_xi", description = "Pick a first XI from the managing club for a pasted tactic. Pass 11 slots as lines: position,inPossessionRole,outOfPossessionRole")
+    @Tool(name = "fm26_current_tactic", description = "Live tactic from the last RAM load: formation, slot positions, and selected XI names. Roles are not in RAM yet.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> currentTactic() {
+        Map<String, Object> meta = players.metadata();
+        Map<String, Object> out = new LinkedHashMap<>();
+        String formation = String.valueOf(meta.getOrDefault("tactic_formation", ""));
+        String slots = String.valueOf(meta.getOrDefault("tactic_slots", ""));
+        String selected = String.valueOf(meta.getOrDefault("tactic_selected", ""));
+        out.put("formation", formation.isBlank() ? null : formation);
+        out.put("slots", slots.isBlank() ? List.of() : List.of(slots.split("\\R")));
+        out.put("selected_xi", selected.isBlank() ? List.of() : List.of(selected.split("\\R")));
+        out.put("guidance", formation.isBlank()
+                ? "No live tactic in the snapshot. Load from RAM with FM26 running, or paste slots into fm26_best_xi."
+                : "Formation and selected XI are from RAM. In/out-of-possession roles are not exported; pass them to fm26_best_xi if you know them.");
+        return out;
+    }
+
+    @Tool(name = "fm26_best_xi", description = "Pick a first XI from the managing club for a tactic. Omit tacticSlots to use the live RAM formation when available. Otherwise pass 11 lines: position,inPossessionRole,outOfPossessionRole")
     @Transactional(readOnly = true)
     public Map<String, Object> bestXi(
             @ToolParam(description = "Managing club name") String managingClub,
-            @ToolParam(description = "Eleven tactic slots, one per line: GK,Ball Playing GK,Sweeper Keeper") String tacticSlots) {
+            @ToolParam(required = false, description = "Eleven tactic slots, one per line: GK,Ball Playing GK,Sweeper Keeper. Omit to use the live RAM formation.") String tacticSlots) {
         ClubEntity club = requireClub(managingClub);
-        List<SquadAdvice.XiSlot> slots = parseTacticSlots(tacticSlots);
+        String slotsText = tacticSlots;
+        String source = "pasted";
+        if (blank(slotsText)) {
+            Object stored = players.metadata().get("tactic_slots");
+            slotsText = stored == null ? "" : String.valueOf(stored);
+            source = "ram";
+        }
+        List<SquadAdvice.XiSlot> slots = parseTacticSlots(slotsText);
         List<PlayerEntity> squad = currentSquad(allPlayers(), club.getName());
         List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(squad, slots, this::slotRoleFit);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("club", recruitmentClubMap(club));
+        out.put("tactic_source", source);
+        out.put("formation", players.metadata().get("tactic_formation"));
         out.put("xi", picks.stream().map(this::xiMap).toList());
         List<String> holes = picks.stream().filter(SquadAdvice.XiPick::hole).map(SquadAdvice.XiPick::position).toList();
         out.put("holes", holes);
         out.put("suggested_buys", suggestedBuys(managingClub, picks));
-        out.put("guidance", "Current tactic is not read from RAM. Upgrade holes with fm26_transfer_shortlist using the same position and in-possession role.");
+        out.put("guidance", "ram".equals(source)
+                ? "XI uses the live formation from RAM. Roles were empty unless you pasted them. Call fm26_current_tactic for the actual selected names."
+                : "Upgrade holes with fm26_transfer_shortlist using the same position and in-possession role.");
         return out;
     }
 
@@ -1493,6 +1521,12 @@ public class FmAiAssistentTools {
         out.put("home_reputation", player.getHomeReputation());
         out.put("world_reputation", player.getWorldReputation());
         out.put("height_cm", player.getHeightCm());
+        out.put("traits", player.getTraits());
+        out.put("morale", player.getMorale());
+        out.put("form", player.getForm());
+        out.put("appearances", player.getAppearances());
+        out.put("goals", player.getGoals());
+        out.put("assists", player.getAssists());
         return out;
     }
 

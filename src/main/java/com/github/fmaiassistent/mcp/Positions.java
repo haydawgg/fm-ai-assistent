@@ -43,18 +43,18 @@ public final class Positions {
         return switch (key) {
             case "gk", "goalkeeper" -> "GK";
             case "dl", "defenderleft", "leftback", "lb" -> "DL";
-            case "dc", "cb", "defendercentral", "centraldefender", "centreback", "centerback" -> "DC";
+            case "dc", "cb", "dcr", "dcl", "sw", "defendercentral", "centraldefender", "centreback", "centerback" -> "DC";
             case "dr", "defenderright", "rightback", "rb" -> "DR";
             case "wbl", "wingbackleft", "leftwingback", "lwb" -> "WBL";
-            case "dmc", "dm", "defensivemidfielder" -> "DMC";
+            case "dmc", "dm", "dmr", "dml", "defensivemidfielder" -> "DMC";
             case "wbr", "wingbackright", "rightwingback", "rwb" -> "WBR";
             case "ml", "midfielderleft", "leftmidfielder", "lm" -> "ML";
-            case "mc", "cm", "midfieldercentral", "centralmidfielder" -> "MC";
+            case "mc", "cm", "mcr", "mcl", "midfieldercentral", "centralmidfielder" -> "MC";
             case "mr", "midfielderright", "rightmidfielder", "rm" -> "MR";
             case "aml", "attackingmidfielderleft", "leftwinger", "lw" -> "AML";
-            case "amc", "am", "attackingmidfieldercentral", "attackingmidfielder" -> "AMC";
+            case "amc", "am", "amcr", "amcl", "attackingmidfieldercentral", "attackingmidfielder" -> "AMC";
             case "amr", "attackingmidfielderright", "rightwinger", "rw" -> "AMR";
-            case "st", "striker", "forward", "cf", "centreforward", "centerforward" -> "ST";
+            case "st", "str", "stc", "stl", "stcr", "stcl", "striker", "forward", "cf", "centreforward", "centerforward" -> "ST";
             default -> throw new IllegalArgumentException("unsupported position: " + position
                     + ". Use GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST");
         };

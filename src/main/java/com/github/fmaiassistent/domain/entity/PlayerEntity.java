@@ -257,6 +257,18 @@ public class PlayerEntity {
     private Integer temperament;
     @Column
     private Integer controversy;
+    @Column(length = 1024)
+    private String traits;
+    @Column
+    private Integer morale;
+    @Column
+    private Integer form;
+    @Column
+    private Integer appearances;
+    @Column
+    private Integer goals;
+    @Column
+    private Integer assists;
 
     protected PlayerEntity() {
     }
@@ -758,6 +770,30 @@ public class PlayerEntity {
 
     public Integer getControversy() {
         return controversy;
+    }
+
+    public String getTraits() {
+        return traits;
+    }
+
+    public Integer getMorale() {
+        return morale;
+    }
+
+    public Integer getForm() {
+        return form;
+    }
+
+    public Integer getAppearances() {
+        return appearances;
+    }
+
+    public Integer getGoals() {
+        return goals;
+    }
+
+    public Integer getAssists() {
+        return assists;
     }
 
     private void setExportField(String exportField, Object value) {

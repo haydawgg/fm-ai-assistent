@@ -482,6 +482,12 @@ public class MainView extends VerticalLayout {
                 new PlayerColumn("INJURY_LIGHT_TRAINING_DAYS_REMAINING", "Light Training Days", PlayerEntity::getInjuryLightTrainingDaysRemaining),
                 new PlayerColumn("INJURY_FULL_TRAINING_DAYS_REMAINING", "Full Training Days", PlayerEntity::getInjuryFullTrainingDaysRemaining),
                 new PlayerColumn("INJURY_EXPECTED_RETURN", "Expected Return", PlayerEntity::getInjuryExpectedReturn),
+                new PlayerColumn("TRAITS", "Traits", PlayerEntity::getTraits),
+                new PlayerColumn("MORALE", "Morale", PlayerEntity::getMorale),
+                new PlayerColumn("FORM", "Form", PlayerEntity::getForm),
+                new PlayerColumn("APPEARANCES", "Apps", PlayerEntity::getAppearances),
+                new PlayerColumn("GOALS", "Goals", PlayerEntity::getGoals),
+                new PlayerColumn("ASSISTS", "Assists", PlayerEntity::getAssists),
                 new PlayerColumn("CURRENT_REPUTATION", "Current Reputation", PlayerEntity::getCurrentReputation),
                 new PlayerColumn("HOME_REPUTATION", "Home Reputation", PlayerEntity::getHomeReputation),
                 new PlayerColumn("WORLD_REPUTATION", "World Reputation", PlayerEntity::getWorldReputation));
@@ -1018,6 +1024,7 @@ public class MainView extends VerticalLayout {
                         compareLongs(sortableLong(left.getAge()), sortableLong(right.getAge()), false)),
                 compareMetric("Club", display(left.getClub()), display(right.getClub()), null),
                 compareMetric("Position", PositionTextFormatter.format(left), PositionTextFormatter.format(right), null),
+                compareMetric("Traits", display(left.getTraits()), display(right.getTraits()), null),
                 compareMetric("CA", display(left.getCa()), display(right.getCa()),
                         compareLongs(sortableLong(left.getCa()), sortableLong(right.getCa()), true)),
                 compareMetric("PA", display(left.getPa()), display(right.getPa()),
@@ -1113,7 +1120,11 @@ public class MainView extends VerticalLayout {
                         new DetailField("Nationality", player.getNationality()),
                         new DetailField("Position", PositionTextFormatter.format(player)),
                         new DetailField("Club", player.getClub()),
-                        new DetailField("Playing Club", player.getPlayingClub()))),
+                        new DetailField("Playing Club", player.getPlayingClub()),
+                        new DetailField("Traits", player.getTraits()),
+                        new DetailField("Morale", player.getMorale()),
+                        new DetailField("Form", player.getForm()),
+                        new DetailField("Apps / Goals / Assists", appsGoalsAssists(player)))),
                 detailSection("Contract", List.of(
                         new DetailField("Salary Weekly", salaryWeeklyDisplay(player.getSalaryWeeklyRaw())),
                         new DetailField("Asking Price", moneyDisplay(player.getAskingPrice())),
@@ -1917,6 +1928,13 @@ public class MainView extends VerticalLayout {
         }
         int totalInches = (int) Math.round(cm / 2.54);
         return cm + " cm (" + (totalInches / 12) + "'" + (totalInches % 12) + "\")";
+    }
+
+    private static String appsGoalsAssists(PlayerEntity player) {
+        if (player.getAppearances() == null && player.getGoals() == null && player.getAssists() == null) {
+            return "";
+        }
+        return display(player.getAppearances()) + " / " + display(player.getGoals()) + " / " + display(player.getAssists());
     }
 
     private static FormLayout detailLayout(List<DetailField> fields) {

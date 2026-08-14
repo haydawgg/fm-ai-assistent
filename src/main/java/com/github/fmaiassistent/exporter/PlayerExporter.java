@@ -6,6 +6,7 @@ import com.github.fmaiassistent.memory.ProcessMemoryReader;
 import com.github.fmaiassistent.memory.ProcessReaders;
 import com.github.fmaiassistent.player.AttributeDefinitions;
 import com.github.fmaiassistent.player.FieldDef;
+import com.github.fmaiassistent.player.PlayerTraits;
 import com.github.fmaiassistent.linux.GameDateFinder;
 
 import java.io.IOException;
@@ -103,7 +104,8 @@ public class PlayerExporter {
             LocalDate gameDate = gameDateFinder.find(reader, sortedRows.size(), build, gamePluginBase).orElse(null);
             applyGameDate(sortedRows, gameDate);
             sortedRows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
-            return new ExportResult(gameDate == null ? "" : gameDate.toString(), sortedRows);
+            TacticExporter.Snapshot tactic = TacticExporter.export(reader, build, gamePluginBase).orElse(null);
+            return new ExportResult(gameDate == null ? "" : gameDate.toString(), sortedRows, tactic);
         }
     }
 
@@ -219,6 +221,12 @@ public class PlayerExporter {
         row.put("age", dob == null || gameDate == null ? "" : ageOn(dob, gameDate));
         row.put("age_as_of", gameDate == null ? "" : gameDate.toString());
         row.put("height_cm", reader.readU8(record + layout.relative(HEIGHT_CM_REL)));
+        row.put("traits", PlayerTraits.read(reader, record));
+        row.put("morale", "");
+        row.put("form", "");
+        row.put("appearances", "");
+        row.put("goals", "");
+        row.put("assists", "");
 
         for (FieldDef field : POSITION_FIELDS) {
             int raw = data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff;
@@ -548,14 +556,18 @@ public class PlayerExporter {
                 "injury", "injury_start_date", "injury_light_training_days_remaining", "injury_full_training_days_remaining",
                 "injury_min_days_remaining", "injury_max_days_remaining", "injury_expected_return",
                 "contract_end_date", "salary_pa",
-                "salary_weekly_raw", "date_of_birth", "age", "age_as_of", "height_cm"));
+                "salary_weekly_raw", "date_of_birth", "age", "age_as_of", "height_cm",
+                "traits", "morale", "form", "appearances", "goals", "assists"));
         POSITION_FIELDS.stream().map(FieldDef::name).forEach(names::add);
         VISIBLE_FIELDS.stream().map(FieldDef::name).forEach(names::add);
         HIDDEN_DIRECT_FIELDS.stream().map(FieldDef::name).forEach(names::add);
         return List.copyOf(names);
     }
 
-    public record ExportResult(String gameDate, List<Map<String, Object>> rows) {
+    public record ExportResult(String gameDate, List<Map<String, Object>> rows, TacticExporter.Snapshot tactic) {
+        public ExportResult(String gameDate, List<Map<String, Object>> rows) {
+            this(gameDate, rows, null);
+        }
     }
 
     private record DatePair(int day, int year) {

@@ -357,4 +357,16 @@
               ON a.attribute_name = i.attribute_name;
         </sql>
     </changeSet>
+
+    <changeSet id="002-live-tactic-traits-status" author="codex">
+        <addColumn tableName="players">
+            <column name="traits" type="VARCHAR(1024)"/>
+            <column name="morale" type="INT"/>
+            <column name="form" type="INT"/>
+            <column name="appearances" type="INT"/>
+            <column name="goals" type="INT"/>
+            <column name="assists" type="INT"/>
+        </addColumn>
+        <modifyDataType tableName="load_metadata" columnName="meta_value" newDataType="VARCHAR(4096)"/>
+    </changeSet>
 </databaseChangeLog>

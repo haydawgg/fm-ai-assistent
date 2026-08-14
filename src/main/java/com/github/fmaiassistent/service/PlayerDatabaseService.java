@@ -6,6 +6,7 @@ import com.github.fmaiassistent.domain.entity.CompetitionEntity;
 import com.github.fmaiassistent.domain.entity.LoadMetadataEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.exporter.PlayerExporter;
+import com.github.fmaiassistent.exporter.TacticExporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
@@ -53,7 +54,35 @@ public class PlayerDatabaseService {
                 .toList());
         metadata.save(new LoadMetadataEntity("game_date", result.gameDate()));
         metadata.save(new LoadMetadataEntity("loaded_at", OffsetDateTime.now().toString()));
+        saveTactic(result);
         return new LoadResult(result.gameDate(), result.rows().size());
+    }
+
+    private void saveTactic(PlayerExporter.ExportResult result) {
+        TacticExporter.Snapshot tactic = result.tactic();
+        if (tactic == null) {
+            metadata.save(new LoadMetadataEntity("tactic_formation", ""));
+            metadata.save(new LoadMetadataEntity("tactic_slots", ""));
+            metadata.save(new LoadMetadataEntity("tactic_selected", ""));
+            return;
+        }
+        Map<String, String> namesByRecord = new HashMap<>();
+        for (Map<String, Object> row : result.rows()) {
+            namesByRecord.put(String.valueOf(row.get("record")), String.valueOf(row.get("name")));
+        }
+        List<String> selected = new ArrayList<>();
+        for (int index = 0; index < tactic.positions().size(); index++) {
+            String position = tactic.positions().get(index);
+            long person = index < tactic.selectedPersonAddresses().size()
+                    ? tactic.selectedPersonAddresses().get(index)
+                    : 0L;
+            String record = person == 0 ? "" : "0x" + Long.toHexString(person);
+            String name = namesByRecord.getOrDefault(record, "");
+            selected.add(position + "," + name);
+        }
+        metadata.save(new LoadMetadataEntity("tactic_formation", tactic.formation()));
+        metadata.save(new LoadMetadataEntity("tactic_slots", tactic.slotText()));
+        metadata.save(new LoadMetadataEntity("tactic_selected", String.join("\n", selected)));
     }
 
     private static PlayerEntity playerEntity(Map<String, Object> row, Map<Long, ClubEntity> clubsByAddress) {

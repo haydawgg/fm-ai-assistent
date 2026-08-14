@@ -147,6 +147,12 @@ public class PlayerMapper implements Function<PlayerEntity, Map<String, Object>>
         out.put("SPORTSMANSHIP", entity.getSportsmanship());
         out.put("TEMPERAMENT", entity.getTemperament());
         out.put("CONTROVERSY", entity.getControversy());
+        out.put("TRAITS", entity.getTraits());
+        out.put("MORALE", entity.getMorale());
+        out.put("FORM", entity.getForm());
+        out.put("APPEARANCES", entity.getAppearances());
+        out.put("GOALS", entity.getGoals());
+        out.put("ASSISTS", entity.getAssists());
         return out;
     }
 

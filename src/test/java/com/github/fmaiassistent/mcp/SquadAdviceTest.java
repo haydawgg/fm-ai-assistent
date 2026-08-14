@@ -64,6 +64,16 @@ class SquadAdviceTest {
         assertEquals("ST", slots.get(1).position());
     }
 
+    @Test
+    void parseTacticSlotsMapsFormationSideCodes() {
+        List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots("""
+                DCR,,
+                MCL,,
+                STCR,,
+                """);
+        assertEquals(List.of("DC", "MC", "ST"), slots.stream().map(SquadAdvice.XiSlot::position).toList());
+    }
+
     private static ClubEntity club() {
         Map<String, Object> row = new HashMap<>();
         row.put("sourceAddress", 1L);
