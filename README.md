@@ -4,7 +4,17 @@ FM AI Assistent is an AI assistant companion for Football Manager 26 running on 
 
 It reads FM26 data from RAM and makes the data available to AI assistants through MCP. An AI assistant can use this information to help with buying and selling players, finding profitable young talents, comparing squads, checking club finances, and giving tactical advice based on the players in your save.
 
-The app also includes a frontend where you can search and filter the data yourself. You can inspect players, clubs, competitions, attributes, positions, reputations, contracts, salaries, asking prices, and budgets.
+The app also includes a frontend where you can search and filter the data yourself. Pages:
+
+- Desk (`/`) — players, clubs, competitions
+- Shortlist (`/shortlist`) — tactical buys (`fm26_transfer_shortlist`; wonderkid age cap optional)
+- Moneyball (`/moneyball`) — value signings
+- Squad trim (`/squad-trim`) — sell / loan / keep
+- First XI (`/first-xi`) — XI from the live RAM formation or a pasted tactic
+- Compare (`/compare-squads`) — two clubs, best player per position
+- Chat (`/chat`) — optional OpenAI chat using the same MCP tools
+
+You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI if you want role-fit scoring.
 
 ## How To Install
 
@@ -28,7 +38,7 @@ Start it from a terminal:
 ./target/fm-ai-assistent
 ```
 
-Or download a prebuilt native image if one is published for your OS.
+There is no published prebuilt native image; build locally with GraalVM as above.
 
 ### Option 2: Java Jar
 
@@ -54,7 +64,7 @@ The application starts on:
 http://127.0.0.1:8080
 ```
 
-RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. Optional in-app chat uses an OpenAI key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
+RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. Optional in-app chat uses an OpenAI key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
 
 ### Option 3: Run from source (development)
 
@@ -77,7 +87,16 @@ The application starts on http://127.0.0.1:8080. Keep FM26 running with a save l
 
 ## Use AI Assistent
 
-Keep FM26 running with your save loaded. Start FM AI Assistent and Load data (not necessary but be wise with your tokens) before using the MCP tools.
+Keep FM26 running with your save loaded. Start FM AI Assistent and click Load from RAM (or call `fm26_load_from_ram`) once; a persisted snapshot is enough until the save changes.
+
+### MCP tools
+
+Recruitment: `fm26_transfer_shortlist`, `fm26_moneyball_shortlist`, `fm26_wonderkid_shortlist`.
+Squad: `fm26_sell_shortlist`, `fm26_compare_squads`, `fm26_compare_players`, `fm26_best_xi`, `fm26_current_tactic`.
+Lookup: `fm26_status`, `fm26_load_from_ram`, `fm26_find_clubs`, `fm26_find_players`, `fm26_find_competitions`, `fm26_get_club_context`, `fm26_get_player_details`, `fm26_get_role_attributes`.
+Money values are raw pounds. `asking_price=null` means unknown, not free.
+
+For a first XI, call `fm26_current_tactic` then `fm26_best_xi` with `managingClub`. Omit `tacticSlots` to use the RAM formation; pass `position,inPossessionRole,outOfPossessionRole` lines (not `DMC:`) when you want role fit.
 
 ### Codex
 
@@ -107,12 +126,12 @@ Add:
 
 Restart Claude Desktop after changing the config.
 
-## Use of the
+## Use of the app
 - Start Football Manager 26 and load your game.
-- Start the fm-ai-assistent
-- navigate to localhost:8080
+- Start fm-ai-assistent
+- Open http://127.0.0.1:8080
 - Load from RAM
-- use AI to analyze
+- Use Shortlist / Moneyball / Squad trim / First XI / Compare, or connect an MCP client to `/mcp`
 
 ## AI Examples
 

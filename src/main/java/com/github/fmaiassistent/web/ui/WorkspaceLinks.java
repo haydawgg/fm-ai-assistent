@@ -14,9 +14,11 @@ final class WorkspaceLinks {
     static HorizontalLayout buttons() {
         HorizontalLayout links = new HorizontalLayout(
                 nav("Desk", VaadinIcon.GRID.create(), ""),
+                nav("Shortlist", VaadinIcon.SEARCH.create(), "shortlist"),
                 nav("Moneyball", VaadinIcon.TRENDING_UP.create(), "moneyball"),
                 nav("Squad trim", VaadinIcon.MINUS.create(), "squad-trim"),
                 nav("First XI", VaadinIcon.CLIPBOARD_TEXT.create(), "first-xi"),
+                nav("Compare", VaadinIcon.SPLIT.create(), "compare-squads"),
                 nav("Chat", VaadinIcon.CHAT.create(), "chat"));
         links.setSpacing(true);
         links.setAlignItems(FlexComponent.Alignment.CENTER);
