@@ -226,7 +226,8 @@ public class PlayerDatabaseService {
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getNation).orElse(null), filter.playingNation())
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getName).orElse(null), filter.playingCompetition())
                 && matchesClub(player, filter.club())
-                && inRange(player.getSalaryWeeklyRaw().longValue(), 0L, filter.salaryMax())
+                && inRange(player.getSalaryWeeklyRaw() == null ? null : player.getSalaryWeeklyRaw().longValue(),
+                        0L, filter.salaryMax())
                 && equalsIgnoreCase(player.getNationality(), filter.nationality())
                 && inRange(asInt(player.getAge()), filter.ageMin(), filter.ageMax())
                 && inRange(player.getHeightCm(), filter.heightMin(), filter.heightMax())

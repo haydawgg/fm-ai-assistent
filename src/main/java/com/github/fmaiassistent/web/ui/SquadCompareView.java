@@ -104,6 +104,7 @@ public class SquadCompareView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        runButton.setEnabled(false);
         try {
             Map<String, Object> result = tools.compareSquads(left, right);
             @SuppressWarnings("unchecked")
@@ -113,6 +114,8 @@ public class SquadCompareView extends VerticalLayout {
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        } finally {
+            runButton.setEnabled(true);
         }
     }
 

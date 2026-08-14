@@ -179,6 +179,7 @@ public class MoneyballView extends VerticalLayout {
             return;
         }
         String position = "Any".equals(positionFilter.getValue()) ? null : positionFilter.getValue();
+        runButton.setEnabled(false);
         try {
             MoneyballResult result = tools.moneyballRows(
                     clubName,
@@ -197,6 +198,8 @@ public class MoneyballView extends VerticalLayout {
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        } finally {
+            runButton.setEnabled(true);
         }
     }
 

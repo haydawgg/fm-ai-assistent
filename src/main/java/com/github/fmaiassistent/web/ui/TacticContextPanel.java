@@ -119,22 +119,26 @@ final class TacticContextPanel extends Details {
         Thread.ofVirtual().name("tactic-context-import").start(() -> {
             try {
                 TacticContext context = operation.get();
-                if (ui.isAttached()) {
-                    ui.access(() -> {
-                        setBusy(false);
-                        refresh(context);
-                    });
-                }
-            } catch (RuntimeException exception) {
-                if (ui.isAttached()) {
-                    ui.access(() -> {
-                        setBusy(false);
-                        Notification.show(safeMessage(exception));
-                        refresh();
-                    });
-                }
+                finishImport(ui, () -> {
+                    setBusy(false);
+                    refresh(context);
+                });
+            } catch (Throwable exception) {
+                finishImport(ui, () -> {
+                    setBusy(false);
+                    Notification.show(safeMessage(exception));
+                    refresh();
+                });
             }
         });
+    }
+
+    private void finishImport(UI ui, Runnable action) {
+        if (ui.isAttached()) {
+            ui.access(action::run);
+            return;
+        }
+        setBusy(false);
     }
 
     private void setBusy(boolean busy) {

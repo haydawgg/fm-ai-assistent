@@ -226,7 +226,7 @@ final class AntigravityChatView extends Div {
         for (AntigravityConversationItem item : snapshot.items()) {
             addHistoryItem(item);
         }
-        messages.setItems(messageItems);
+        refreshMessages(true);
         conversationButtons.forEach((id, button) ->
                 button.getElement().getClassList().set("selected", id.equals(selectedConversationId)));
         conversationSubscription = conversations.subscribe(
@@ -285,7 +285,7 @@ final class AntigravityChatView extends Div {
 
     private void submitMessage(String text) {
         addMessage("local-" + UUID.randomUUID(), userItem(text));
-        messages.setItems(messageItems);
+        refreshMessages(true);
         turnPending = true;
         setRunning(true);
         conversations.sendMessage(selectedConversationId, text)
@@ -342,18 +342,19 @@ final class AntigravityChatView extends Div {
                 MessageListItem item = itemsById.computeIfAbsent(delta.itemId(), id -> {
                     MessageListItem created = assistantItem("");
                     messageItems.add(created);
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                     return created;
                 });
                 StringBuilder text = assistantBuffers.computeIfAbsent(
                         delta.itemId(), ignored -> new StringBuilder());
                 text.append(delta.delta());
                 item.setText(sanitizeMarkdown(text.toString()));
+                refreshMessages(true);
             }
             case AntigravityEvent.ToolStarted started -> {
                 addMessage(started.itemId(), activityItem(
                         started.label(), "inProgress", started.details(), started.mcp() ? "M" : "⚙"));
-                messages.setItems(messageItems);
+                refreshMessages(true);
                 if (started.mcp()) {
                     mcpStatus.setText("Application MCP · tool active");
                 }
@@ -385,7 +386,7 @@ final class AntigravityChatView extends Div {
                 activeTurnId = null;
                 turnPending = false;
                 setRunning(false);
-                messages.setItems(messageItems);
+                refreshMessages(true);
                 refreshConversations();
             }
             case AntigravityEvent.Failure failure -> {
@@ -396,7 +397,7 @@ final class AntigravityChatView extends Div {
                 turnPending = false;
                 setRunning(false);
                 addMessage("error-" + UUID.randomUUID(), systemItem(failure.message(), true));
-                messages.setItems(messageItems);
+                refreshMessages(true);
             }
         }
     }
@@ -411,7 +412,7 @@ final class AntigravityChatView extends Div {
                 messageItems.set(index, replacement);
             }
         }
-        messages.setItems(messageItems);
+        refreshMessages(true);
     }
 
     private void setRunning(boolean running) {
@@ -474,7 +475,15 @@ final class AntigravityChatView extends Div {
                 : error;
         String message = cause.getMessage() == null ? "Antigravity request failed" : cause.getMessage();
         addMessage("error-" + UUID.randomUUID(), systemItem(message, true));
-        messages.setItems(messageItems);
+        refreshMessages(true);
+    }
+
+    private void refreshMessages(boolean scrollToLatest) {
+        messages.setItems(List.copyOf(messageItems));
+        if (scrollToLatest) {
+            messages.getElement().executeJs(
+                    "requestAnimationFrame(() => { this.scrollTop = this.scrollHeight; })");
+        }
     }
 
     private void access(Runnable action) {

@@ -2,7 +2,15 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
+if not exist "%JAVA_HOME%\bin\java.exe" (
+  set "JAVA_HOME="
+  for /d %%D in ("C:\Program Files\Eclipse Adoptium\jdk-25*") do (
+    if exist "%%D\bin\java.exe" set "JAVA_HOME=%%D"
+  )
+  if not defined JAVA_HOME if exist "C:\Program Files\Java\jdk-25\bin\java.exe" (
+    set "JAVA_HOME=C:\Program Files\Java\jdk-25"
+  )
+)
 set "MVN=%USERPROFILE%\.local\apache-maven-3.9.16\bin\mvn.cmd"
 
 echo Starting FM AI Assistent...
@@ -11,9 +19,11 @@ echo Open http://127.0.0.1:8080 when the app is up.
 echo.
 
 if not exist "%JAVA_HOME%\bin\java.exe" (
-  echo Java 25 was not found at:
-  echo   %JAVA_HOME%
-  echo Install Temurin JDK 25 or set JAVA_HOME, then try again.
+  echo Java 25 was not found.
+  echo Install Eclipse Temurin JDK 25, then try again.
+  echo Expected locations:
+  echo   C:\Program Files\Eclipse Adoptium\jdk-25.0.4.7-hotspot
+  echo   C:\Program Files\Java\jdk-25
   goto :fail
 )
 

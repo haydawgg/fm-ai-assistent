@@ -41,7 +41,6 @@ import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
 import com.vaadin.flow.component.textfield.IntegerField;
-import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.component.dependency.CssImport;
@@ -95,6 +94,7 @@ public class MainView extends VerticalLayout {
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
+    private final OpenRouterModelCatalog openRouterModels;
 
     private final Dialog loadingDialog = new Dialog();
     private final ProgressBar spinner = new ProgressBar();
@@ -141,6 +141,7 @@ public class MainView extends VerticalLayout {
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
             AppSettingsService settings,
+            OpenRouterModelCatalog openRouterModels,
             CodexConversationService codexConversations,
             AntigravityConversationService antigravityConversations,
             CopilotConversationService copilotConversations,
@@ -150,6 +151,7 @@ public class MainView extends VerticalLayout {
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
+        this.openRouterModels = openRouterModels;
         this.aiAssistant = new AiAssistantView(
                 codexConversations, antigravityConversations, copilotConversations, tacticContexts);
         this.currency = settings.currency();
@@ -175,12 +177,7 @@ public class MainView extends VerticalLayout {
             if (!event.isFromClient()) {
                 return;
             }
-            event.getFirstSelectedItem().ifPresentOrElse(this::openPlayerDrawer, () -> {
-                if (selectedPlayer != null) {
-                    selectedPlayer = null;
-                    showPlayers();
-                }
-            });
+            event.getFirstSelectedItem().ifPresentOrElse(this::openPlayerDrawer, this::closePlayerDrawer);
         });
         updateStatus(null);
         showPlayers();
@@ -188,7 +185,11 @@ public class MainView extends VerticalLayout {
 
     private Component header() {
         loadButton.addClickListener(event -> loadAllData());
-        settingsButton.addClickListener(event -> openSettingsDialog());
+        settingsButton.addClickListener(event -> SettingsDialog.open(
+                settings, openRouterModels, currency, saved -> {
+                    currency = saved;
+                    refreshSelectedTab();
+                }));
         filterButton.addClickListener(event -> openFilterDialog());
         loadButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         loadButton.addClassName("load-button");
@@ -1025,11 +1026,11 @@ public class MainView extends VerticalLayout {
                 && !Objects.equals(compareAnchor.getId(), player.getId())) {
             selectedPlayer = player;
             awaitingCompareSelection = false;
-            showPlayers();
+            refreshPlayerDrawer();
             return;
         }
         selectedPlayer = player;
-        showPlayers();
+        refreshPlayerDrawer();
     }
 
     private void closePlayerDrawer() {
@@ -1038,7 +1039,27 @@ public class MainView extends VerticalLayout {
         }
         selectedPlayer = null;
         clearCompareState();
-        showPlayers();
+        refreshPlayerDrawer();
+    }
+
+    private void refreshPlayerDrawer() {
+        if (visiblePlayers.isEmpty() && selectedPlayer == null) {
+            showPlayers();
+            return;
+        }
+        if (selectedPlayer != null) {
+            playersGrid.select(selectedPlayer);
+        } else {
+            playersGrid.deselectAll();
+        }
+        showWorkspace(
+                "Players",
+                visiblePlayers.size(),
+                playersGrid,
+                buildSidePanel(),
+                true,
+                "No players match",
+                "Adjust filters or load from RAM to fill the desk.");
     }
 
     private void clearCompareState() {
@@ -1057,7 +1078,7 @@ public class MainView extends VerticalLayout {
                 2500,
                 Notification.Position.TOP_CENTER);
         notice.addClassName("app-toast");
-        showPlayers();
+        refreshPlayerDrawer();
     }
 
     private Component buildSidePanel() {
@@ -1316,56 +1337,6 @@ public class MainView extends VerticalLayout {
         }
     }
 
-    private void openSettingsDialog() {
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Settings");
-        dialog.setWidth("420px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.getElement().getThemeList().add("professional-dialog");
-        dialog.getElement().getThemeList().add("settings-dialog");
-
-        Select<MoneyCurrency> currencySelect = new Select<>();
-        currencySelect.setLabel("Currency");
-        currencySelect.setItems(MoneyCurrency.POUND, MoneyCurrency.DOLLAR, MoneyCurrency.EURO);
-        currencySelect.setItemLabelGenerator(MoneyCurrency::label);
-        currencySelect.setValue(currency);
-
-        PasswordField apiKey = new PasswordField("OpenAI API key");
-        apiKey.setWidthFull();
-        apiKey.setValue(settings.openaiApiKey());
-        apiKey.setPlaceholder("sk-... or leave empty to use MCP only");
-        TextField model = new TextField("OpenAI model");
-        model.setWidthFull();
-        model.setValue(settings.openaiModel());
-
-        Span intro = new Span("Display currency and optional in-app chat. Chat is unused if the key is empty; Codex/Claude can still use /mcp.");
-        intro.addClassName("settings-intro");
-        Span file = new Span("Stored in " + settings.settingsPath());
-        file.addClassName("settings-path");
-
-        VerticalLayout layout = new VerticalLayout(intro, currencySelect, apiKey, model, file);
-        layout.setPadding(false);
-        layout.setSpacing(true);
-        layout.addClassName("settings-content");
-        dialog.add(layout);
-
-        Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
-            currency = currencySelect.getValue() == null ? MoneyCurrency.POUND : currencySelect.getValue();
-            settings.saveCurrency(currency);
-            settings.saveOpenAi(apiKey.getValue(), model.getValue());
-            refreshSelectedTab();
-            Notification saved = Notification.show("Settings saved", 2500, Notification.Position.TOP_CENTER);
-            saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            saved.addClassName("app-toast");
-            dialog.close();
-        });
-        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        Button cancel = new Button("Cancel", VaadinIcon.CLOSE_SMALL.create(), event -> dialog.close());
-        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-        dialog.getFooter().add(cancel, save);
-        dialog.open();
-    }
-
     private void openPlayerFilterDialog() {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Player filter");
@@ -1403,9 +1374,9 @@ public class MainView extends VerticalLayout {
         IntegerField caMax = intField("CA max", playerFilter.caMax(), 1, 200);
         IntegerField paMin = intField("PA min", playerFilter.paMin(), 1, 200);
         IntegerField paMax = intField("PA max", playerFilter.paMax(), 1, 200);
-        LongField askingMin = new LongField("Asking price min", playerFilter.askingPriceMin());
-        LongField askingMax = new LongField("Asking price max", playerFilter.askingPriceMax());
-        LongField salaryMax = new LongField("Weekly Salary max", playerFilter.salaryMax());
+        LongField askingMin = new LongField("Asking price min", fromDisplayPounds(playerFilter.askingPriceMin()));
+        LongField askingMax = new LongField("Asking price max", fromDisplayPounds(playerFilter.askingPriceMax()));
+        LongField salaryMax = new LongField("Weekly Salary max", fromDisplayPounds(playerFilter.salaryMax()));
         DatePicker contractFrom = new DatePicker("Contract end from");
         contractFrom.setValue(playerFilter.contractEndDateFrom());
         DatePicker contractTo = new DatePicker("Contract end to");
@@ -1505,8 +1476,8 @@ public class MainView extends VerticalLayout {
                     caMin.getValue(), caMax.getValue(),
                     paMin.getValue(), paMax.getValue(),
                     contractFrom.getValue(), contractTo.getValue(),
-                    askingMin.value(), askingMax.value(),
-                    salaryMax.value(),
+                    toFilterPounds(askingMin.value()), toFilterPounds(askingMax.value()),
+                    toFilterPounds(salaryMax.value()),
                     selectedPositionMinimums(selectedPositions),
                     selectedAttributeMinimums(attributeFields));
             showPlayers();
@@ -1955,6 +1926,14 @@ public class MainView extends VerticalLayout {
     private void setFilterActive(boolean active) {
         filterButton.setText(active ? "Filter active" : "Filter");
         filterButton.getElement().getClassList().set("has-filter", active);
+    }
+
+    private Long fromDisplayPounds(Long pounds) {
+        return pounds == null ? null : MoneyDisplay.convert(pounds, currency);
+    }
+
+    private Long toFilterPounds(Long displayed) {
+        return displayed == null ? null : MoneyDisplay.toBasePounds(displayed, currency);
     }
 
     private static String display(Object value) {

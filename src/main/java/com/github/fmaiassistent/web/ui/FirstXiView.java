@@ -142,6 +142,7 @@ public class FirstXiView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        runButton.setEnabled(false);
         try {
             List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tactic.getValue());
             List<SquadAdvice.XiPick> picks = tools.bestXiRows(club, slots);
@@ -174,6 +175,8 @@ public class FirstXiView extends VerticalLayout {
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        } finally {
+            runButton.setEnabled(true);
         }
     }
 }

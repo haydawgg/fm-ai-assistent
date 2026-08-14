@@ -40,6 +40,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -174,8 +175,9 @@ public class CopilotConversationService {
         }
         return ensureResumed(state).thenCompose(session -> session.getMessages()).thenApply(events -> {
             synchronized (state) {
-                // Copilot's persisted session events are authoritative while idle. Re-reading
-                // them also repairs a view if a live SDK callback was delayed or missed.
+                if (state.activeTurnId != null) {
+                    return snapshot(state);
+                }
                 rebuildHistory(state, events);
                 state.historyLoaded = true;
             }
@@ -266,6 +268,14 @@ public class CopilotConversationService {
                         log.info("Persisted Copilot MCP permission server=fm-ai-assistent tool={} cwd={}",
                                 pending.mcpToolName(), workingDirectory);
                     }
+                })
+                .exceptionally(error -> {
+                    PendingPermission removed = state.permissions.remove(requestId);
+                    if (removed != null) {
+                        removed.decision().complete(PermissionRequestResult.reject(
+                                "Failed to persist permission: " + rootMessage(error)));
+                    }
+                    throw new CompletionException(unwrap(error));
                 });
     }
 
@@ -362,22 +372,37 @@ public class CopilotConversationService {
     }
 
     private CompletableFuture<CopilotSession> ensureResumed(ConversationState state) {
-        if (state.session != null) {
-            return CompletableFuture.completedFuture(state.session);
+        synchronized (state) {
+            if (state.session != null) {
+                return CompletableFuture.completedFuture(state.session);
+            }
+            if (state.resumeInFlight != null) {
+                return state.resumeInFlight;
+            }
+            ResumeSessionConfig config = new ResumeSessionConfig()
+                    .setClientName("fm-ai-assistent")
+                    .setWorkingDirectory(workingDirectory.toString())
+                    .setStreaming(true)
+                    .setEnableSessionStore(true)
+                    .setEnableConfigDiscovery(true)
+                    .setIncludeSubAgentStreamingEvents(true)
+                    .setOnPermissionRequest((request, invocation) -> requestPermission(state, request))
+                    .setOnUserInputRequest((request, invocation) -> requestUserInput(state, request));
+            if (state.selectedModel != null) {
+                config.setModel(state.selectedModel);
+            }
+            CompletableFuture<CopilotSession> inFlight = client.resumeSession(state.sessionId, config)
+                    .thenApply(session -> attachSession(state, session));
+            state.resumeInFlight = inFlight;
+            inFlight.whenComplete((ignored, error) -> {
+                synchronized (state) {
+                    if (state.resumeInFlight == inFlight) {
+                        state.resumeInFlight = null;
+                    }
+                }
+            });
+            return inFlight;
         }
-        ResumeSessionConfig config = new ResumeSessionConfig()
-                .setClientName("fm-ai-assistent")
-                .setWorkingDirectory(workingDirectory.toString())
-                .setStreaming(true)
-                .setEnableSessionStore(true)
-                .setEnableConfigDiscovery(true)
-                .setIncludeSubAgentStreamingEvents(true)
-                .setOnPermissionRequest((request, invocation) -> requestPermission(state, request))
-                .setOnUserInputRequest((request, invocation) -> requestUserInput(state, request));
-        if (state.selectedModel != null) {
-            config.setModel(state.selectedModel);
-        }
-        return client.resumeSession(state.sessionId, config).thenApply(session -> attachSession(state, session));
     }
 
     private CopilotSession attachSession(ConversationState state, CopilotSession session) {
@@ -727,6 +752,7 @@ public class CopilotConversationService {
         private final Map<String, PendingPermission> permissions = new ConcurrentHashMap<>();
         private final Map<String, CompletableFuture<UserInputResponse>> userInputs = new ConcurrentHashMap<>();
         private volatile CopilotSession session;
+        private volatile CompletableFuture<CopilotSession> resumeInFlight;
         private volatile Closeable eventSubscription;
         private volatile String activeTurnId;
         private volatile String selectedModel;

@@ -53,6 +53,20 @@ class SquadAdviceTest {
     }
 
     @Test
+    void bestXiFillsScarceSlotsFirstButKeepsFormationOrder() {
+        List<PlayerEntity> squad = List.of(hybrid("KeeperForward", 140, 22, 5_000, 18, 18));
+        List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(
+                squad,
+                List.of(new SquadAdvice.XiSlot("ST", "", ""), new SquadAdvice.XiSlot("GK", "", "")),
+                (player, slot) -> null);
+        assertEquals("ST", picks.get(0).position());
+        assertEquals("GK", picks.get(1).position());
+        assertTrue(picks.get(0).hole());
+        assertFalse(picks.get(1).hole());
+        assertEquals("KeeperForward", picks.get(1).playerName());
+    }
+
+    @Test
     void parseTacticSlotsSkipsHeader() {
         List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots("""
                 Player,in possesion role,out of possesion role
@@ -98,6 +112,20 @@ class SquadAdviceTest {
         row.put("club", "Test FC");
         row.put("playing_club", "Test FC");
         row.put(position, positionScore);
+        return PlayerEntity.fromExportRow(row);
+    }
+
+    private static PlayerEntity hybrid(String name, int ca, int age, int wage, int goalkeeper, int striker) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", name);
+        row.put("ca", ca);
+        row.put("pa", ca + 5);
+        row.put("age", String.valueOf(age));
+        row.put("salary_weekly_raw", wage);
+        row.put("club", "Test FC");
+        row.put("playing_club", "Test FC");
+        row.put("Goalkeeper", goalkeeper);
+        row.put("Striker", striker);
         return PlayerEntity.fromExportRow(row);
     }
 }

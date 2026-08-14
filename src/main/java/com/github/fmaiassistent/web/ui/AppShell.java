@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.HasElement;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.applayout.AppLayout;
@@ -41,10 +42,10 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
     @Override
     public void showRouterLayoutContent(HasElement content) {
-        contentWrapper.getElement().removeAllChildren();
+        contentWrapper.removeAll();
         if (content != null) {
             content.getElement().getClassList().add("fmai-route");
-            contentWrapper.getElement().appendChild(content.getElement());
+            contentWrapper.add((Component) content);
         }
     }
 

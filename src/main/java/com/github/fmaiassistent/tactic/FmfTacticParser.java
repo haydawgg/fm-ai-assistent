@@ -48,6 +48,9 @@ class FmfTacticParser {
 
     private static int catalogOffset(byte[] archive) {
         long relativeOffset = littleEndianLong(archive, 9);
+        if (relativeOffset < 0 || relativeOffset > archive.length) {
+            throw new IllegalArgumentException("The FMF archive catalog offset is invalid");
+        }
         long offset = 9 + relativeOffset;
         if (offset < ARCHIVE_DATA_OFFSET || offset > archive.length - CATALOG_MAGIC.length
                 || !matchesAt(archive, Math.toIntExact(offset), CATALOG_MAGIC)) {

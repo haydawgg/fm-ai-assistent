@@ -524,7 +524,8 @@ final class CopilotChatView extends Div {
         }
         conversations.openConversation(sessionId)
                 .thenAccept(snapshot -> ui.access(() -> {
-                    if (ui.isAttached() && sessionId.equals(selectedConversationId) && activeTurnId == null) {
+                    if (ui.isAttached() && sessionId.equals(selectedConversationId)
+                            && activeTurnId == null && !turnPending) {
                         displaySnapshot(snapshot);
                     }
                 }))

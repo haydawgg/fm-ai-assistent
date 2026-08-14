@@ -29,9 +29,10 @@ public class AppSettingsService {
     private static final String SETTINGS_FILE_PROPERTY = "fmaiassistent.settings.file";
     private static final String CURRENCY_KEY = "currency";
     private static final String PLAYER_VIEWS_KEY = "player.views";
-    private static final String OPENAI_API_KEY = "openai.api.key";
-    private static final String OPENAI_MODEL_KEY = "openai.model";
-    private static final String DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+    private static final String OPENROUTER_API_KEY = "openrouter.api.key";
+    private static final String OPENROUTER_MODEL_KEY = "openrouter.model";
+    private static final String LEGACY_OPENAI_API_KEY = "openai.api.key";
+    private static final String LEGACY_OPENAI_MODEL_KEY = "openai.model";
 
     private final Path settingsPath;
     private final ObjectMapper objectMapper;
@@ -101,33 +102,55 @@ public class AppSettingsService {
         return applicationDirectory();
     }
 
-    public String openaiApiKey() {
-        String value = load().getProperty(OPENAI_API_KEY, "");
+    public String openRouterApiKey() {
+        Properties properties = load();
+        String value = firstNonBlank(
+                properties.getProperty(OPENROUTER_API_KEY, ""),
+                properties.getProperty(LEGACY_OPENAI_API_KEY, ""),
+                System.getenv("OPENROUTER_API_KEY"),
+                System.getenv("OPENAI_API_KEY"));
+        return value == null ? "" : value;
+    }
+
+    public String openRouterModel() {
+        Properties properties = load();
+        String value = firstNonBlank(
+                properties.getProperty(OPENROUTER_MODEL_KEY, ""),
+                properties.getProperty(LEGACY_OPENAI_MODEL_KEY, ""));
         if (value == null || value.isBlank()) {
-            String env = System.getenv("OPENAI_API_KEY");
-            return env == null ? "" : env;
+            return OpenRouterModelCatalog.DEFAULT_MODEL;
         }
-        return value;
+        return value.contains("/") ? value : "openai/" + value;
     }
 
-    public String openaiModel() {
-        String value = load().getProperty(OPENAI_MODEL_KEY, DEFAULT_OPENAI_MODEL);
-        return value == null || value.isBlank() ? DEFAULT_OPENAI_MODEL : value;
-    }
-
-    public void saveOpenAi(String apiKey, String model) {
+    public void saveOpenRouter(String apiKey, String model) {
         Properties properties = load();
         if (apiKey == null || apiKey.isBlank()) {
-            properties.remove(OPENAI_API_KEY);
+            properties.remove(OPENROUTER_API_KEY);
         } else {
-            properties.setProperty(OPENAI_API_KEY, apiKey.trim());
+            properties.setProperty(OPENROUTER_API_KEY, apiKey.trim());
         }
-        properties.setProperty(OPENAI_MODEL_KEY, model == null || model.isBlank() ? DEFAULT_OPENAI_MODEL : model.trim());
+        properties.setProperty(OPENROUTER_MODEL_KEY,
+                model == null || model.isBlank() ? OpenRouterModelCatalog.DEFAULT_MODEL : model.trim());
+        properties.remove(LEGACY_OPENAI_API_KEY);
+        properties.remove(LEGACY_OPENAI_MODEL_KEY);
         save(properties);
     }
 
     public boolean chatConfigured() {
-        return !openaiApiKey().isBlank();
+        return !openRouterApiKey().isBlank();
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private void writePlayerViews(List<SavedPlayerView> views) {

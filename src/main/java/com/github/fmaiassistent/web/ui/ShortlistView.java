@@ -157,6 +157,7 @@ public class ShortlistView extends VerticalLayout {
         if (Boolean.TRUE.equals(wonderkids.getValue())) {
             ageCap = ageCap == null ? 21 : Math.min(ageCap, 21);
         }
+        runButton.setEnabled(false);
         try {
             List<TransferShortlistRow> rows = tools.transferShortlistRows(
                     club, position, role, ageCap, value(minCa), value(minPa),
@@ -167,6 +168,8 @@ public class ShortlistView extends VerticalLayout {
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        } finally {
+            runButton.setEnabled(true);
         }
     }
 

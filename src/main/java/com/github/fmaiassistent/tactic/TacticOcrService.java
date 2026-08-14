@@ -54,20 +54,30 @@ class TacticOcrService implements TacticImageTextExtractor {
             Process process = new ProcessBuilder(command).start();
             CompletableFuture<String> stdout = read(process.getInputStream());
             CompletableFuture<String> stderr = read(process.getErrorStream());
-            if (!process.waitFor(properties.ocrTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                throw new IllegalStateException("Tactic screenshot OCR timed out");
+            try {
+                if (!process.waitFor(properties.ocrTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                    process.destroyForcibly();
+                    awaitExit(process);
+                    stdout.cancel(true);
+                    stderr.cancel(true);
+                    throw new IllegalStateException("Tactic screenshot OCR timed out");
+                }
+                String diagnostics = stderr.join().strip();
+                if (process.exitValue() != 0) {
+                    throw new IllegalStateException(diagnostics.isBlank()
+                            ? "Tesseract could not read the tactic screenshot"
+                            : diagnostics);
+                }
+                if (!diagnostics.isBlank()) {
+                    log.debug("Tactic OCR diagnostic: {}", diagnostics);
+                }
+                return clean(stdout.join(), kind);
+            } finally {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                    awaitExit(process);
+                }
             }
-            String diagnostics = stderr.join().strip();
-            if (process.exitValue() != 0) {
-                throw new IllegalStateException(diagnostics.isBlank()
-                        ? "Tesseract could not read the tactic screenshot"
-                        : diagnostics);
-            }
-            if (!diagnostics.isBlank()) {
-                log.debug("Tactic OCR diagnostic: {}", diagnostics);
-            }
-            return clean(stdout.join(), kind);
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Tactic OCR is unavailable. Install Tesseract or configure app.ai.tactic-context.ocr-executable",
@@ -110,6 +120,14 @@ class TacticOcrService implements TacticImageTextExtractor {
             return temporary;
         } catch (IOException exception) {
             throw new IllegalStateException("Could not prepare tactic screenshot for OCR", exception);
+        }
+    }
+
+    private static void awaitExit(Process process) {
+        try {
+            process.waitFor(2, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 

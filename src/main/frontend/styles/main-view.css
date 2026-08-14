@@ -1012,7 +1012,7 @@ body {
     gap: 20px;
     padding: 8px 20px;
     border-bottom: 1px solid var(--fmai-border);
-    background: #f8faf9;
+    background: var(--fmai-surface);
 }
 
 .ai-provider-description {
@@ -1034,7 +1034,7 @@ body {
     border: 0;
     border-bottom: 1px solid var(--fmai-border);
     border-radius: 0;
-    background: #fbfcfb;
+    background: var(--fmai-surface);
     font-size: 13px;
 }
 
@@ -1042,7 +1042,7 @@ body {
     min-height: 38px;
     box-sizing: border-box;
     padding: 7px 20px;
-    color: #46524c;
+    color: var(--fmai-text-muted);
     font-weight: 750;
 }
 
@@ -1089,7 +1089,7 @@ body {
     margin: 0;
     padding: 10px;
     overflow: auto;
-    background: #f4f6f5;
+    background: var(--fmai-surface-elevated);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
     white-space: pre-wrap;
@@ -1112,11 +1112,11 @@ body {
     padding: 18px 14px;
     overflow: hidden;
     border-right: 1px solid var(--fmai-border);
-    background: #f8faf9;
+    background: var(--fmai-surface);
 }
 
 .codex-sidebar-title {
-    color: #4f5b55;
+    color: var(--fmai-text-muted);
     font-size: 12px;
     font-weight: 800;
     letter-spacing: .06em;
@@ -1135,7 +1135,7 @@ body {
     justify-content: flex-start;
     min-height: 38px;
     overflow: hidden;
-    color: #46524c;
+    color: var(--fmai-text-muted);
     font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1243,13 +1243,13 @@ body {
     gap: 12px;
     padding: 14px max(20px, calc((100% - 900px) / 2)) 18px;
     border-top: 1px solid var(--fmai-border);
-    background: #fbfcfb;
+    background: var(--fmai-surface);
 }
 
 .codex-input::part(input-field) {
     border: 1px solid var(--fmai-border-strong);
     border-radius: 8px;
-    background: #ffffff;
+    background: var(--fmai-surface-elevated);
     box-shadow: 0 2px 8px rgba(23, 32, 28, .06);
 }
 
@@ -1269,7 +1269,7 @@ body {
     overflow-wrap: anywhere;
     border: 1px solid var(--fmai-border);
     border-radius: 6px;
-    background: #f4f6f5;
+    background: var(--fmai-surface-elevated);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     white-space: pre-wrap;
 }

@@ -524,7 +524,14 @@ public class FmAiAssistentTools {
             slotsText = stored == null ? "" : String.valueOf(stored);
             source = "ram";
         }
-        List<SquadAdvice.XiSlot> slots = parseTacticSlots(slotsText);
+        List<SquadAdvice.XiSlot> slots;
+        try {
+            slots = parseTacticSlots(slotsText);
+        } catch (RuntimeException ex) {
+            return Map.of(
+                    "error", "Invalid tacticSlots format: " + ex.getMessage(),
+                    "expected", "POSITION,In Possession Role,Out of Possession Role");
+        }
         List<PlayerEntity> squad = currentSquad(allPlayers(), club.getName());
         List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(squad, slots, this::slotRoleFit);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1149,6 +1156,10 @@ public class FmAiAssistentTools {
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("role not found for " + position.positionGroup() + ": " + roleName);
         }
+        if (exactRows.isEmpty()) {
+            String firstRole = rows.getFirst().roleName();
+            rows = rows.stream().filter(row -> equalsIgnoreCase(row.roleName(), firstRole)).toList();
+        }
 
         Map<String, Integer> weights = new LinkedHashMap<>();
         List<String> roles = new ArrayList<>();
@@ -1289,8 +1300,8 @@ public class FmAiAssistentTools {
         double price = freeAgent ? 1.0 : !priceKnown ? 0.35 : priceCap <= 0
                 ? 0.0
                 : clamp(1.0 - value(player.getAskingPrice()) / (double) priceCap);
-        double wage = value(player.getSalaryWeeklyRaw()) == 0 ? 1.0 : wageCeiling <= 0
-                ? 0.35
+        double wage = value(player.getSalaryWeeklyRaw()) == 0 || wageCeiling <= 0
+                ? 1.0
                 : clamp(wageCeiling / (double) value(player.getSalaryWeeklyRaw()));
         double willingnessScore = willingness == Willingness.HIGH ? 1.0 : 0.6;
 

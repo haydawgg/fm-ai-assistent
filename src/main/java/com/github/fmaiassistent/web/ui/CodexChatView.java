@@ -6,6 +6,7 @@ import com.github.fmaiassistent.codex.CodexConversationItem;
 import com.github.fmaiassistent.codex.CodexConversationService;
 import com.github.fmaiassistent.codex.CodexConversationSnapshot;
 import com.github.fmaiassistent.codex.CodexEvent;
+import com.github.fmaiassistent.codex.CodexException;
 import com.github.fmaiassistent.codex.CodexLogin;
 import com.github.fmaiassistent.codex.CodexSubscription;
 import com.vaadin.flow.component.AttachEvent;
@@ -312,7 +313,7 @@ final class CodexChatView extends Div {
         for (CodexConversationItem item : snapshot.items()) {
             addHistoryItem(item);
         }
-        messages.setItems(messageItems);
+        refreshMessages(true);
         conversationButtons.forEach((id, button) ->
                 button.getElement().getClassList().set("selected", id.equals(selectedThreadId)));
         conversationSubscription = conversations.subscribe(selectedThreadId, event -> access(() -> handleEvent(event)));
@@ -367,7 +368,7 @@ final class CodexChatView extends Div {
 
     private void submitMessage(String text) {
         addMessage("local-" + UUID.randomUUID(), userItem(text));
-        messages.setItems(messageItems);
+        refreshMessages(true);
         turnPending = true;
         setRunning(true);
         conversations.sendMessage(selectedThreadId, text)
@@ -425,42 +426,45 @@ final class CodexChatView extends Div {
                 if (!itemsById.containsKey(started.itemId())) {
                     addMessage(started.itemId(), assistantItem(""));
                     assistantBuffers.put(started.itemId(), new StringBuilder());
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                 }
             }
             case CodexEvent.AssistantTextDelta delta -> {
                 MessageListItem item = itemsById.computeIfAbsent(delta.itemId(), id -> {
                     MessageListItem created = assistantItem("");
                     messageItems.add(created);
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                     return created;
                 });
                 StringBuilder text = assistantBuffers.computeIfAbsent(delta.itemId(), ignored -> new StringBuilder());
                 text.append(delta.delta());
                 item.setText(sanitizeMarkdown(text.toString()));
+                refreshMessages(true);
             }
             case CodexEvent.AssistantCompleted completed -> {
                 MessageListItem item = itemsById.get(completed.itemId());
                 if (item == null) {
                     addMessage(completed.itemId(), assistantItem(completed.text()));
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                 } else {
                     item.setText(sanitizeMarkdown(completed.text()));
+                    refreshMessages(true);
                 }
                 assistantBuffers.remove(completed.itemId());
             }
             case CodexEvent.ToolStarted started -> {
                 addMessage(started.itemId(), toolItem(started.label(), "inProgress", started.details()));
-                messages.setItems(messageItems);
+                refreshMessages(true);
             }
             case CodexEvent.ToolCompleted completed -> {
                 MessageListItem item = itemsById.get(completed.itemId());
                 String text = toolText(completed.label(), completed.status(), completed.details());
                 if (item == null) {
                     addMessage(completed.itemId(), toolItem(completed.label(), completed.status(), completed.details()));
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                 } else {
                     item.setText(text);
+                    refreshMessages(true);
                 }
             }
             case CodexEvent.TurnCompleted completed -> {
@@ -469,10 +473,10 @@ final class CodexChatView extends Div {
                 setRunning(false);
                 if ("interrupted".equals(completed.status())) {
                     addMessage("stopped-" + completed.turnId(), systemItem("Response stopped", false));
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                 } else if (completed.error() != null) {
                     addMessage("failed-" + completed.turnId(), systemItem(completed.error(), true));
-                    messages.setItems(messageItems);
+                    refreshMessages(true);
                 }
                 refreshConversations();
             }
@@ -481,7 +485,7 @@ final class CodexChatView extends Div {
                 activeTurnId = null;
                 setRunning(false);
                 addMessage("error-" + UUID.randomUUID(), systemItem(failure.message(), true));
-                messages.setItems(messageItems);
+                refreshMessages(true);
             }
             case CodexEvent.ApprovalRequested approval -> showApproval(approval);
             case CodexEvent.McpStatusChanged status -> {
@@ -531,14 +535,20 @@ final class CodexChatView extends Div {
             CodexConversationService.ApprovalDecision decision,
             CodexEvent.ApprovalRequested approval,
             Dialog dialog) {
-        return new Button(label, event -> {
+        Button button = new Button(label);
+        button.addClickListener(event -> {
+            button.setEnabled(false);
             try {
                 conversations.decideApproval(approval.requestKey(), decision);
                 dialog.close();
+            } catch (CodexException ignored) {
+                dialog.close();
             } catch (RuntimeException ex) {
+                button.setEnabled(true);
                 showError(ex);
             }
         });
+        return button;
     }
 
     private void setRunning(boolean running) {
@@ -606,7 +616,15 @@ final class CodexChatView extends Div {
                 : error;
         String message = cause.getMessage() == null ? "Codex request failed" : cause.getMessage();
         addMessage("error-" + UUID.randomUUID(), systemItem(message, true));
-        messages.setItems(messageItems);
+        refreshMessages(true);
+    }
+
+    private void refreshMessages(boolean scrollToLatest) {
+        messages.setItems(List.copyOf(messageItems));
+        if (scrollToLatest) {
+            messages.getElement().executeJs(
+                    "requestAnimationFrame(() => { this.scrollTop = this.scrollHeight; })");
+        }
     }
 
     private void access(Runnable action) {

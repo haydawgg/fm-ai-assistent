@@ -18,9 +18,21 @@ public final class MoneyDisplay {
 
     /** Converts raw pounds to the display currency. */
     public static long convert(long pounds, MoneyCurrency currency) {
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
         return BigDecimal.valueOf(pounds)
-                .multiply(currency.rateFromPounds())
+                .multiply(selected.rateFromPounds())
                 .setScale(0, RoundingMode.HALF_UP)
+                .longValue();
+    }
+
+    /** Converts an amount typed in the display currency back to raw pounds. */
+    public static long toBasePounds(long amountInCurrency, MoneyCurrency currency) {
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
+        if (selected == MoneyCurrency.POUND || selected.rateFromPounds().compareTo(BigDecimal.ZERO) == 0) {
+            return amountInCurrency;
+        }
+        return BigDecimal.valueOf(amountInCurrency)
+                .divide(selected.rateFromPounds(), 0, RoundingMode.HALF_UP)
                 .longValue();
     }
 

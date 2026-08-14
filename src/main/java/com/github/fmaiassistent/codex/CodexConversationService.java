@@ -418,7 +418,7 @@ public class CodexConversationService {
             return;
         }
         String threadId = params.path("threadId").asText();
-        String requestKey = request.id().toString();
+        String requestKey = requestKey(request.id());
         String details = approvalDetails(params);
         approvals.put(requestKey, new PendingApproval(request.id(), method, threadId, params));
         emit(new CodexEvent.ApprovalRequested(
@@ -568,6 +568,13 @@ public class CodexConversationService {
             }
         }
         return abbreviate(String.join("\n", details), 600);
+    }
+
+    private static String requestKey(JsonNode id) {
+        if (id == null || id.isNull() || id.isMissingNode()) {
+            return UUID.randomUUID().toString();
+        }
+        return id.isTextual() ? id.asText() : id.toString();
     }
 
     private void emit(CodexEvent event) {

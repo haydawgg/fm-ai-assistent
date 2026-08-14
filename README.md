@@ -12,7 +12,7 @@ The app also includes a frontend where you can search and filter the data yourse
 - Squad trim (`/squad-trim`) — sell / loan / keep
 - First XI (`/first-xi`) — XI from the live RAM formation or a pasted tactic
 - Compare (`/compare-squads`) — two clubs, best player per position
-- Chat (`/chat`) — optional OpenAI chat using the same MCP tools
+- Chat (`/chat`) — optional OpenRouter chat using the same MCP tools
 
 You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI if you want role-fit scoring.
 
@@ -64,7 +64,7 @@ The application starts on:
 http://127.0.0.1:8080
 ```
 
-RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. Optional in-app chat uses an OpenAI key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
+RAM snapshots are stored in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`, so a load survives restart. After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. Optional in-app chat uses an OpenRouter key from Settings; otherwise connect Codex or Claude to `/mcp` as below.
 
 ### Option 3: Run from source (development)
 

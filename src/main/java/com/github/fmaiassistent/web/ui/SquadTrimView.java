@@ -109,6 +109,7 @@ public class SquadTrimView extends VerticalLayout {
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
+        runButton.setEnabled(false);
         try {
             List<SquadAdvice.SellRow> rows = tools.sellRows(club);
             grid.setItems(rows);
@@ -118,6 +119,8 @@ public class SquadTrimView extends VerticalLayout {
         } catch (RuntimeException ex) {
             Notification.show(ex.getMessage(), 5000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        } finally {
+            runButton.setEnabled(true);
         }
     }
 }

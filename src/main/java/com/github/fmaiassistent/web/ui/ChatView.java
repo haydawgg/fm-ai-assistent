@@ -1,36 +1,47 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.AssistantChatService;
+import com.github.fmaiassistent.service.OpenRouterModelCatalog;
+import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
-import com.vaadin.flow.component.Key;
-import com.vaadin.flow.component.KeyModifier;
+import com.vaadin.flow.component.DetachEvent;
 import com.vaadin.flow.component.UI;
-import com.vaadin.flow.server.Command;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.markdown.Markdown;
+import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.server.Command;
 import reactor.core.Disposable;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Route(value = "chat", layout = AppShell.class)
 @PageTitle("Chat")
-@CssImport("./styles/moneyball-view.css")
+@CssImport("./styles/chat-view.css")
 public class ChatView extends VerticalLayout {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final long STREAM_PAINT_NANOS = 80_000_000L;
     private static final List<String> STARTERS = List.of(
             "Build my best XI from the live formation",
             "Find affordable wonderkids for my club",
@@ -38,210 +49,324 @@ public class ChatView extends VerticalLayout {
             "Compare my squad with the league's best");
 
     private final AssistantChatService chat;
+    private final AppSettingsService settings;
+    private final OpenRouterModelCatalog catalog;
+    private final PlayerDatabaseService players;
+
     private final Div transcript = new Div();
     private final TextArea input = new TextArea();
     private final Button send = new Button("Send", VaadinIcon.PAPERPLANE.create());
     private final Button stop = new Button("Stop", VaadinIcon.STOP.create());
     private final Button clear = new Button("New chat", VaadinIcon.PLUS.create());
-    private final Span status = new Span();
-    private final Span typing = new Span("AI is thinking");
-    private Disposable activeStream;
-    private Div welcome;
+    private final Button settingsButton = new Button("Settings", VaadinIcon.COG.create());
+    private final ComboBox<String> model = OpenRouterModelPicker.comboBox();
+    private final Map<String, String> modelLabels = new LinkedHashMap<>();
+    private final Span snapshot = new Span();
+    private final Div welcome = new Div();
+    private final Div unconfigured = new Div();
+    private final Div starters = new Div();
 
-    public ChatView(AssistantChatService chat) {
+    private Disposable activeStream;
+    private AssistantTurn activeTurn;
+    private boolean applyingModel;
+
+    public ChatView(
+            AssistantChatService chat,
+            AppSettingsService settings,
+            OpenRouterModelCatalog catalog,
+            PlayerDatabaseService players) {
         this.chat = chat;
+        this.settings = settings;
+        this.catalog = catalog;
+        this.players = players;
+
         setSizeFull();
         setPadding(false);
         setSpacing(false);
-        addClassName("moneyball-view");
         addClassName("chat-view");
 
         transcript.addClassName("chat-transcript");
         transcript.setWidthFull();
         transcript.getElement().setAttribute("aria-live", "polite");
-        typing.addClassName("chat-typing");
-        typing.setVisible(false);
 
-        input.setPlaceholder("Ask about your squad, transfers, tactics, or a player...");
-        input.setWidthFull();
-        input.setMinHeight("4.5em");
-        input.setMaxHeight("12em");
-        input.setHelperText("Enter to send · Shift + Enter for a new line");
-        input.addKeyDownListener(Key.ENTER, event -> {
-            if (!event.getModifiers().contains(KeyModifier.SHIFT)) {
-                send();
-            }
-        });
+        buildWelcome();
+        buildUnconfigured();
+        transcript.add(unconfigured, welcome);
 
-        send.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        send.addClickListener(event -> send());
-        stop.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-        stop.setEnabled(false);
-        stop.addClickListener(event -> stopStream());
-        clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        clear.addClickListener(event -> clearChat());
-
-        Component workspace = workspace();
-        add(header(), configurationBanner(), workspace, composer());
-        setFlexGrow(1, workspace);
+        add(toolbar(), transcript, composer());
+        setFlexGrow(1, transcript);
+        OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), true, modelLabels);
+        refreshSnapshot();
         updateConfigurationState();
     }
 
-    private Component header() {
-        Span hint = new Span("A calm second opinion for your next transfer, tactic, or team talk.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        HorizontalLayout header = new HorizontalLayout(hint);
+    @Override
+    protected void onAttach(AttachEvent event) {
+        super.onAttach(event);
+        refreshSnapshot();
+        updateConfigurationState();
+    }
+
+    @Override
+    protected void onDetach(DetachEvent event) {
+        stopStream();
+        super.onDetach(event);
+    }
+
+    private Component toolbar() {
+        Span title = new Span("FM AI chat");
+        title.addClassName("chat-title");
+        snapshot.addClassName("chat-snapshot");
+
+        model.setLabel("");
+        model.setPlaceholder("Model");
+        model.setWidth("18rem");
+        model.addClassName("chat-model");
+        model.addValueChangeListener(event -> {
+            if (!event.isFromClient() || applyingModel) {
+                return;
+            }
+            String selected = event.getValue();
+            if (selected == null || selected.isBlank()) {
+                return;
+            }
+            settings.saveOpenRouter(settings.openRouterApiKey(), selected);
+        });
+
+        clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        clear.addClickListener(event -> clearChat());
+        settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        settingsButton.addClickListener(event -> SettingsDialog.open(
+                settings, catalog, settings.currency(), ignored -> {
+                    applyingModel = true;
+                    try {
+                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel());
+                    } finally {
+                        applyingModel = false;
+                    }
+                    updateConfigurationState();
+                }));
+
+        HorizontalLayout identity = new HorizontalLayout(title, snapshot);
+        identity.setAlignItems(FlexComponent.Alignment.CENTER);
+        identity.setSpacing(true);
+        identity.addClassName("chat-identity");
+
+        HorizontalLayout actions = new HorizontalLayout(model, clear, settingsButton);
+        actions.setAlignItems(FlexComponent.Alignment.CENTER);
+        actions.setSpacing(true);
+        actions.addClassName("chat-toolbar-actions");
+
+        HorizontalLayout header = new HorizontalLayout(identity, actions);
         header.setWidthFull();
         header.setAlignItems(FlexComponent.Alignment.CENTER);
-        header.addClassName("chat-header");
+        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+        header.addClassName("chat-toolbar");
         return header;
     }
 
-    private Component configurationBanner() {
-        status.addClassName("chat-status");
-        return status;
-    }
-
-    private Component workspace() {
-        welcome = new Div();
+    private void buildWelcome() {
         welcome.addClassName("chat-welcome");
         H3 title = new H3("What are we solving today?");
         Span copy = new Span("Ask naturally. I can inspect the loaded FM snapshot and use the same recruitment and squad tools as your MCP assistant.");
         copy.addClassName("chat-welcome-copy");
-        welcome.add(title, copy, starterPrompts());
-        transcript.add(welcome);
-
-        VerticalLayout rail = new VerticalLayout();
-        rail.addClassName("chat-rail");
-        rail.setPadding(false);
-        rail.setSpacing(false);
-        rail.add(new Span("Shortcuts"));
-        rail.add(new Span("Every answer is grounded in your latest saved snapshot. Load from RAM when your save changes."));
-        rail.add(new Span("Tip: mention a budget, position, or club to make recommendations sharper."));
-
-        HorizontalLayout workspace = new HorizontalLayout(transcript, rail);
-        workspace.addClassName("chat-workspace");
-        workspace.setWidthFull();
-        workspace.setFlexGrow(1, transcript);
-        return workspace;
-    }
-
-    private HorizontalLayout starterPrompts() {
-        HorizontalLayout prompts = new HorizontalLayout();
-        prompts.addClassName("chat-starters");
-        prompts.setWidthFull();
-        prompts.setWrap(true);
+        Span tip = new Span("Every answer is grounded in your latest saved snapshot. Mention a budget, position, or club to make recommendations sharper.");
+        tip.addClassName("chat-welcome-tip");
+        starters.addClassName("chat-starters");
         for (String prompt : STARTERS) {
             Button button = new Button(prompt, event -> {
+                if (!chat.configured() || activeStream != null) {
+                    return;
+                }
                 input.setValue(prompt);
                 send();
             });
             button.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
             button.addClassName("chat-starter");
-            prompts.add(button);
+            starters.add(button);
         }
-        return prompts;
+        welcome.add(title, copy, tip, starters);
     }
 
-    private HorizontalLayout composer() {
-        HorizontalLayout actions = new HorizontalLayout(input, send, stop, clear);
-        actions.addClassName("chat-composer");
-        actions.setWidthFull();
+    private void buildUnconfigured() {
+        unconfigured.addClassName("chat-unconfigured");
+        H3 title = new H3("Add an OpenRouter key");
+        Span copy = new Span("In-app chat needs an OpenRouter API key. It stays in fm-ai-assistent.properties on this machine.");
+        copy.addClassName("chat-welcome-copy");
+        Button openSettings = new Button("Open Settings", VaadinIcon.COG.create(), event -> SettingsDialog.open(
+                settings, catalog, settings.currency(), ignored -> {
+                    applyingModel = true;
+                    try {
+                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel());
+                    } finally {
+                        applyingModel = false;
+                    }
+                    updateConfigurationState();
+                }));
+        openSettings.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        unconfigured.add(title, copy, openSettings);
+    }
+
+    private Component composer() {
+        input.setPlaceholder("Ask about your squad, transfers, tactics, or a player...");
+        input.setWidthFull();
+        input.setMinHeight("4.5em");
+        input.setMaxHeight("12em");
+        input.setAriaLabel("Message");
+        input.getElement().addEventListener("keydown", event -> send())
+                .setFilter("event.key === 'Enter' && !event.shiftKey")
+                .addEventData("event.preventDefault()");
+
+        send.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        send.addClickListener(event -> send());
+        send.addClassName("chat-send");
+        stop.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
+        stop.setVisible(false);
+        stop.addClickListener(event -> stopStream());
+        stop.addClassName("chat-stop");
+
+        Span hint = new Span("Enter to send · Shift + Enter for a new line");
+        hint.addClassName("chat-composer-hint");
+
+        HorizontalLayout actions = new HorizontalLayout(send, stop);
+        actions.setPadding(false);
+        actions.setSpacing(true);
         actions.setAlignItems(FlexComponent.Alignment.END);
-        actions.setFlexGrow(1, input);
-        return actions;
+
+        HorizontalLayout row = new HorizontalLayout(input, actions);
+        row.setWidthFull();
+        row.setPadding(false);
+        row.setAlignItems(FlexComponent.Alignment.END);
+        row.setFlexGrow(1, input);
+        row.addClassName("chat-composer-row");
+
+        VerticalLayout composer = new VerticalLayout(row, hint);
+        composer.setPadding(false);
+        composer.setSpacing(false);
+        composer.setWidthFull();
+        composer.addClassName("chat-composer");
+        return composer;
+    }
+
+    private void refreshSnapshot() {
+        long count = players.countPlayers();
+        snapshot.setText(count <= 0
+                ? "No RAM snapshot — load from Desk"
+                : count + " players loaded");
+        snapshot.getElement().setAttribute("data-empty", count <= 0);
     }
 
     private void updateConfigurationState() {
-        if (!chat.configured()) {
-            status.setText("Connect an OpenAI key in Settings to enable in-app chat. Your key stays in fm-ai-assistent.properties.");
-            status.addClassName("chat-status-warning");
-            send.setEnabled(false);
-            input.setEnabled(false);
-        } else {
-            status.setText("Connected · responses stream live · FM snapshot tools are available");
-            status.addClassName("chat-status-ready");
-        }
+        boolean configured = chat.configured();
+        boolean streaming = activeStream != null;
+        input.setEnabled(configured && !streaming);
+        send.setEnabled(configured && !streaming);
+        send.setVisible(!streaming);
+        stop.setVisible(streaming);
+        stop.setEnabled(streaming);
+        model.setEnabled(!streaming);
+        clear.setEnabled(!streaming);
+        starters.getChildren().forEach(child -> {
+            if (child instanceof Button button) {
+                button.setEnabled(configured && !streaming);
+            }
+        });
+        unconfigured.setVisible(!configured);
+        welcome.setVisible(configured && !hasMessages());
+    }
+
+    private boolean hasMessages() {
+        return transcript.getChildren().anyMatch(child -> child.getElement().getClassList().contains("chat-message"));
     }
 
     private void send() {
         String message = input.getValue();
-        if (message == null || message.isBlank() || activeStream != null) {
+        if (message == null || message.isBlank() || activeStream != null || !chat.configured()) {
             return;
         }
-        appendMessage("You", message.trim(), true);
+        appendUserMessage(message.trim());
         input.clear();
         welcome.setVisible(false);
-        send.setEnabled(false);
-        stop.setEnabled(true);
-        typing.setVisible(true);
-        if (typing.getParent().isEmpty()) {
-            transcript.add(typing);
-        }
+        unconfigured.setVisible(false);
+
+        AssistantTurn turn = new AssistantTurn();
+        activeTurn = turn;
+        transcript.add(turn.root);
         scrollToLatest();
+        updateConfigurationState();
 
         UI ui = getUI().orElse(null);
-        Div assistant = messageBubble("FM AI", "", false);
-        transcript.add(assistant);
-        Span body = (Span) assistant.getChildren().skip(1).findFirst().orElseThrow();
         StringBuilder response = new StringBuilder();
+        AtomicBoolean first = new AtomicBoolean(true);
+        AtomicLong lastPaint = new AtomicLong(0);
         activeStream = chat.stream(message.trim())
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         token -> access(ui, () -> {
                             response.append(token);
-                            body.setText(response.toString());
-                            scrollToLatest();
+                            if (first.compareAndSet(true, false)) {
+                                turn.showContent();
+                            }
+                            long now = System.nanoTime();
+                            if (now - lastPaint.get() >= STREAM_PAINT_NANOS) {
+                                lastPaint.set(now);
+                                turn.setMarkdown(response.toString());
+                                scrollToLatest();
+                            }
                         }),
                         error -> access(ui, () -> {
-                            body.setText("I couldn't complete that request. " + safeMessage(error));
-                            body.addClassName("chat-error");
+                            if (first.get()) {
+                                turn.showContent();
+                            }
+                            turn.setError("I couldn't complete that request. " + safeMessage(error));
                             finishStream();
                         }),
                         () -> access(ui, () -> {
+                            if (first.get()) {
+                                turn.showContent();
+                            }
+                            turn.setMarkdown(response.toString());
                             finishStream();
                             scrollToLatest();
                         }));
     }
 
-    private void appendMessage(String author, String text, boolean user) {
-        transcript.add(messageBubble(author, text, user));
-    }
-
-    private Div messageBubble(String author, String text, boolean user) {
+    private void appendUserMessage(String text) {
         Div message = new Div();
         message.addClassName("chat-message");
-        message.addClassName(user ? "chat-message-user" : "chat-message-assistant");
-        Span meta = new Span(author + " · " + LocalTime.now().format(TIME_FORMAT));
+        message.addClassName("chat-message-user");
+        Span meta = new Span("You · " + LocalTime.now().format(TIME_FORMAT));
         meta.addClassName("chat-message-meta");
         Span body = new Span(text);
         body.addClassName("chat-message-body");
         message.add(meta, body);
-        return message;
+        transcript.add(message);
     }
 
     private void clearChat() {
         stopStream();
         transcript.removeAll();
-        transcript.add(welcome);
-        welcome.setVisible(true);
+        transcript.add(unconfigured, welcome);
+        updateConfigurationState();
     }
 
     private void stopStream() {
+        AssistantTurn turn = activeTurn;
         if (activeStream != null) {
             activeStream.dispose();
             activeStream = null;
+        }
+        if (turn != null && !turn.hasContent()) {
+            turn.showContent();
+            turn.setMarkdown("Stopped.");
         }
         finishStream();
     }
 
     private void finishStream() {
         activeStream = null;
-        typing.setVisible(false);
-        send.setEnabled(chat.configured());
-        input.setEnabled(chat.configured());
-        stop.setEnabled(false);
+        activeTurn = null;
+        updateConfigurationState();
     }
 
     private void scrollToLatest() {
@@ -256,5 +381,89 @@ public class ChatView extends VerticalLayout {
 
     private static String safeMessage(Throwable error) {
         return error.getMessage() == null || error.getMessage().isBlank() ? "Please try again." : error.getMessage();
+    }
+
+    private static String sanitizeMarkdown(String markdown) {
+        if (markdown == null || markdown.isEmpty()) {
+            return "";
+        }
+        return markdown
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replaceAll("(?i)]\\s*\\((?:javascript|data|vbscript):", "](#blocked-");
+    }
+
+    private static final class AssistantTurn {
+        private final Div root = new Div();
+        private final Div typing = new Div();
+        private final Markdown body = new Markdown("");
+        private final Button copy = new Button(VaadinIcon.COPY.create());
+        private String raw = "";
+        private boolean contentVisible;
+
+        private AssistantTurn() {
+            root.addClassName("chat-message");
+            root.addClassName("chat-message-assistant");
+            Span meta = new Span("FM AI · " + LocalTime.now().format(TIME_FORMAT));
+            meta.addClassName("chat-message-meta");
+            copy.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            copy.addClassName("chat-copy");
+            copy.getElement().setAttribute("aria-label", "Copy reply");
+            copy.setVisible(false);
+            copy.addClickListener(event -> {
+                if (raw.isBlank()) {
+                    return;
+                }
+                UI ui = UI.getCurrent();
+                if (ui != null) {
+                    ui.getPage().executeJs("navigator.clipboard.writeText($0)", raw);
+                }
+                Notification.show("Copied", 1200, Notification.Position.BOTTOM_CENTER)
+                        .addClassName("app-toast");
+            });
+            HorizontalLayout heading = new HorizontalLayout(meta, copy);
+            heading.setWidthFull();
+            heading.setAlignItems(FlexComponent.Alignment.CENTER);
+            heading.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+            heading.addClassName("chat-message-heading");
+
+            typing.addClassName("chat-typing");
+            typing.add(dot(), dot(), dot());
+            typing.getElement().setAttribute("aria-label", "AI is thinking");
+
+            body.addClassName("chat-markdown");
+            body.setVisible(false);
+            root.add(heading, typing, body);
+        }
+
+        private static Span dot() {
+            Span dot = new Span();
+            dot.addClassName("chat-typing-dot");
+            return dot;
+        }
+
+        private void showContent() {
+            contentVisible = true;
+            typing.setVisible(false);
+            body.setVisible(true);
+            copy.setVisible(true);
+        }
+
+        private boolean hasContent() {
+            return contentVisible && !raw.isBlank();
+        }
+
+        private void setMarkdown(String markdown) {
+            raw = markdown == null ? "" : markdown;
+            body.setContent(sanitizeMarkdown(raw));
+        }
+
+        private void setError(String message) {
+            showContent();
+            raw = message == null ? "" : message;
+            body.setContent(sanitizeMarkdown(raw));
+            body.addClassName("chat-error");
+        }
     }
 }

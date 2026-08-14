@@ -1,4 +1,5 @@
-:host(.data-grid) {
+:host(.data-grid),
+:host(.moneyball-grid) {
     --_lumo-grid-border-color: rgba(255, 255, 255, 0.08);
     color: #e8f0ec;
     font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
@@ -6,18 +7,21 @@
     letter-spacing: -0.01em;
 }
 
-:host(.data-grid) [part~="row"] {
+:host(.data-grid) [part~="row"],
+:host(.moneyball-grid) [part~="row"] {
     min-height: 40px;
 }
 
-:host(.data-grid) [part~="cell"] {
+:host(.data-grid) [part~="cell"],
+:host(.moneyball-grid) [part~="cell"] {
     min-height: 40px;
     padding: 0 12px;
     border-bottom-color: rgba(255, 255, 255, 0.06);
     background-clip: padding-box;
 }
 
-:host(.data-grid) [part~="header-cell"] {
+:host(.data-grid) [part~="header-cell"],
+:host(.moneyball-grid) [part~="header-cell"] {
     min-height: 42px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     background: #1a221f;
@@ -29,25 +33,31 @@
     text-transform: uppercase;
 }
 
-:host(.data-grid) [part~="body-cell"] {
+:host(.data-grid) [part~="body-cell"],
+:host(.moneyball-grid) [part~="body-cell"] {
     font-variant-numeric: tabular-nums;
 }
 
-:host(.data-grid) [part~="row"]:hover [part~="body-cell"] {
+:host(.data-grid) [part~="row"]:hover [part~="body-cell"],
+:host(.moneyball-grid) [part~="row"]:hover [part~="body-cell"] {
     background-color: #222b28;
 }
 
 :host(.data-grid) [part~="frozen-cell"],
-:host(.data-grid) [part~="frozen-header-cell"] {
+:host(.data-grid) [part~="frozen-header-cell"],
+:host(.moneyball-grid) [part~="frozen-cell"],
+:host(.moneyball-grid) [part~="frozen-header-cell"] {
     background: #121816;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-:host(.data-grid) [part~="row"][aria-selected="true"] [part~="body-cell"] {
+:host(.data-grid) [part~="row"][aria-selected="true"] [part~="body-cell"],
+:host(.moneyball-grid) [part~="row"][aria-selected="true"] [part~="body-cell"] {
     background-color: rgba(42, 209, 138, 0.12);
 }
 
-:host(.data-grid) [part~="first-column-cell"] {
+:host(.data-grid) [part~="first-column-cell"],
+:host(.moneyball-grid) [part~="first-column-cell"] {
     font-weight: 700;
     letter-spacing: -0.015em;
 }
@@ -56,7 +66,8 @@
     cursor: pointer;
 }
 
-:host(.data-grid) [part~="reorder-ghost"] {
+:host(.data-grid) [part~="reorder-ghost"],
+:host(.moneyball-grid) [part~="reorder-ghost"] {
     border: 1px solid #4a5568;
     border-radius: 8px;
     background: #1a221f;

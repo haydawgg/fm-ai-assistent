@@ -80,20 +80,33 @@ class SystemAntigravityProcessLauncher implements AntigravityProcessLauncher {
         }
 
         private boolean sendInterrupt() {
-            Path kill = Path.of("/bin/kill");
-            if (!Files.isExecutable(kill)) {
-                return false;
+            for (Path kill : List.of(Path.of("/bin/kill"), Path.of("/usr/bin/kill"))) {
+                if (!Files.isExecutable(kill)) {
+                    continue;
+                }
+                Process signal = null;
+                try {
+                    signal = new ProcessBuilder(
+                            kill.toString(), "-INT", Long.toString(process.pid())).start();
+                    boolean sent = signal.waitFor(1, TimeUnit.SECONDS) && signal.exitValue() == 0;
+                    if (signal.isAlive()) {
+                        signal.destroyForcibly();
+                        signal.waitFor(1, TimeUnit.SECONDS);
+                    }
+                    if (sent) {
+                        return true;
+                    }
+                } catch (IOException ex) {
+                    // Try the next known kill path.
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    if (signal != null && signal.isAlive()) {
+                        signal.destroyForcibly();
+                    }
+                    return false;
+                }
             }
-            try {
-                Process signal = new ProcessBuilder(
-                        kill.toString(), "-INT", Long.toString(process.pid())).start();
-                return signal.waitFor(1, TimeUnit.SECONDS) && signal.exitValue() == 0;
-            } catch (IOException ex) {
-                return false;
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
+            return false;
         }
     }
 }

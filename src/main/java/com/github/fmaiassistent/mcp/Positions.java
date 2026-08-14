@@ -61,7 +61,15 @@ public final class Positions {
     }
 
     public static String positionGroup(String code) {
-        String canonical = canonicalCode(code);
+        String canonical;
+        try {
+            canonical = canonicalCode(code);
+        } catch (IllegalArgumentException ignored) {
+            return "Unknown";
+        }
+        if (canonical == null) {
+            return "Unknown";
+        }
         return switch (canonical) {
             case "GK" -> "Goalkeeper";
             case "DL", "DR", "WBL", "WBR" -> "Full-Back / Wing-Back";
@@ -90,6 +98,10 @@ public final class Positions {
                 .mapToInt(Number::intValue)
                 .max()
                 .orElse(0);
+    }
+
+    public static String bestPosition(PlayerEntity player) {
+        return bestCode(player);
     }
 
     public static String bestCode(PlayerEntity player) {

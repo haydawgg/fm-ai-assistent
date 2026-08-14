@@ -220,8 +220,19 @@ public final class SquadAdvice {
         List<PlayerEntity> remaining = new ArrayList<>(squad.stream()
                 .filter(MarketValuation::hasPlayablePosition)
                 .toList());
-        List<XiPick> picks = new ArrayList<>();
-        for (XiSlot slot : slots) {
+        record IndexedSlot(int index, XiSlot slot) {
+        }
+        List<IndexedSlot> assignmentOrder = new ArrayList<>();
+        for (int index = 0; index < slots.size(); index++) {
+            assignmentOrder.add(new IndexedSlot(index, slots.get(index)));
+        }
+        assignmentOrder.sort(Comparator
+                .comparingInt((IndexedSlot item) -> slotPositionScarcity(item.slot().position()))
+                .thenComparingInt(IndexedSlot::index));
+
+        XiPick[] picks = new XiPick[slots.size()];
+        for (IndexedSlot item : assignmentOrder) {
+            XiSlot slot = item.slot();
             PlayerEntity best = null;
             double bestScore = -1;
             Double bestFit = null;
@@ -241,15 +252,40 @@ public final class SquadAdvice {
                 }
             }
             if (best == null) {
-                picks.add(new XiPick(slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole(),
-                        null, 0, null, 0, 0, true));
+                picks[item.index()] = new XiPick(slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole(),
+                        null, 0, null, 0, 0, true);
             } else {
                 remaining.remove(best);
-                picks.add(new XiPick(slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole(),
-                        best.getName(), bestPosition, bestFit, nz(best.getCa()), nz(best.getPa()), false));
+                picks[item.index()] = new XiPick(slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole(),
+                        best.getName(), bestPosition, bestFit, nz(best.getCa()), nz(best.getPa()), false);
             }
         }
-        return picks;
+        return List.of(picks);
+    }
+
+    private static int slotPositionScarcity(String position) {
+        String code;
+        try {
+            code = Positions.canonicalCode(position);
+        } catch (IllegalArgumentException ignored) {
+            return 99;
+        }
+        if (code == null) {
+            return 99;
+        }
+        return switch (code) {
+            case "GK" -> 1;
+            case "ST" -> 2;
+            case "AML", "AMR" -> 3;
+            case "DL", "DR" -> 4;
+            case "WBL", "WBR" -> 5;
+            case "AMC" -> 6;
+            case "DMC" -> 7;
+            case "ML", "MR" -> 8;
+            case "DC" -> 9;
+            case "MC" -> 10;
+            default -> 99;
+        };
     }
 
     private static Map<String, Object> squadCard(String name, List<PlayerEntity> squad) {
@@ -304,11 +340,11 @@ public final class SquadAdvice {
     private static boolean contractExpiringSoon(PlayerEntity player) {
         LocalDate end = parseDate(player.getContractEndDate());
         LocalDate game = parseDate(player.getAgeAsOf());
-        if (end == null) {
+        if (end == null || game == null) {
             return false;
         }
-        LocalDate from = game == null ? LocalDate.now() : game;
-        return ChronoUnit.DAYS.between(from, end) <= 180;
+        long days = ChronoUnit.DAYS.between(game, end);
+        return days >= 0 && days <= 180;
     }
 
     private static LocalDate parseDate(String value) {
