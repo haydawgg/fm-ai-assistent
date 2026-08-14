@@ -11,6 +11,10 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+
+import com.github.fmaiassistent.service.LoadProgress;
+import com.github.fmaiassistent.service.LoadProgressReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,20 +34,30 @@ public class ClubExporter {
     private static final long CLUB_PAYROLL_BUDGET_REL = 0x810;
 
     public ExportResult exportAllClubs(int pid, int build, Long gamePluginBase) throws IOException {
+        return exportAllClubs(pid, build, gamePluginBase, LoadProgressReporter.NONE);
+    }
+
+    public ExportResult exportAllClubs(
+            int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "TeamOffset");
+            long total = bounds.count();
+            LoadProgressReporter reporter = new LoadProgressReporter(progress);
+            reporter.start(LoadProgress.Phase.CLUBS, total);
             Map<String, Map<String, Object>> byClub = new LinkedHashMap<>();
             int skipped = 0;
-            for (long index = 0; index < bounds.count(); index++) {
+            for (long index = 0; index < total; index++) {
                 long slotAddress = bounds.start() + index * 8;
                 var teamOpt = reader.qwordOrNull(slotAddress);
                 if (teamOpt.isEmpty()) {
+                    reporter.report(new LoadProgress(LoadProgress.Phase.CLUBS, index + 1, total, byClub.size()));
                     continue;
                 }
                 long team = teamOpt.get();
                 try {
                     Map<String, Object> row = decodeTeamClub(reader, team);
                     if (row.isEmpty()) {
+                        reporter.report(new LoadProgress(LoadProgress.Phase.CLUBS, index + 1, total, byClub.size()));
                         continue;
                     }
                     long club = ((Number) row.get("sourceAddress")).longValue();
@@ -56,12 +70,14 @@ public class ClubExporter {
                     skipped++;
                     LOGGER.debug("Skipping team at slot {}: {}", index, ex.toString());
                 }
+                reporter.report(new LoadProgress(LoadProgress.Phase.CLUBS, index + 1, total, byClub.size()));
             }
             if (skipped > 0) {
                 LOGGER.warn("Skipped {} team records that could not be decoded", skipped);
             }
             List<Map<String, Object>> rows = new ArrayList<>(byClub.values());
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
+            reporter.finish(new LoadProgress(LoadProgress.Phase.CLUBS, total, total, rows.size()));
             return new ExportResult(rows);
         }
     }

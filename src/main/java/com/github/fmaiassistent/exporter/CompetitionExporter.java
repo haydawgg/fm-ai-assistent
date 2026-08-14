@@ -11,6 +11,10 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+
+import com.github.fmaiassistent.service.LoadProgress;
+import com.github.fmaiassistent.service.LoadProgressReporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,14 +28,24 @@ public class CompetitionExporter {
     private static final long REPUTATION_REL = 0x188;
 
     public ExportResult exportAllCompetitions(int pid, int build, Long gamePluginBase) throws IOException {
+        return exportAllCompetitions(pid, build, gamePluginBase, LoadProgressReporter.NONE);
+    }
+
+    public ExportResult exportAllCompetitions(
+            int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "CompetitionOffset");
+            long total = bounds.count();
+            LoadProgressReporter reporter = new LoadProgressReporter(progress);
+            reporter.start(LoadProgress.Phase.COMPETITIONS, total);
             Map<Long, Map<String, Object>> byCompetition = new LinkedHashMap<>();
             int skipped = 0;
-            for (long index = 0; index < bounds.count(); index++) {
+            for (long index = 0; index < total; index++) {
                 long slotAddress = bounds.start() + index * 8;
                 var competitionOpt = reader.qwordOrNull(slotAddress);
                 if (competitionOpt.isEmpty()) {
+                    reporter.report(new LoadProgress(
+                            LoadProgress.Phase.COMPETITIONS, index + 1, total, byCompetition.size()));
                     continue;
                 }
                 long competition = competitionOpt.get();
@@ -44,12 +58,15 @@ public class CompetitionExporter {
                     skipped++;
                     LOGGER.debug("Skipping competition at slot {}: {}", index, ex.toString());
                 }
+                reporter.report(new LoadProgress(
+                        LoadProgress.Phase.COMPETITIONS, index + 1, total, byCompetition.size()));
             }
             if (skipped > 0) {
                 LOGGER.warn("Skipped {} competition records that could not be decoded", skipped);
             }
             List<Map<String, Object>> rows = new ArrayList<>(byCompetition.values());
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
+            reporter.finish(new LoadProgress(LoadProgress.Phase.COMPETITIONS, total, total, rows.size()));
             return new ExportResult(rows);
         }
     }

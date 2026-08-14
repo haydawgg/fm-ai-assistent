@@ -10,6 +10,8 @@ import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.function.Consumer;
+
 @Service
 public class SnapshotPersistService {
     private final DatabaseService databaseService;
@@ -42,11 +44,17 @@ public class SnapshotPersistService {
             int pid,
             CompetitionExporter.ExportResult competitionRows,
             ClubExporter.ExportResult clubRows,
-            PlayerExporter.ExportResult playerRows) {
+            PlayerExporter.ExportResult playerRows,
+            Consumer<LoadProgress> progress) {
+        LoadProgressReporter reporter = new LoadProgressReporter(progress);
+        long playerTotal = playerRows.rows().size();
+        reporter.start(LoadProgress.Phase.SAVING, playerTotal);
         databaseService.clearAllTables();
         competitions.saveExported(competitionRows);
+        reporter.report(new LoadProgress(LoadProgress.Phase.SAVING, 0, playerTotal, 0, " · competitions saved"));
         clubs.saveExported(clubRows);
-        PlayerDatabaseService.LoadResult playerResult = players.saveExported(playerRows);
+        reporter.report(new LoadProgress(LoadProgress.Phase.SAVING, 0, playerTotal, 0, " · clubs saved"));
+        PlayerDatabaseService.LoadResult playerResult = players.saveExported(playerRows, progress);
         return new DatabaseLoadAllService.LoadAllResult(
                 pid,
                 playerResult.gameDate(),

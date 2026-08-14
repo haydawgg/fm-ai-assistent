@@ -11,6 +11,7 @@ import com.github.fmaiassistent.memory.ProcessReaders;
 import java.io.IOException;
 import java.util.Comparator;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,18 +30,26 @@ public class DatabaseLoadAllService {
     }
 
     public LoadAllResult loadAll(Integer pid, int build, Long gamePluginBase) throws IOException {
+        return loadAll(pid, build, gamePluginBase, LoadProgressReporter.NONE);
+    }
+
+    public LoadAllResult loadAll(
+            Integer pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         int resolvedPid = pid == null ? detectFmPid() : pid;
         LOGGER.info("Loading RAM snapshot from fm.exe pid {}", resolvedPid);
+        Consumer<LoadProgress> listener = LoadProgressReporter.orNone(progress);
         try {
             CompetitionExporter.ExportResult competitionRows =
-                    competitionExporter.exportAllCompetitions(resolvedPid, build, gamePluginBase);
-            ClubExporter.ExportResult clubRows = clubExporter.exportAllClubs(resolvedPid, build, gamePluginBase);
-            PlayerExporter.ExportResult playerRows = playerExporter.exportAllPlayers(resolvedPid, build, gamePluginBase);
+                    competitionExporter.exportAllCompetitions(resolvedPid, build, gamePluginBase, listener);
+            ClubExporter.ExportResult clubRows =
+                    clubExporter.exportAllClubs(resolvedPid, build, gamePluginBase, listener);
+            PlayerExporter.ExportResult playerRows =
+                    playerExporter.exportAllPlayers(resolvedPid, build, gamePluginBase, listener);
             if (playerRows.rows().isEmpty()) {
                 throw new IllegalStateException(
                         "RAM export found no players. Previous snapshot kept. Is FM26 running with a save loaded?");
             }
-            LoadAllResult result = persist.persist(resolvedPid, competitionRows, clubRows, playerRows);
+            LoadAllResult result = persist.persist(resolvedPid, competitionRows, clubRows, playerRows, listener);
             LOGGER.info(
                     "Loaded RAM snapshot: {} players, {} clubs, {} competitions",
                     result.players(),

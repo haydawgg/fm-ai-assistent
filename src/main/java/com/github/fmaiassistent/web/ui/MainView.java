@@ -94,6 +94,8 @@ public class MainView extends VerticalLayout {
 
     private final Dialog loadingDialog = new Dialog();
     private final ProgressBar spinner = new ProgressBar();
+    private final Span loadingTitle = new Span("Reading Football Manager memory");
+    private final Span loadingSubtitle = new Span("Players, clubs and competitions will refresh automatically.");
     private final Button loadButton = new Button("Load from RAM", VaadinIcon.DATABASE.create());
     private final Button settingsButton = new Button(VaadinIcon.COG.create());
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
@@ -378,11 +380,12 @@ public class MainView extends VerticalLayout {
         loadButton.setIcon(VaadinIcon.REFRESH.create());
         loadButton.addClassName("is-loading");
         loadingDialog.open();
+        applyLoadProgress(new LoadProgress(LoadProgress.Phase.COMPETITIONS, 0, 1, 0));
 
         CompletableFuture
                 .supplyAsync(() -> {
                     try {
-                        return ramLoad.loadFromRam();
+                        return ramLoad.loadFromRam(progress -> accessUi(ui, () -> applyLoadProgress(progress)));
                     } catch (IOException ex) {
                         throw new CompletionException(ex);
                     }
@@ -417,6 +420,13 @@ public class MainView extends VerticalLayout {
                     });
                     return null;
                 });
+    }
+
+    private void applyLoadProgress(LoadProgress progress) {
+        spinner.setIndeterminate(progress.total() <= 0);
+        spinner.setValue(progress.overallFraction());
+        loadingTitle.setText(progress.title());
+        loadingSubtitle.setText(progress.subtitle());
     }
 
     private static Throwable unwrapLoadError(Throwable error) {
@@ -957,7 +967,10 @@ public class MainView extends VerticalLayout {
     }
 
     private void configureLoadingDialog() {
-        spinner.setIndeterminate(true);
+        spinner.setMin(0);
+        spinner.setMax(1);
+        spinner.setValue(0);
+        spinner.setIndeterminate(false);
         spinner.addClassName("loading-progress");
         loadingDialog.setModality(ModalityMode.STRICT);
         loadingDialog.setCloseOnEsc(false);
@@ -965,9 +978,7 @@ public class MainView extends VerticalLayout {
         loadingDialog.setDraggable(false);
         loadingDialog.setResizable(false);
 
-        Span loadingTitle = new Span("Reading Football Manager memory");
         loadingTitle.addClassName("loading-text");
-        Span loadingSubtitle = new Span("Players, clubs and competitions will refresh automatically.");
         loadingSubtitle.addClassName("loading-text");
         VerticalLayout content = new VerticalLayout(
                 new Div(VaadinIcon.DATABASE.create()),

@@ -20,6 +20,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 @Service
 public class PlayerDatabaseService {
@@ -58,18 +59,31 @@ public class PlayerDatabaseService {
 
     @Transactional
     public LoadResult saveExported(PlayerExporter.ExportResult result) {
+        return saveExported(result, LoadProgressReporter.NONE);
+    }
+
+    public LoadResult saveExported(PlayerExporter.ExportResult result, Consumer<LoadProgress> progress) {
+        LoadProgressReporter reporter = new LoadProgressReporter(progress);
+        long total = result.rows().size();
+        reporter.start(LoadProgress.Phase.SAVING, total);
         Map<Long, ClubEntity> clubsByAddress = clubsByAddress();
         List<PlayerEntity> batch = new ArrayList<>(INSERT_BATCH_SIZE);
+        long saved = 0;
         for (Map<String, Object> row : result.rows()) {
             batch.add(playerEntity(row, clubsByAddress));
             if (batch.size() >= INSERT_BATCH_SIZE) {
                 flushPlayerBatch(batch);
+                saved += INSERT_BATCH_SIZE;
+                reporter.report(new LoadProgress(LoadProgress.Phase.SAVING, saved, total, saved));
             }
         }
+        int remaining = batch.size();
         flushPlayerBatch(batch);
+        saved += remaining;
         metadata.save(new LoadMetadataEntity("game_date", result.gameDate()));
         metadata.save(new LoadMetadataEntity("loaded_at", OffsetDateTime.now().toString()));
         saveTactic(result);
+        reporter.finish(new LoadProgress(LoadProgress.Phase.SAVING, total, total, saved));
         return new LoadResult(result.gameDate(), result.rows().size());
     }
 

@@ -25,9 +25,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.github.fmaiassistent.service.LoadProgress;
+import com.github.fmaiassistent.service.LoadProgressReporter;
 
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_ABILITY_REL;
 import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_REPUTATION_REL;
@@ -78,6 +83,11 @@ public class PlayerExporter {
     }
 
     public ExportResult exportAllPlayers(int pid, int build, Long gamePluginBase) throws IOException {
+        return exportAllPlayers(pid, build, gamePluginBase, LoadProgressReporter.NONE);
+    }
+
+    public ExportResult exportAllPlayers(
+            int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
             FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
             long total = bounds.count();
@@ -87,13 +97,17 @@ public class PlayerExporter {
             Map<Long, String> clubNames = new ConcurrentHashMap<>();
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             AtomicInteger skipped = new AtomicInteger();
+            AtomicLong scanned = new AtomicLong();
+            LoadProgressReporter reporter = new LoadProgressReporter(progress);
+            reporter.start(LoadProgress.Phase.PEOPLE, total);
             try {
                 long chunk = (total + threads - 1) / threads;
                 List<Future<?>> futures = new ArrayList<>();
                 for (int worker = 0; worker < threads; worker++) {
                     long from = worker * chunk;
                     long to = Math.min(total, from + chunk);
-                    futures.add(pool.submit(() -> exportRange(reader, bounds.start(), from, to, clubNames, rows, skipped)));
+                    futures.add(pool.submit(() -> exportRange(
+                            reader, bounds.start(), from, to, clubNames, rows, skipped, scanned, total, reporter)));
                 }
                 for (Future<?> future : futures) {
                     try {
@@ -128,6 +142,7 @@ public class PlayerExporter {
                     pool.shutdownNow();
                 }
             }
+            reporter.finish(new LoadProgress(LoadProgress.Phase.PEOPLE, total, total, rows.size()));
             if (skipped.get() > 0) {
                 LOGGER.warn("Skipped {} people records that could not be decoded", skipped.get());
             }
@@ -139,7 +154,7 @@ public class PlayerExporter {
         }
     }
 
-    private void exportRange(
+    void exportRange(
             ProcessMemoryReader reader,
             long slotBase,
             long from,
@@ -147,7 +162,47 @@ public class PlayerExporter {
             Map<Long, String> clubNames,
             List<Map<String, Object>> rows,
             AtomicInteger skipped) {
+        exportRange(
+                reader,
+                slotBase,
+                from,
+                to,
+                clubNames,
+                rows,
+                skipped,
+                new AtomicLong(),
+                to,
+                new LoadProgressReporter(LoadProgressReporter.NONE));
+    }
+
+    void exportSlots(
+            ProcessMemoryReader reader,
+            long slotBase,
+            long total,
+            List<Map<String, Object>> rows,
+            Consumer<LoadProgress> progress) {
+        AtomicInteger skipped = new AtomicInteger();
+        AtomicLong scanned = new AtomicLong();
+        LoadProgressReporter reporter = new LoadProgressReporter(progress);
+        reporter.start(LoadProgress.Phase.PEOPLE, total);
+        exportRange(reader, slotBase, 0, total, new ConcurrentHashMap<>(), rows, skipped, scanned, total, reporter);
+        reporter.finish(new LoadProgress(LoadProgress.Phase.PEOPLE, total, total, rows.size()));
+    }
+
+    void exportRange(
+            ProcessMemoryReader reader,
+            long slotBase,
+            long from,
+            long to,
+            Map<Long, String> clubNames,
+            List<Map<String, Object>> rows,
+            AtomicInteger skipped,
+            AtomicLong scanned,
+            long total,
+            LoadProgressReporter reporter) {
         for (long index = from; index < to; index++) {
+            long done = scanned.incrementAndGet();
+            reporter.report(new LoadProgress(LoadProgress.Phase.PEOPLE, done, total, rows.size()));
             long slotAddress = slotBase + index * 8;
             var recordOpt = reader.qwordOrNull(slotAddress);
             if (recordOpt.isEmpty()) {
