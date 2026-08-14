@@ -88,3 +88,200 @@
 .moneyball-grid {
     min-height: 60vh;
 }
+
+.assistant-launcher {
+    position: fixed;
+    right: var(--lumo-space-l);
+    bottom: var(--lumo-space-l);
+    z-index: 10;
+    border-radius: 999px;
+    padding: 0.7em 1em;
+    color: var(--lumo-primary-contrast-color);
+    background: var(--lumo-primary-color);
+    box-shadow: var(--lumo-box-shadow-l);
+    font-weight: 700;
+}
+
+.assistant-launcher:hover {
+    background: var(--lumo-primary-color-50pct);
+}
+
+.chat-view {
+    min-width: 0;
+}
+
+.chat-header {
+    flex-wrap: wrap;
+    gap: var(--lumo-space-m);
+}
+
+.chat-status {
+    display: block;
+    width: 100%;
+    padding: var(--lumo-space-s) var(--lumo-space-m);
+    border-radius: var(--lumo-border-radius-m);
+    font-size: var(--lumo-font-size-s);
+}
+
+.chat-status-ready {
+    color: var(--lumo-success-text-color);
+    background: var(--lumo-success-color-10pct);
+}
+
+.chat-status-warning {
+    color: var(--lumo-error-text-color);
+    background: var(--lumo-error-color-10pct);
+}
+
+.chat-workspace {
+    min-height: 0;
+}
+
+.chat-transcript {
+    display: flex;
+    flex-direction: column;
+    gap: var(--lumo-space-m);
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--lumo-space-m);
+    border: 1px solid var(--lumo-contrast-10pct);
+    border-radius: var(--lumo-border-radius-l);
+    background: var(--lumo-contrast-5pct);
+}
+
+.chat-rail {
+    flex: 0 0 15em;
+    gap: var(--lumo-space-s);
+    padding: var(--lumo-space-m);
+    color: var(--lumo-secondary-text-color);
+    font-size: var(--lumo-font-size-s);
+}
+
+.chat-rail > span:first-child {
+    color: var(--lumo-body-text-color);
+    font-size: var(--lumo-font-size-m);
+    font-weight: 700;
+}
+
+.chat-welcome {
+    padding: var(--lumo-space-xl);
+    border: 1px solid var(--lumo-primary-color-10pct);
+    border-radius: var(--lumo-border-radius-l);
+    background: linear-gradient(135deg, var(--lumo-primary-color-10pct), var(--lumo-base-color));
+}
+
+.chat-welcome h3 {
+    margin-top: 0;
+}
+
+.chat-welcome-copy {
+    display: block;
+    max-width: 42em;
+    color: var(--lumo-secondary-text-color);
+}
+
+.chat-starters {
+    margin-top: var(--lumo-space-l);
+    gap: var(--lumo-space-s);
+}
+
+.chat-starter {
+    white-space: normal;
+    text-align: left;
+    border: 1px solid var(--lumo-contrast-20pct);
+    background: var(--lumo-base-color);
+}
+
+.chat-message {
+    max-width: min(78%, 52em);
+    padding: var(--lumo-space-s) var(--lumo-space-m);
+    border-radius: var(--lumo-border-radius-l);
+    box-shadow: var(--lumo-box-shadow-xs);
+}
+
+.chat-message-user {
+    align-self: flex-end;
+    color: var(--lumo-primary-contrast-color);
+    background: var(--lumo-primary-color);
+    border-bottom-right-radius: var(--lumo-border-radius-s);
+}
+
+.chat-message-assistant {
+    align-self: flex-start;
+    background: var(--lumo-base-color);
+    border-bottom-left-radius: var(--lumo-border-radius-s);
+}
+
+.chat-message-meta,
+.chat-message-body {
+    display: block;
+}
+
+.chat-message-meta {
+    margin-bottom: 0.35em;
+    font-size: var(--lumo-font-size-xs);
+    opacity: 0.75;
+}
+
+.chat-message-body {
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
+.chat-error {
+    color: var(--lumo-error-text-color);
+}
+
+.chat-typing {
+    order: 2;
+    color: var(--lumo-secondary-text-color);
+    font-size: var(--lumo-font-size-s);
+    font-style: italic;
+}
+
+.chat-composer {
+    align-items: flex-end;
+    padding: var(--lumo-space-s);
+    border: 1px solid var(--lumo-contrast-20pct);
+    border-radius: var(--lumo-border-radius-l);
+    background: var(--lumo-base-color);
+    box-shadow: var(--lumo-box-shadow-s);
+}
+
+@media (max-width: 900px) {
+    .chat-rail {
+        display: none;
+    }
+
+    .chat-message {
+        max-width: 90%;
+    }
+}
+
+@media (max-width: 650px) {
+    .assistant-launcher {
+        right: var(--lumo-space-m);
+        bottom: var(--lumo-space-m);
+        width: 3.2em;
+        height: 3.2em;
+        padding: 0;
+        font-size: 0;
+    }
+
+    .assistant-launcher vaadin-icon {
+        font-size: var(--lumo-icon-size-m);
+    }
+
+    .chat-composer {
+        flex-wrap: wrap;
+    }
+
+    .chat-composer vaadin-text-area {
+        flex-basis: 100%;
+    }
+
+    .chat-welcome {
+        padding: var(--lumo-space-m);
+    }
+}

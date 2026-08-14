@@ -19,10 +19,20 @@ final class WorkspaceLinks {
                 nav("Squad trim", VaadinIcon.MINUS.create(), "squad-trim"),
                 nav("First XI", VaadinIcon.CLIPBOARD_TEXT.create(), "first-xi"),
                 nav("Compare", VaadinIcon.SPLIT.create(), "compare-squads"),
-                nav("Chat", VaadinIcon.CHAT.create(), "chat"));
+                nav("Chat", VaadinIcon.CHAT.create(), "chat"),
+                assistantLauncher());
         links.setSpacing(true);
         links.setAlignItems(FlexComponent.Alignment.CENTER);
         return links;
+    }
+
+    private static Button assistantLauncher() {
+        Button button = nav("Ask AI", VaadinIcon.COMMENT_ELLIPSIS.create(), "chat");
+        button.addClassName("assistant-launcher");
+        button.setTooltipText("Open FM AI assistant");
+        button.getElement().setAttribute("aria-label", "Open FM AI assistant");
+        button.getElement().setAttribute("title", "Open FM AI assistant");
+        return button;
     }
 
     private static Button nav(String label, Icon icon, String route) {
