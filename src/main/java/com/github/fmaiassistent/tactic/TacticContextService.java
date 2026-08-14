@@ -98,7 +98,14 @@ public class TacticContextService implements AiPromptContext {
     public TacticContext clear() {
         TacticContext empty = TacticContext.empty(versions.incrementAndGet());
         current.set(empty);
+        deliveredVersions.clear();
         return empty;
+    }
+
+    public void forgetConversation(String conversationKey) {
+        if (conversationKey != null && !conversationKey.isBlank()) {
+            deliveredVersions.remove(conversationKey);
+        }
     }
 
     @Override

@@ -7,7 +7,8 @@ import java.time.LocalDate;
 import java.util.Optional;
 
 public class GameDateFinder {
-    private static final int CURRENT_DATE_DAY_MASK = 0x01FF;
+    /** FM packs extra flag bits above the day-of-year; keep the low 9 bits. */
+    public static final int DAY_MASK = 0x01FF;
 
     public Optional<LocalDate> find(ProcessMemoryReader reader) throws IOException {
         return find(reader, 0);
@@ -29,7 +30,7 @@ public class GameDateFinder {
 
         try {
             long base = gamePluginBase == null ? FmOffsets.findGamePluginBase(reader) : gamePluginBase;
-            int day = reader.readU16(base + dateRva) & CURRENT_DATE_DAY_MASK;
+            int day = maskedDay(reader.readU16(base + dateRva));
             int year = reader.readU16(base + dateRva + Short.BYTES);
             return year >= 2024 && validDayYear(day, year)
                     ? Optional.of(dayYearToDate(day, year))
@@ -37,6 +38,10 @@ public class GameDateFinder {
         } catch (IOException | RuntimeException ex) {
             return Optional.empty();
         }
+    }
+
+    public static int maskedDay(int rawDay) {
+        return rawDay & DAY_MASK;
     }
 
     public static boolean validDayYear(int day, int year) {

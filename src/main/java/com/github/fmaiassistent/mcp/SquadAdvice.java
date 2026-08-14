@@ -222,6 +222,7 @@ public final class SquadAdvice {
             java.util.function.BiFunction<PlayerEntity, XiSlot, Double> roleFit) {
         List<PlayerEntity> remaining = new ArrayList<>(squad.stream()
                 .filter(MarketValuation::hasPlayablePosition)
+                .filter(player -> !Boolean.TRUE.equals(player.getInjured()))
                 .toList());
         record IndexedSlot(int index, XiSlot slot) {
         }

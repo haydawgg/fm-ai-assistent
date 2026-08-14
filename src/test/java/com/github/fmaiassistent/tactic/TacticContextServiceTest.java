@@ -33,12 +33,15 @@ class TacticContextServiceTest {
                 .contains("4-2-4-press.tac")
                 .contains("Ball-Playing Goalkeeper (Support)")
                 .contains("Sweeper Keeper (Attack)");
-        assertThat(service.enrich("codex:thread-1", "How can I improve it?"))
+        assertThat(service.enrich("openrouter:chat-1", "How can I improve it?"))
                 .contains("<fm26_tactic_context>")
                 .contains("How can I improve it?");
-        assertThat(service.enrich("codex:thread-1", "And defensively?"))
+        assertThat(service.enrich("openrouter:chat-1", "And defensively?"))
                 .isEqualTo("And defensively?");
-        assertThat(service.enrich("antigravity:conversation-1", "Review this"))
+        assertThat(service.enrich("openrouter:chat-2", "Review this"))
+                .contains("<fm26_tactic_context>");
+        service.forgetConversation("openrouter:chat-1");
+        assertThat(service.enrich("openrouter:chat-1", "New chat, same tactic"))
                 .contains("<fm26_tactic_context>");
     }
 
@@ -51,7 +54,7 @@ class TacticContextServiceTest {
 
         assertThat(context.markdown()).contains("tempo", "higher");
         assertThat(service.clear().active()).isFalse();
-        assertThat(service.enrich("copilot:session", "hello")).isEqualTo("hello");
+        assertThat(service.enrich("openrouter:chat-1", "hello")).isEqualTo("hello");
     }
 
     @Test

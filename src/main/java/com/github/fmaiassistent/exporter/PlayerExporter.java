@@ -52,7 +52,6 @@ public class PlayerExporter {
     private static final int JOINED_CLUB_DATE_REL = -0x38;
     private static final int INJURY_REFERENCE_REL = -0x190;
     private static final int INJURY_REFERENCE_FLAG_REL = -0x18C;
-    private static final int INJURY_DATE_DAY_MASK = 0x01FF;
     private static final int TRANSFER_STATUS_REL = 0x57;
     private static final int TRANSFER_AGREED_MARKER_REL = 0x51;
     private static final int FUTURE_TRANSFER_TABLE_REL = 0xD8;
@@ -441,7 +440,7 @@ public class PlayerExporter {
                     .flatMap(type -> FmMemoryStrings.objectStringAt(reader, type, 0x20))
                     .map(PlayerExporter::capitalizeFirst)
                     .orElse("");
-            int day = reader.readU16(item + 0x20) & INJURY_DATE_DAY_MASK;
+            int day = GameDateFinder.maskedDay(reader.readU16(item + 0x20));
             int year = reader.readU16(item + 0x22);
             String startDate = GameDateFinder.validDayYear(day, year)
                     ? GameDateFinder.dayYearToDate(day, year).toString()
@@ -528,7 +527,7 @@ public class PlayerExporter {
     }
 
     private static DatePair readDatePair(ProcessMemoryReader reader, long address) throws IOException {
-        int day = reader.readU16(address);
+        int day = GameDateFinder.maskedDay(reader.readU16(address));
         int year = reader.readU16(address + 2);
         return new DatePair(day, year);
     }

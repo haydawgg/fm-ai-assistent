@@ -44,6 +44,7 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
     private static final int DEFAULT_MONEYBALL_MAX_AGE = 40;
     private static final int DEFAULT_WONDERKID_MAX_AGE = 21;
+    static final List<String> FIELDS_NOT_IN_RAM = List.of("morale", "form", "appearances", "goals", "assists");
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
 
     private final PlayerDatabaseService players;
@@ -101,6 +102,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Maximum squad players to return") Integer squadLimit) {
         ClubEntity club = requireClub(clubName);
         List<PlayerEntity> squad = squadPlayers(club.getName()).stream()
+                .filter(MarketValuation::hasPlayablePosition)
                 .sorted(Comparator
                         .comparing((PlayerEntity player) -> value(player.getCa())).reversed()
                         .thenComparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
@@ -168,6 +170,7 @@ public class FmAiAssistentTools {
                         && matchesBoolean(player.getTransferAgreed(), transferAgreed)
                         && (blank(futureTransferClub) || equalsIgnoreCase(player.getFutureTransferClub(), futureTransferClub))
                         && matchesBoolean(player.getInjured(), injured)
+                        && MarketValuation.hasPlayablePosition(player)
                         && (positionSpec == null || positionScore(player, positionSpec) >= positionMinimum);
         List<Map<String, Object>> rows = allPlayers().stream()
                 .filter(filter)
@@ -189,6 +192,7 @@ public class FmAiAssistentTools {
         int safeLimit = safeLimit(limit);
         String normalized = normalize(name);
         List<Map<String, Object>> exact = allPlayers().stream()
+                .filter(MarketValuation::hasPlayablePosition)
                 .filter(player -> normalize(player.getName()).equals(normalized))
                 .sorted(Comparator.comparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .limit(safeLimit)
@@ -196,6 +200,7 @@ public class FmAiAssistentTools {
                 .toList();
         List<Map<String, Object>> rows = exact.isEmpty()
                 ? allPlayers().stream()
+                        .filter(MarketValuation::hasPlayablePosition)
                         .filter(player -> contains(player.getName(), name))
                         .sorted(Comparator.comparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                         .limit(safeLimit)
@@ -514,7 +519,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_best_xi", description = "Pick a first XI from the managing club for a tactic. Omit tacticSlots to use the live RAM formation when available. Otherwise pass 11 lines: position,inPossessionRole,outOfPossessionRole")
+    @Tool(name = "fm26_best_xi", description = "Pick a first XI from the managing club for a tactic. Injured players are omitted. Omit tacticSlots to use the live RAM formation when available. Otherwise pass 11 lines: position,inPossessionRole,outOfPossessionRole")
     @Transactional(readOnly = true)
     public Map<String, Object> bestXi(
             @ToolParam(description = "Managing club name") String managingClub,
@@ -544,10 +549,11 @@ public class FmAiAssistentTools {
         out.put("xi", picks.stream().map(this::xiMap).toList());
         List<String> holes = picks.stream().filter(SquadAdvice.XiPick::hole).map(SquadAdvice.XiPick::position).toList();
         out.put("holes", holes);
+        out.put("unavailable", unavailablePlayers(squad));
         out.put("suggested_buys", suggestedBuys(managingClub, picks));
         out.put("guidance", "ram".equals(source)
-                ? "XI uses the live formation from RAM. Roles were empty unless you pasted them. Call fm26_current_tactic for the actual selected names."
-                : "Upgrade holes with fm26_transfer_shortlist using the same position and in-possession role.");
+                ? "XI uses the live formation from RAM. Injured players are omitted. Roles were empty unless you pasted them. Call fm26_current_tactic for the actual selected names."
+                : "Injured players are omitted. Upgrade holes with fm26_transfer_shortlist using the same position and in-possession role.");
         return out;
     }
 
@@ -1014,6 +1020,7 @@ public class FmAiAssistentTools {
             throw new IllegalArgumentException("player name is ambiguous: " + name);
         }
         return rows.stream()
+                .filter(MarketValuation::hasPlayablePosition)
                 .max(Comparator.comparingInt(player -> value(player.getCa())))
                 .orElseThrow(() -> new IllegalArgumentException("player not found: " + name));
     }
@@ -1122,6 +1129,24 @@ public class FmAiAssistentTools {
         out.put("pa", pick.pa());
         out.put("hole", pick.hole());
         return out;
+    }
+
+    private List<Map<String, Object>> unavailablePlayers(List<PlayerEntity> squad) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (PlayerEntity player : squad) {
+            if (!MarketValuation.hasPlayablePosition(player) || !Boolean.TRUE.equals(player.getInjured())) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", player.getName());
+            row.put("position", Positions.bestCode(player));
+            row.put("injury", player.getInjury());
+            row.put("expected_return", player.getInjuryExpectedReturn());
+            row.put("min_days_remaining", player.getInjuryMinDaysRemaining());
+            row.put("max_days_remaining", player.getInjuryMaxDaysRemaining());
+            rows.add(row);
+        }
+        return rows;
     }
 
     private List<PlayerEntity> squadPlayers(String clubName) {
@@ -1330,11 +1355,7 @@ public class FmAiAssistentTools {
         double price = freeAgent ? 1.0 : !priceKnown ? 0.35 : priceCap <= 0
                 ? 0.0
                 : clamp(1.0 - value(player.getAskingPrice()) / (double) priceCap);
-        double wage = player.getSalaryWeeklyRaw() == null
-                ? 0.35
-                : value(player.getSalaryWeeklyRaw()) == 0 || wageCeiling <= 0
-                ? 1.0
-                : clamp(wageCeiling / (double) value(player.getSalaryWeeklyRaw()));
+        double wage = wageFitScore(player.getSalaryWeeklyRaw(), wageCeiling);
         double willingnessScore = willingness == Willingness.HIGH ? 1.0 : 0.6;
 
         if (roleFit.score() != null) {
@@ -1621,6 +1642,27 @@ public class FmAiAssistentTools {
         return "veteran";
     }
 
+    static double wageFitScore(Integer weeklyWage, long wageCeiling) {
+        if (weeklyWage == null || weeklyWage == 0 || wageCeiling <= 0) {
+            return 0.35;
+        }
+        return clamp(wageCeiling / (double) weeklyWage);
+    }
+
+    static Long askingPriceOrNull(Long askingPrice) {
+        return askingPrice == null || askingPrice == 0L ? null : askingPrice;
+    }
+
+    static void stripUnreadRamFields(Map<String, Object> out) {
+        if (out == null) {
+            return;
+        }
+        for (String field : FIELDS_NOT_IN_RAM) {
+            out.remove(field);
+            out.remove(field.toUpperCase(Locale.ROOT));
+        }
+    }
+
     private static double clamp(double value) {
         return Math.max(0.0, Math.min(1.0, value));
     }
@@ -1647,7 +1689,7 @@ public class FmAiAssistentTools {
         out.put("position_text", PositionTextFormatter.format(player));
         out.put("ca", player.getCa());
         out.put("pa", player.getPa());
-        out.put("asking_price", player.getAskingPrice());
+        out.put("asking_price", askingPriceOrNull(player.getAskingPrice()));
         out.put("salary_weekly_raw", player.getSalaryWeeklyRaw());
         out.put("joined_club_date", player.getJoinedClubDate());
         out.put("transfer_listed", player.getTransferListed());
@@ -1670,20 +1712,17 @@ public class FmAiAssistentTools {
         out.put("world_reputation", player.getWorldReputation());
         out.put("height_cm", player.getHeightCm());
         out.put("traits", player.getTraits());
-        out.put("morale", player.getMorale());
-        out.put("form", player.getForm());
-        out.put("appearances", player.getAppearances());
-        out.put("goals", player.getGoals());
-        out.put("assists", player.getAssists());
         return out;
     }
 
     private Map<String, Object> playerFullMap(PlayerEntity player) {
         Map<String, Object> out = new LinkedHashMap<>(playerMapper.apply(player));
+        stripUnreadRamFields(out);
         out.put("POSITION_TEXT", PositionTextFormatter.format(player));
         out.put("POSITIONS", positionMap(player));
         out.put("ATTRIBUTES", attributeMap(player, AttributeDefinitions.VISIBLE_FIELDS));
         out.put("HIDDEN_ATTRIBUTES", attributeMap(player, AttributeDefinitions.HIDDEN_DIRECT_FIELDS));
+        out.put("fields_not_in_ram", FIELDS_NOT_IN_RAM);
         return out;
     }
 

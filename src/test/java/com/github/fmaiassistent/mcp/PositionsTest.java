@@ -8,6 +8,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PositionsTest {
@@ -33,8 +34,14 @@ class PositionsTest {
     }
 
     @Test
-    void canonicalSideCodesStillScoreNaturalCentreBacks() {
-        assertTrue(Positions.score(centreBack(18), "DCL") >= 15);
+    void bestCodeIsNullWhenNoPositionScores() {
+        PlayerEntity staff = PlayerEntity.fromExportRow(Map.of("name", "Coach", "ca", 166));
+        assertNull(Positions.bestCode(staff));
+    }
+
+    @Test
+    void bestCodeUsesHighestPosition() {
+        assertEquals("DC", Positions.bestCode(centreBack(18)));
     }
 
     private static PlayerEntity centreBack(int score) {

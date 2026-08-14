@@ -113,8 +113,8 @@ public final class Positions {
     }
 
     public static String bestCode(PlayerEntity player) {
-        String best = "ST";
-        int bestScore = -1;
+        String best = null;
+        int bestScore = 0;
         for (String code : PositionCodes.CODES) {
             int score = score(player, code);
             if (score > bestScore) {

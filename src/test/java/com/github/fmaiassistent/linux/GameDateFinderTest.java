@@ -41,6 +41,14 @@ class GameDateFinderTest {
     }
 
     @Test
+    void maskedDayStripsFlagBitsSoPackedDatesValidate() {
+        int packed = 0x7E00 | 8;
+        assertEquals(8, GameDateFinder.maskedDay(packed));
+        assertTrue(GameDateFinder.validDayYear(GameDateFinder.maskedDay(packed), 2028));
+        assertTrue(!GameDateFinder.validDayYear(packed, 2028));
+    }
+
+    @Test
     void doesNotFallBackToAnotherBuild() {
         FakeReader reader = new FakeReader(ProcessMemoryReader.Platform.LINUX);
         putCurrentDate(reader, 8, 2028);

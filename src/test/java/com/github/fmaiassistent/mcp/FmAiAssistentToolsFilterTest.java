@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FmAiAssistentToolsFilterTest {
@@ -95,6 +96,63 @@ class FmAiAssistentToolsFilterTest {
                 IllegalArgumentException.class,
                 () -> FmAiAssistentTools.pickPlayer(List.of(david, bernardo), "Silva", true));
         assertTrue(error.getMessage().contains("ambiguous"));
+    }
+
+    @Test
+    void pickPlayerIgnoresHighCaStaffWhenARealPlayerMatches() {
+        PlayerEntity staff = PlayerEntity.fromExportRow(Map.of(
+                "name", "Alex Coach",
+                "ca", 180,
+                "club", "Ajax"));
+        PlayerEntity player = named("Alex Player", 140);
+        assertEquals("Alex Player", FmAiAssistentTools.pickPlayer(List.of(staff, player), "Alex", false).getName());
+    }
+
+    @Test
+    void pickPlayerThrowsWhenOnlyStaffMatch() {
+        PlayerEntity staff = PlayerEntity.fromExportRow(Map.of("name", "Rhys Garcia", "ca", 166, "club", "World"));
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> FmAiAssistentTools.pickPlayer(List.of(staff), "Rhys", false));
+        assertTrue(error.getMessage().contains("not found"));
+    }
+
+    @Test
+    void unknownWageIsNotAPerfectFit() {
+        assertEquals(0.35, FmAiAssistentTools.wageFitScore(null, 10_000));
+        assertEquals(0.35, FmAiAssistentTools.wageFitScore(0, 10_000));
+        assertEquals(0.35, FmAiAssistentTools.wageFitScore(8_000, 0));
+        assertEquals(1.0, FmAiAssistentTools.wageFitScore(8_000, 10_000));
+        assertEquals(0.5, FmAiAssistentTools.wageFitScore(20_000, 10_000));
+    }
+
+    @Test
+    void unknownAskingPriceIsNullNotZero() {
+        assertNull(FmAiAssistentTools.askingPriceOrNull(null));
+        assertNull(FmAiAssistentTools.askingPriceOrNull(0L));
+        assertEquals(1_000_000L, FmAiAssistentTools.askingPriceOrNull(1_000_000L));
+    }
+
+    @Test
+    void unreadRamFieldsAreStrippedFromToolPayloads() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("name", "Ada");
+        payload.put("morale", "");
+        payload.put("MORALE", null);
+        payload.put("form", "");
+        payload.put("appearances", 0);
+        payload.put("goals", "");
+        payload.put("assists", "");
+        payload.put("ca", 150);
+        FmAiAssistentTools.stripUnreadRamFields(payload);
+        assertEquals("Ada", payload.get("name"));
+        assertEquals(150, payload.get("ca"));
+        assertFalse(payload.containsKey("morale"));
+        assertFalse(payload.containsKey("MORALE"));
+        assertFalse(payload.containsKey("form"));
+        assertFalse(payload.containsKey("appearances"));
+        assertFalse(payload.containsKey("goals"));
+        assertFalse(payload.containsKey("assists"));
     }
 
     @Test

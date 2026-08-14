@@ -34,8 +34,11 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -56,6 +59,7 @@ public class ChatView extends VerticalLayout {
     private final AppSettingsService settings;
     private final OpenRouterModelCatalog catalog;
     private final PlayerDatabaseService players;
+    private final TacticContextService tacticContexts;
 
     private final Div transcript = new Div();
     private final TextArea input = new TextArea();
@@ -73,6 +77,7 @@ public class ChatView extends VerticalLayout {
     private Disposable activeStream;
     private AssistantTurn activeTurn;
     private boolean applyingModel;
+    private String conversationId = newConversationId();
     private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
 
     public ChatView(
@@ -85,6 +90,7 @@ public class ChatView extends VerticalLayout {
         this.settings = settings;
         this.catalog = catalog;
         this.players = players;
+        this.tacticContexts = tacticContexts;
 
         setSizeFull();
         setPadding(false);
@@ -312,11 +318,15 @@ public class ChatView extends VerticalLayout {
         AtomicLong lastPaint = new AtomicLong(0);
         List<AssistantChatService.ChatTurn> prior = List.copyOf(history);
         history.add(new AssistantChatService.ChatTurn(true, message.trim()));
-        activeStream = chat.stream(prior, message.trim())
+        activeStream = chat.streamEvents(prior, message.trim(), conversationId)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
-                        token -> access(ui, () -> {
-                            response.append(token);
+                        event -> access(ui, () -> {
+                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL) {
+                                turn.addTool(event.text());
+                                return;
+                            }
+                            response.append(event.text());
                             turn.buffer(response.toString());
                             if (first.compareAndSet(true, false)) {
                                 turn.showContent();
@@ -369,6 +379,8 @@ public class ChatView extends VerticalLayout {
 
     private void clearChat() {
         stopStream();
+        tacticContexts.forgetConversation(conversationId);
+        conversationId = newConversationId();
         history.clear();
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
@@ -421,6 +433,10 @@ public class ChatView extends VerticalLayout {
         }
     }
 
+    private static String newConversationId() {
+        return "openrouter:" + UUID.randomUUID();
+    }
+
     private static String safeMessage(Throwable error) {
         return error.getMessage() == null || error.getMessage().isBlank() ? "Please try again." : error.getMessage();
     }
@@ -442,6 +458,7 @@ public class ChatView extends VerticalLayout {
         private final Span typingLabel = new Span("Thinking");
         private final Markdown body = new Markdown("");
         private final Button copy = new Button(VaadinIcon.COPY.create());
+        private final Set<String> tools = new LinkedHashSet<>();
         private String raw = "";
         private boolean contentVisible;
         private final AtomicBoolean closed = new AtomicBoolean();
@@ -494,6 +511,17 @@ public class ChatView extends VerticalLayout {
 
         private boolean close() {
             return closed.compareAndSet(false, true);
+        }
+
+        private void addTool(String name) {
+            if (name == null || name.isBlank() || closed.get()) {
+                return;
+            }
+            tools.add(name.strip());
+            if (!contentVisible) {
+                typingLabel.setText("Using " + String.join(" · ", tools));
+                typing.getElement().setAttribute("aria-label", typingLabel.getText());
+            }
         }
 
         private void showContent() {

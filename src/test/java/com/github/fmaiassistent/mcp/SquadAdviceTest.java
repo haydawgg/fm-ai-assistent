@@ -42,6 +42,29 @@ class SquadAdviceTest {
     }
 
     @Test
+    void bestXiSkipsInjuredNaturalAndLeavesAHole() {
+        PlayerEntity fit = player("FitST", 120, 22, 5_000, "Striker", 16);
+        PlayerEntity injured = player("HurtST", 160, 24, 5_000, "Striker", 18, true);
+        List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(
+                List.of(fit, injured),
+                List.of(new SquadAdvice.XiSlot("ST", "", "")),
+                (player, slot) -> null);
+        assertFalse(picks.get(0).hole());
+        assertEquals("FitST", picks.get(0).playerName());
+    }
+
+    @Test
+    void bestXiLeavesHoleWhenOnlyNaturalIsInjured() {
+        PlayerEntity injured = player("HurtGK", 150, 28, 5_000, "Goalkeeper", 18, true);
+        List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(
+                List.of(injured),
+                List.of(new SquadAdvice.XiSlot("GK", "", "")),
+                (player, slot) -> null);
+        assertTrue(picks.get(0).hole());
+        assertNull(picks.get(0).playerName());
+    }
+
+    @Test
     void bestXiLeavesHoleWhenNoNatural() {
         List<PlayerEntity> squad = List.of(player("OnlyST", 140, 22, 5_000, "Striker", 18));
         List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(
@@ -113,6 +136,11 @@ class SquadAdviceTest {
     }
 
     private static PlayerEntity player(String name, int ca, int age, int wage, String position, int positionScore) {
+        return player(name, ca, age, wage, position, positionScore, false);
+    }
+
+    private static PlayerEntity player(
+            String name, int ca, int age, int wage, String position, int positionScore, boolean injured) {
         Map<String, Object> row = new HashMap<>();
         row.put("name", name);
         row.put("ca", ca);
@@ -122,6 +150,7 @@ class SquadAdviceTest {
         row.put("club", "Test FC");
         row.put("playing_club", "Test FC");
         row.put(position, positionScore);
+        row.put("injured", injured);
         return PlayerEntity.fromExportRow(row);
     }
 

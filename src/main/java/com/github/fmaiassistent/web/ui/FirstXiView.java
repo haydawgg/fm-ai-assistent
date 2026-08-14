@@ -104,7 +104,7 @@ public class FirstXiView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Uses the live RAM formation when loaded. Paste roles if you want fit scoring. Same pipeline as fm26_best_xi.");
+        Span hint = new Span("Uses the live RAM formation when loaded. Injured players are left out of the XI. Paste roles if you want fit scoring.");
         hint.addClassName("moneyball-hint");
         hint.setWidthFull();
         return hint;

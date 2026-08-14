@@ -6,19 +6,26 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 @Service
 public class AssistantChatService {
     static final int MAX_HISTORY_MESSAGES = 20;
+    static final String DEFAULT_CONVERSATION_KEY = "openrouter-chat";
     private static final String SYSTEM = """
             You are the FM AI Assistent for Football Manager 26.
             Use the fm26_* tools for save data. Call fm26_status first if you are unsure whether RAM is loaded.
@@ -29,6 +36,13 @@ public class AssistantChatService {
             """;
 
     public record ChatTurn(boolean user, String text) {
+    }
+
+    public record ChatStreamEvent(Kind kind, String text) {
+        public enum Kind {
+            TOKEN,
+            TOOL
+        }
     }
 
     private final AppSettingsService settings;
@@ -54,6 +68,12 @@ public class AssistantChatService {
     }
 
     public Flux<String> stream(List<ChatTurn> history, String userMessage) {
+        return streamEvents(history, userMessage, DEFAULT_CONVERSATION_KEY)
+                .filter(event -> event.kind() == ChatStreamEvent.Kind.TOKEN)
+                .map(ChatStreamEvent::text);
+    }
+
+    public Flux<ChatStreamEvent> streamEvents(List<ChatTurn> history, String userMessage, String conversationKey) {
         if (!configured()) {
             throw new IllegalStateException(
                     "Set an OpenRouter API key in Settings to use in-app chat, or connect an MCP client to http://127.0.0.1:8080/mcp");
@@ -65,8 +85,32 @@ public class AssistantChatService {
         synchronized (clientLock) {
             snapshot = chatClient();
         }
-        String enriched = promptContext.enrich("openrouter-chat", userMessage);
-        return snapshot.prompt().messages(promptMessages(history, enriched)).stream().content();
+        String key = conversationKey == null || conversationKey.isBlank()
+                ? DEFAULT_CONVERSATION_KEY
+                : conversationKey;
+        String enriched = promptContext.enrich(key, userMessage);
+        Sinks.Many<ChatStreamEvent> toolEvents = Sinks.many().unicast().onBackpressureBuffer();
+        ToolCallback[] observed = observing(tools.getToolCallbacks(), name ->
+                toolEvents.tryEmitNext(new ChatStreamEvent(ChatStreamEvent.Kind.TOOL, name)));
+        Flux<ChatStreamEvent> tokens = snapshot.prompt()
+                .messages(promptMessages(history, enriched))
+                .toolCallbacks(observed)
+                .stream()
+                .content()
+                .map(token -> new ChatStreamEvent(ChatStreamEvent.Kind.TOKEN, token))
+                .doFinally(signal -> toolEvents.tryEmitComplete());
+        return Flux.merge(toolEvents.asFlux(), tokens);
+    }
+
+    static ToolCallback[] observing(ToolCallback[] callbacks, Consumer<String> onTool) {
+        if (callbacks == null || callbacks.length == 0) {
+            return new ToolCallback[0];
+        }
+        ToolCallback[] wrapped = new ToolCallback[callbacks.length];
+        for (int index = 0; index < callbacks.length; index++) {
+            wrapped[index] = new ObservingToolCallback(callbacks[index], onTool);
+        }
+        return wrapped;
     }
 
     static List<Message> promptMessages(List<ChatTurn> history, String userMessage) {
@@ -104,10 +148,50 @@ public class AssistantChatService {
                         .build();
                 client = ChatClient.builder(chatModel)
                         .defaultSystem(SYSTEM)
-                        .defaultToolCallbacks(tools)
                         .build();
             }
             return client;
+        }
+    }
+
+    static final class ObservingToolCallback implements ToolCallback {
+        private final ToolCallback delegate;
+        private final Consumer<String> onTool;
+
+        ObservingToolCallback(ToolCallback delegate, Consumer<String> onTool) {
+            this.delegate = delegate;
+            this.onTool = onTool;
+        }
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return delegate.getToolDefinition();
+        }
+
+        @Override
+        public ToolMetadata getToolMetadata() {
+            return delegate.getToolMetadata();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            notifyStart();
+            return delegate.call(toolInput);
+        }
+
+        @Override
+        public String call(String toolInput, ToolContext toolContext) {
+            notifyStart();
+            return delegate.call(toolInput, toolContext);
+        }
+
+        private void notifyStart() {
+            if (onTool == null) {
+                return;
+            }
+            ToolDefinition definition = delegate.getToolDefinition();
+            String name = definition == null ? null : definition.name();
+            onTool.accept(name == null || name.isBlank() ? "tool" : name);
         }
     }
 }

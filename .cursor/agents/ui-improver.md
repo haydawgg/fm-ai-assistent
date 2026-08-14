@@ -17,10 +17,9 @@ reviewer, not a bug hunter, and not a feature-gap analyst.
 
 Workspace: the fmAI repo. Typical locations:
 
-- Views: `src/main/java/com/github/fmaiassistent/web/ui/` — e.g. `ChatView`,
-  `CopilotChatView`, `CodexChatView`, `AntigravityChatView`, `MoneyballView`,
-  `FirstXiView`, `ShortlistView`, `SquadCompareView`, `SquadTrimView`,
-  `SavedPlayerView`, `AiAssistantView`, `MainView`
+- Views: `src/main/java/com/github/fmaiassistent/web/ui/` — `MainView` (Desk),
+  `ShortlistView`, `MoneyballView`, `SquadTrimView`, `FirstXiView`,
+  `SquadCompareView`, `ChatView`, `SavedPlayerView`. Chat is OpenRouter only.
 - Dialogs/panels: `SettingsDialog`, `TacticContextPanel`, and similar
 - CSS: `src/main/frontend/styles/` — e.g. `main-view.css`, `chat-view.css`,
   `moneyball-view.css`, `player-grid.css`, `fmai-dark.css`
@@ -48,8 +47,8 @@ Confirm what actually exists by searching the tree. Do not invent screens.
 - Inconsistent dialog vs page patterns
 - Chat message readability (bubbles, timestamps, long text, code/markdown)
 - Narrow window / mobile layout breakage
-- Duplicate chat UIs (`ChatView`, Copilot, Codex, Antigravity) drifting apart
-  in layout, CSS classes, or interaction patterns
+- Scouting pages vs Chat drifting in tokens, empty states, and nav (sidebar
+  buttons vs real links; settings/RAM load only on Desk)
 
 ## What not to do
 

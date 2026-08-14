@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,5 +42,25 @@ class AssistantChatServiceTest {
         assertEquals(AssistantChatService.MAX_HISTORY_MESSAGES + 1, messages.size());
         assertEquals("latest", messages.getLast().getText());
         assertTrue(messages.getFirst().getText().startsWith("m"));
+    }
+
+    @Test
+    void observingToolCallbackReportsTheToolNameBeforeTheDelegateRuns() {
+        List<String> seen = new ArrayList<>();
+        ToolCallback delegate = new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return ToolDefinition.builder().name("fm26_status").description("status").inputSchema("{}").build();
+            }
+
+            @Override
+            public String call(String toolInput) {
+                seen.add("ran:" + toolInput);
+                return "{}";
+            }
+        };
+        ToolCallback[] wrapped = AssistantChatService.observing(new ToolCallback[] {delegate}, seen::add);
+        assertEquals("{}", wrapped[0].call("ping"));
+        assertEquals(List.of("fm26_status", "ran:ping"), seen);
     }
 }
