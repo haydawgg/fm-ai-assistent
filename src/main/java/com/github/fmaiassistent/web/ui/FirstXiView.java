@@ -62,7 +62,8 @@ public class FirstXiView extends VerticalLayout {
         String liveSlots = String.valueOf(players.metadata().getOrDefault("tactic_slots", ""));
         tactic.setValue(liveSlots.isBlank() ? DEFAULT_TACTIC : liveSlots);
         tactic.setWidthFull();
-        tactic.setMinHeight("12em");
+        tactic.setMinHeight("6em");
+        tactic.setMaxHeight("12em");
         String formation = String.valueOf(players.metadata().getOrDefault("tactic_formation", ""));
         tactic.setHelperText("One line per slot: " + String.join(", ", PositionCodes.CODES)
                 + " plus in-possession and out-of-possession roles."
@@ -71,7 +72,10 @@ public class FirstXiView extends VerticalLayout {
                         : " Live formation: " + formation + ". Roles still need pasting."));
         configureGrid();
         configureUpgrades();
-        add(header(), filterBar(), tactic, summary, grid, new Span("Suggested buys for holes"), upgrades);
+        Span upgradesHeading = new Span("Suggested buys for holes");
+        upgradesHeading.addClassName("first-xi-heading");
+        summary.addClassName("moneyball-summary");
+        add(header(), filterBar(), tactic, summary, grid, upgradesHeading, upgrades);
         expand(grid);
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
@@ -87,18 +91,10 @@ public class FirstXiView extends VerticalLayout {
     }
 
     private Component header() {
-        Span title = new Span("First XI");
-        title.addClassName("moneyball-title");
         Span hint = new Span("Uses the live RAM formation when loaded. Paste roles if you want fit scoring. Same pipeline as fm26_best_xi.");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
-        header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-        return header;
+        hint.setWidthFull();
+        return hint;
     }
 
     private HorizontalLayout filterBar() {
@@ -107,13 +103,14 @@ public class FirstXiView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(event -> run());
         HorizontalLayout bar = new HorizontalLayout(clubFilter, runButton);
+        bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
     }
 
     private void configureGrid() {
-        grid.setSizeFull();
+        grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick a club and run.");
         grid.addColumn(SquadAdvice.XiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::playerName).setHeader("Player");
@@ -128,7 +125,7 @@ public class FirstXiView extends VerticalLayout {
 
     private void configureUpgrades() {
         upgrades.setWidthFull();
-        upgrades.setMaxHeight("16em");
+        upgrades.addClassName("first-xi-upgrades");
         upgrades.setEmptyStateText("No holes — no suggested buys.");
         upgrades.addColumn(UpgradeRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         upgrades.addColumn(UpgradeRow::role).setHeader("Role");

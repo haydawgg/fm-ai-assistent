@@ -4,18 +4,17 @@
     margin: 0;
     width: 100%;
     height: 100%;
-}
-
-.moneyball-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--fmai-text);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
 }
 
 .moneyball-hint {
     color: var(--fmai-text-muted);
     font-size: var(--lumo-font-size-s);
+    flex: 0 0 auto;
 }
 
 .back-link {
@@ -27,10 +26,12 @@
 
 .moneyball-filters {
     flex-wrap: wrap;
+    width: 100%;
     padding: var(--lumo-space-s) var(--lumo-space-s) 0;
     background: var(--fmai-surface);
     border: 1px solid var(--fmai-border);
     border-radius: var(--fmai-radius-l);
+    flex: 0 0 auto;
 }
 
 .moneyball-run {
@@ -42,6 +43,7 @@
     color: var(--fmai-text-muted);
     font-size: var(--lumo-font-size-s);
     padding: 0 var(--lumo-space-s);
+    flex: 0 0 auto;
 }
 
 .rating-cell {
@@ -93,7 +95,20 @@
 }
 
 .moneyball-grid {
-    min-height: 60vh;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.first-xi-upgrades {
+    flex: 0 0 16em;
+    min-height: 0;
+}
+
+.first-xi-heading {
+    flex: 0 0 auto;
+    color: var(--fmai-text-muted);
+    font-size: var(--lumo-font-size-s);
+    font-weight: 700;
 }
 
 .chat-view {
@@ -128,7 +143,9 @@
 }
 
 .chat-workspace {
+    flex: 1 1 0;
     min-height: 0;
+    min-width: 0;
 }
 
 .chat-transcript {
@@ -250,6 +267,7 @@
 }
 
 .chat-composer {
+    flex: 0 0 auto;
     align-items: flex-end;
     padding: var(--lumo-space-s);
     border: 1px solid var(--fmai-border-strong);

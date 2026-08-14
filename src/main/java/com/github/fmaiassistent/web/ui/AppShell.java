@@ -1,6 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
-import com.vaadin.flow.component.Component;
+import com.vaadin.flow.component.HasElement;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.applayout.DrawerToggle;
@@ -9,7 +9,6 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
-import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
@@ -28,8 +27,6 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     private final Span pageTitle = new Span();
     private final Div contentWrapper = new Div();
     private final VerticalLayout sidebarNav = new VerticalLayout();
-    private final Button collapseButton = new Button(VaadinIcon.MENU.create());
-    private boolean collapsed = false;
 
     public AppShell() {
         setPrimarySection(Section.DRAWER);
@@ -42,27 +39,18 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         setContent(contentWrapper);
     }
 
+    @Override
+    public void showRouterLayoutContent(HasElement content) {
+        contentWrapper.getElement().removeAllChildren();
+        if (content != null) {
+            content.getElement().getClassList().add("fmai-route");
+            contentWrapper.getElement().appendChild(content.getElement());
+        }
+    }
+
     private void buildSidebar() {
         Div sidebar = new Div();
         sidebar.addClassName("fmai-sidebar");
-
-        HorizontalLayout header = new HorizontalLayout();
-        header.addClassName("fmai-sidebar-header");
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-
-        Div logo = new Div(new Span("FM"));
-        logo.addClassName("fmai-sidebar-logo");
-        Span title = new Span("FM AI Assistent");
-        title.addClassName("fmai-sidebar-title");
-
-        collapseButton.addClassName("fmai-sidebar-toggle");
-        collapseButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        collapseButton.getElement().setAttribute("aria-label", "Toggle sidebar");
-        collapseButton.getElement().setAttribute("aria-expanded", "true");
-        collapseButton.addClickListener(e -> toggleSidebar());
-
-        header.add(logo, title, collapseButton);
-        header.setFlexGrow(1, title);
 
         sidebarNav.addClassName("fmai-sidebar-nav");
         sidebarNav.setPadding(false);
@@ -76,7 +64,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
         addNavItem("Chat", VaadinIcon.CHAT, "chat");
 
-        sidebar.add(header, sidebarNav);
+        sidebar.add(sidebarNav);
         addToDrawer(sidebar);
     }
 
@@ -89,10 +77,15 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
         DrawerToggle drawerToggle = new DrawerToggle();
         drawerToggle.addClassName("fmai-sidebar-toggle");
+        drawerToggle.getElement().setAttribute("aria-label", "Toggle sidebar");
+
+        Div logo = new Div(new Span("FM"));
+        logo.addClassName("fmai-sidebar-logo");
+        logo.getElement().setAttribute("aria-hidden", "true");
 
         pageTitle.addClassName("fmai-topbar-title");
 
-        HorizontalLayout left = new HorizontalLayout(drawerToggle, pageTitle);
+        HorizontalLayout left = new HorizontalLayout(drawerToggle, logo, pageTitle);
         left.setAlignItems(FlexComponent.Alignment.CENTER);
         left.setSpacing(true);
 
@@ -101,23 +94,17 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     }
 
     private void addNavItem(String label, VaadinIcon icon, String route) {
-        Button item = new Button(label, icon.create());
+        Span caption = new Span(label);
+        caption.addClassName("fmai-nav-label");
+        Button item = new Button();
+        item.setIcon(icon.create());
+        item.setSuffixComponent(caption);
         item.addClassName("fmai-nav-item");
         item.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         item.addClickListener(e -> UI.getCurrent().navigate(route));
         item.getElement().setAttribute("data-route", route);
         navItems.put(route, new NavItem(label, item));
         sidebarNav.add(item);
-    }
-
-    private void toggleSidebar() {
-        collapsed = !collapsed;
-        collapseButton.getElement().setAttribute("aria-expanded", String.valueOf(!collapsed));
-        getElement().executeJs(
-                "const sidebar = this.querySelector('.fmai-sidebar');" +
-                "if (sidebar) sidebar.classList.toggle('collapsed', $0);",
-                collapsed
-        );
     }
 
     @Override

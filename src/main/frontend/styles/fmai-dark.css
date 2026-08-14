@@ -116,35 +116,29 @@ body {
 
 /* App shell layout */
 .fmai-shell {
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
+    --vaadin-app-layout-drawer-width: var(--fmai-sidebar-width);
+    height: 100%;
     background: var(--fmai-bg);
+}
+
+.fmai-shell::part(navbar) {
+    min-height: var(--fmai-header-height);
+    background: var(--fmai-surface);
+    border-bottom: 1px solid var(--fmai-border);
+}
+
+.fmai-shell::part(drawer) {
+    background: var(--fmai-surface);
+    border-right: 1px solid var(--fmai-border);
 }
 
 .fmai-sidebar {
     display: flex;
     flex-direction: column;
-    width: var(--fmai-sidebar-width);
-    flex: 0 0 var(--fmai-sidebar-width);
+    width: 100%;
+    height: 100%;
     background: var(--fmai-surface);
-    border-right: 1px solid var(--fmai-border);
-    transition: width var(--fmai-transition-slow), flex-basis var(--fmai-transition-slow);
     overflow: hidden;
-}
-
-.fmai-sidebar.collapsed {
-    width: var(--fmai-sidebar-collapsed);
-    flex-basis: var(--fmai-sidebar-collapsed);
-}
-
-.fmai-sidebar-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 16px;
-    border-bottom: 1px solid var(--fmai-border);
-    min-height: var(--fmai-header-height);
 }
 
 .fmai-sidebar-logo {
@@ -252,10 +246,9 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 0 20px;
+    padding: 0 8px 0 4px;
     min-height: var(--fmai-header-height);
-    background: var(--fmai-surface);
-    border-bottom: 1px solid var(--fmai-border);
+    background: transparent;
     flex: 0 0 auto;
 }
 
@@ -273,10 +266,20 @@ body {
 }
 
 .fmai-content {
-    flex: 1;
-    overflow: auto;
-    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.fmai-content > .fmai-route,
+.fmai-content > vaadin-vertical-layout {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
 }
 
 /* Sidebar toggle */
@@ -302,32 +305,6 @@ body {
 
 /* Responsive */
 @media (max-width: 900px) {
-    .fmai-sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 100;
-        transform: translateX(-100%);
-        transition: transform var(--fmai-transition-slow);
-        box-shadow: var(--fmai-shadow-xl);
-    }
-
-    .fmai-sidebar.open {
-        transform: translateX(0);
-    }
-
-    .fmai-sidebar.collapsed {
-        width: var(--fmai-sidebar-width);
-        flex-basis: var(--fmai-sidebar-width);
-    }
-
-    .fmai-sidebar.collapsed .fmai-sidebar-title,
-    .fmai-sidebar.collapsed .fmai-nav-label {
-        opacity: 1;
-        width: auto;
-    }
-
     .fmai-main {
         margin-left: 0;
     }

@@ -45,6 +45,7 @@ public class SquadTrimView extends VerticalLayout {
         configureGrid();
         add(header(), filterBar(), summary, grid);
         expand(grid);
+        summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
@@ -59,18 +60,10 @@ public class SquadTrimView extends VerticalLayout {
     }
 
     private Component header() {
-        Span title = new Span("Squad trim");
-        title.addClassName("moneyball-title");
         Span hint = new Span("Sell, loan or keep: depth, CA vs first team, wages and contracts. Same ranking as fm26_sell_shortlist.");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
-        header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-        return header;
+        hint.setWidthFull();
+        return hint;
     }
 
     private HorizontalLayout filterBar() {
@@ -84,13 +77,14 @@ public class SquadTrimView extends VerticalLayout {
             }
         });
         HorizontalLayout bar = new HorizontalLayout(clubFilter, runButton);
+        bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
     }
 
     private void configureGrid() {
-        grid.setSizeFull();
+        grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick a club to rank the squad.");
         grid.addColumn(SquadAdvice.SellRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.SellRow::recommendation).setHeader("Call").setWidth("6em").setFlexGrow(0);

@@ -37,11 +37,14 @@ body {
 }
 
 .main-view {
-    min-height: 100%;
+    min-height: 0;
+    height: 100%;
     background: var(--fmai-canvas);
     font-family: var(--fmai-font-body);
     overflow: hidden;
     padding: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .app-header {
@@ -53,12 +56,11 @@ body {
 }
 
 .app-bar {
-    min-height: 60px;
+    min-height: 52px;
     box-sizing: border-box;
     padding: 0 20px;
-    background: var(--fmai-header);
+    background: transparent;
     color: var(--fmai-ink);
-    border-bottom: 1px solid var(--fmai-border);
 }
 
 .brand {
@@ -120,8 +122,8 @@ body {
     max-width: min(56vw, 760px);
     align-items: center;
     gap: 8px;
-    overflow: hidden;
-    flex-wrap: nowrap;
+    overflow: visible;
+    flex-wrap: wrap;
 }
 
 .status-live {
@@ -234,6 +236,8 @@ body {
     gap: 8px;
     border-bottom: 1px solid var(--fmai-border);
     background: var(--fmai-surface);
+    flex-wrap: wrap;
+    overflow-x: auto;
 }
 
 .toolbar-button {
@@ -259,6 +263,7 @@ body {
 }
 
 .toolbar-button-danger {
+    min-width: 34px;
     color: var(--fmai-danger);
 }
 
@@ -341,7 +346,7 @@ body {
     flex-direction: column;
     gap: 8px;
     box-sizing: border-box;
-    padding: 16px;
+    padding: 0;
     overflow: hidden;
     background: transparent;
     width: 100%;
@@ -742,7 +747,8 @@ body {
 }
 
 .compare-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 7em 1fr 1fr;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -758,6 +764,11 @@ body {
     color: var(--fmai-muted);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
+}
+
+.compare-winner {
+    color: var(--fmai-green);
+    font-weight: 700;
 }
 
 .ability-badge {
@@ -789,6 +800,8 @@ body {
     padding: 48px 24px;
     color: var(--fmai-muted);
     text-align: center;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .empty-state-icon {
@@ -870,6 +883,11 @@ body {
     border: 1px solid var(--fmai-border-strong);
     border-radius: 14px;
     box-shadow: var(--fmai-shadow-xl);
+}
+
+.filter-dialog-content {
+    overflow-y: auto;
+    max-height: calc(100vh - 160px);
 }
 
 .dialog-header {
@@ -985,7 +1003,9 @@ body {
     animation: fmai-spin 0.8s linear infinite;
 }
 
-.loading-text {
+.loading-text,
+.loading-title,
+.loading-subtitle {
     color: var(--fmai-muted);
     font-size: 13px;
 }

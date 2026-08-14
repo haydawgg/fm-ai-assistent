@@ -81,22 +81,18 @@ public class ChatView extends VerticalLayout {
         clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         clear.addClickListener(event -> clearChat());
 
-        add(header(), configurationBanner(), workspace(), composer());
-        expand(transcript);
+        Component workspace = workspace();
+        add(header(), configurationBanner(), workspace, composer());
+        setFlexGrow(1, workspace);
         updateConfigurationState();
     }
 
     private Component header() {
-        Span title = new Span("FM AI assistant");
-        title.addClassName("moneyball-title");
         Span hint = new Span("A calm second opinion for your next transfer, tactic, or team talk.");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
+        hint.setWidthFull();
+        HorizontalLayout header = new HorizontalLayout(hint);
         header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
         header.setAlignItems(FlexComponent.Alignment.CENTER);
         header.addClassName("chat-header");
         return header;
@@ -127,7 +123,6 @@ public class ChatView extends VerticalLayout {
         HorizontalLayout workspace = new HorizontalLayout(transcript, rail);
         workspace.addClassName("chat-workspace");
         workspace.setWidthFull();
-        workspace.setHeightFull();
         workspace.setFlexGrow(1, transcript);
         return workspace;
     }

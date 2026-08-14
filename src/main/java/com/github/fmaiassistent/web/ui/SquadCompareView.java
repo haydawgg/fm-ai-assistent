@@ -47,6 +47,7 @@ public class SquadCompareView extends VerticalLayout {
         configureGrid();
         add(header(), filterBar(), summary, grid);
         expand(grid);
+        summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
@@ -63,18 +64,10 @@ public class SquadCompareView extends VerticalLayout {
     }
 
     private Component header() {
-        Span title = new Span("Compare squads");
-        title.addClassName("moneyball-title");
         Span hint = new Span("Best player per position by CA. Same numbers as fm26_compare_squads.");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
-        header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-        return header;
+        hint.setWidthFull();
+        return hint;
     }
 
     private HorizontalLayout filterBar() {
@@ -85,13 +78,14 @@ public class SquadCompareView extends VerticalLayout {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.addClickListener(event -> run());
         HorizontalLayout bar = new HorizontalLayout(leftClub, rightClub, runButton);
+        bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
     }
 
     private void configureGrid() {
-        grid.setSizeFull();
+        grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick two clubs to compare.");
         grid.addColumn(SquadAdvice.SquadCompareRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.SquadCompareRow::leftName).setHeader("Left player");

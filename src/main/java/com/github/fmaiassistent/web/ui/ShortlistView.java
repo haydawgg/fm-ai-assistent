@@ -60,6 +60,7 @@ public class ShortlistView extends VerticalLayout {
         configureGrid();
         add(header(), filterBar(), summary, grid);
         expand(grid);
+        summary.addClassName("moneyball-summary");
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
             summary.setText("Load from RAM on the scouting desk first.");
@@ -74,19 +75,11 @@ public class ShortlistView extends VerticalLayout {
     }
 
     private Component header() {
-        Span title = new Span("Shortlist");
-        title.addClassName("moneyball-title");
         Span hint = new Span(
                 "Tactical buys ranked like fm26_transfer_shortlist. Tick wonderkids to use the fm26_wonderkid_shortlist age cap.");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
-        header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-        return header;
+        hint.setWidthFull();
+        return hint;
     }
 
     private HorizontalLayout filterBar() {
@@ -118,13 +111,14 @@ public class ShortlistView extends VerticalLayout {
         });
         HorizontalLayout bar = new HorizontalLayout(
                 clubFilter, positionFilter, roleFilter, minCa, minPa, maxAge, maxPrice, maxWage, wonderkids, runButton);
+        bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
     }
 
     private void configureGrid() {
-        grid.setSizeFull();
+        grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick a club to rank signings.");
         grid.addColumn(TransferShortlistRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(row -> String.format(Locale.ROOT, "%.1f", row.score())).setHeader("Score").setWidth("5em").setFlexGrow(0);

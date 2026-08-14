@@ -72,6 +72,7 @@ public class MoneyballView extends VerticalLayout {
         configureGrid();
         add(header(), filterBar(), summary, grid);
         expand(grid);
+        summary.addClassName("moneyball-summary");
 
         if (clubs.findAllClubs().isEmpty()) {
             grid.setVisible(false);
@@ -83,20 +84,11 @@ public class MoneyballView extends VerticalLayout {
     }
 
     private Component header() {
-        Span title = new Span("Moneyball");
-        title.addClassName("moneyball-title");
         Span hint = new Span(
                 "signing_rating (0-100) = quality \u00d7 value: half CA, half age-adjusted PA, adjusted by fee + 3 years of wages against the market median");
         hint.addClassName("moneyball-hint");
-        VerticalLayout titleBlock = new VerticalLayout(title, hint);
-        titleBlock.setSpacing(false);
-        titleBlock.setPadding(false);
-        HorizontalLayout header = new HorizontalLayout(titleBlock);
-        header.setWidthFull();
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-        header.setAlignItems(FlexComponent.Alignment.CENTER);
-        header.addClassName("moneyball-header");
-        return header;
+        hint.setWidthFull();
+        return hint;
     }
 
     private HorizontalLayout filterBar() {
@@ -126,13 +118,13 @@ public class MoneyballView extends VerticalLayout {
 
         HorizontalLayout bar = new HorizontalLayout(
                 clubFilter, positionFilter, minCa, minPa, maxAge, maxPrice, maxWage, runButton);
+        bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
     }
 
     private void configureGrid() {
-        grid.setSizeFull();
         grid.addClassName("moneyball-grid");
         grid.setSelectionMode(Grid.SelectionMode.NONE);
         grid.setEmptyStateText("Pick a club to see value signings.");

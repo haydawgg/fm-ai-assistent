@@ -13,6 +13,8 @@ import com.vaadin.flow.component.Key;
 import com.vaadin.flow.component.Shortcuts;
 import com.vaadin.flow.component.ModalityMode;
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.component.UIDetachedException;
+import com.vaadin.flow.server.Command;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.checkbox.Checkbox;
@@ -49,13 +51,17 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Route(value = "", layout = AppShell.class)
 @PageTitle("FM AI Assistent")
 @CssImport("./styles/main-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class MainView extends VerticalLayout {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
     private static final Set<String> NUMERIC_SORT_COLUMNS = Set.of(
             "ID", "CLUB_ID", "PLAYING_CLUB_ID", "CURRENT_REPUTATION", "HOME_REPUTATION", "WORLD_REPUTATION",
             "CA", "PA", "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW", "AGE", "HEIGHT_CM",
@@ -178,32 +184,15 @@ public class MainView extends VerticalLayout {
         settingsButton.setTooltipText("Settings");
         settingsButton.getElement().setAttribute("aria-label", "Settings");
 
-        Span brandMonogram = new Span("FM");
-        brandMonogram.addClassName("brand-monogram");
-        Div brandIcon = new Div(brandMonogram);
-        brandIcon.addClassName("brand-icon");
-        Span product = new Span("FM AI Assistent");
-        product.addClassName("brand-title");
-        Div brandCopy = new Div(product);
-        brandCopy.addClassName("brand-copy");
-        HorizontalLayout brand = new HorizontalLayout(brandIcon, brandCopy);
-        brand.setAlignItems(Alignment.CENTER);
-        brand.setSpacing(false);
-        brand.addClassName("brand");
-
         status.addClassName("app-status");
-        HorizontalLayout actions = new HorizontalLayout(status, loadButton, settingsButton);
-        actions.setAlignItems(Alignment.CENTER);
-        actions.setSpacing(true);
-        actions.addClassName("app-actions");
-
-        HorizontalLayout appBar = new HorizontalLayout(brand, actions);
+        HorizontalLayout appBar = new HorizontalLayout(status, loadButton, settingsButton);
         appBar.setWidthFull();
         appBar.setAlignItems(Alignment.CENTER);
-        appBar.expand(brand);
+        appBar.setJustifyContentMode(FlexComponent.JustifyContentMode.END);
         appBar.setPadding(false);
-        appBar.setSpacing(false);
+        appBar.setSpacing(true);
         appBar.addClassName("app-bar");
+        appBar.addClassName("app-actions");
 
         columnsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         columnsButton.addClassName("toolbar-button");
@@ -241,6 +230,7 @@ public class MainView extends VerticalLayout {
         navigation.expand(tabs);
         navigation.setPadding(false);
         navigation.setSpacing(true);
+        navigation.setWrap(true);
         navigation.addClassName("workspace-nav");
         columnsButton.setVisible(true);
         savedViews.setVisible(true);
@@ -397,42 +387,71 @@ public class MainView extends VerticalLayout {
                         throw new CompletionException(ex);
                     }
                 })
-                .thenAccept(result -> ui.access(() -> {
-                    updateStatus(result);
-                    refreshSelectedTab();
-
+                .thenAccept(result -> accessUi(ui, () -> {
+                    finishLoading();
                     Notification loaded = Notification.show(
-                            "Loaded RAM data",
-                            3000,
+                            "Loaded " + result.players() + " players, "
+                                    + result.clubs() + " clubs, "
+                                    + result.competitions() + " competitions",
+                            4000,
                             Notification.Position.TOP_CENTER
                     );
                     loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                     loaded.addClassName("app-toast");
+                    updateStatus(result);
+                    refreshSelectedTab();
                 }))
                 .exceptionally(ex -> {
-                    ui.access(() -> {
-                        Throwable cause = ex instanceof CompletionException && ex.getCause() != null
-                                ? ex.getCause()
-                                : ex;
+                    accessUi(ui, () -> {
+                        finishLoading();
+                        Throwable cause = unwrapLoadError(ex);
+                        LOGGER.error("Load from RAM failed", cause);
 
                         Notification failed = Notification.show(
-                                "Load failed: " + cause.getMessage(),
+                                "Load failed: " + loadErrorMessage(cause),
                                 8000,
                                 Notification.Position.TOP_CENTER
                         );
                         failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
                         failed.addClassName("app-toast");
                     });
-
                     return null;
-                })
-                .whenComplete((result, ex) -> ui.access(() -> {
-                    loadingDialog.close();
-                    loadButton.setEnabled(true);
-                    loadButton.setText("Load from RAM");
-                    loadButton.setIcon(VaadinIcon.DATABASE.create());
-                    loadButton.removeClassName("is-loading");
-                }));
+                });
+    }
+
+    private static Throwable unwrapLoadError(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current
+                && (current instanceof CompletionException
+                || current instanceof ExecutionException
+                || (current instanceof IOException && current.getMessage() != null
+                && current.getMessage().startsWith("Player export failed")))) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static String loadErrorMessage(Throwable cause) {
+        String message = cause.getMessage();
+        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+    }
+
+    private void finishLoading() {
+        loadingDialog.close();
+        loadButton.setEnabled(true);
+        loadButton.setText("Load from RAM");
+        loadButton.setIcon(VaadinIcon.DATABASE.create());
+        loadButton.removeClassName("is-loading");
+    }
+
+    private static void accessUi(UI ui, Command action) {
+        if (ui == null) {
+            return;
+        }
+        try {
+            ui.access(action);
+        } catch (UIDetachedException ignored) {
+        }
     }
 
     private void refreshSelectedTab() {
@@ -770,11 +789,11 @@ public class MainView extends VerticalLayout {
 
     private static Div emptyState(String title, String body) {
         Span titleText = new Span(title);
-        titleText.addClassName("empty-title");
+        titleText.addClassName("empty-state-title");
         Span bodyText = new Span(body);
-        bodyText.addClassName("empty-body");
+        bodyText.addClassName("empty-state-copy");
         Div icon = new Div(VaadinIcon.SEARCH.create());
-        icon.addClassName("empty-icon");
+        icon.addClassName("empty-state-icon");
         Div state = new Div(icon, titleText, bodyText);
         state.addClassName("empty-state");
         return state;
@@ -794,7 +813,7 @@ public class MainView extends VerticalLayout {
         if (Boolean.TRUE.equals(player.getTransferListed())) {
             Span listed = new Span("Listed");
             listed.addClassName("row-badge");
-            listed.addClassName("row-badge-listed");
+            listed.addClassName("row-badge-transfer");
             badges.add(listed);
         }
         Div cell = new Div(name, badges);
@@ -947,9 +966,9 @@ public class MainView extends VerticalLayout {
         loadingDialog.setResizable(false);
 
         Span loadingTitle = new Span("Reading Football Manager memory");
-        loadingTitle.addClassName("loading-title");
+        loadingTitle.addClassName("loading-text");
         Span loadingSubtitle = new Span("Players, clubs and competitions will refresh automatically.");
-        loadingSubtitle.addClassName("loading-subtitle");
+        loadingSubtitle.addClassName("loading-text");
         VerticalLayout content = new VerticalLayout(
                 new Div(VaadinIcon.DATABASE.create()),
                 spinner,
@@ -1041,7 +1060,9 @@ public class MainView extends VerticalLayout {
                 compareMetric("Contract", display(left.getContractEndDate()), display(right.getContractEndDate()), null));
         grid.addClassName("compare-grid");
 
-        Div drawer = new Div(header, grid);
+        Div body = new Div(grid);
+        body.addClassName("drawer-content");
+        Div drawer = new Div(header, body);
         drawer.addClassName("player-drawer");
         drawer.addClassName("compare-drawer");
         return drawer;
@@ -1057,10 +1078,12 @@ public class MainView extends VerticalLayout {
 
     private static Div compareMetric(String label, String left, String right, Integer winner) {
         Span labelText = new Span(label);
-        labelText.addClassName("compare-label");
+        labelText.addClassName("compare-name");
         Span leftText = new Span(blankDash(left));
+        leftText.addClassName("compare-value");
         leftText.addClassName("compare-left");
         Span rightText = new Span(blankDash(right));
+        rightText.addClassName("compare-value");
         rightText.addClassName("compare-right");
         if (winner != null) {
             if (winner < 0) {
@@ -1190,7 +1213,6 @@ public class MainView extends VerticalLayout {
         detailTabs.addClassName("drawer-tabs");
         Div detailContent = new Div(info);
         detailContent.setWidthFull();
-        detailContent.addClassName("dialog-content");
         detailContent.addClassName("drawer-content");
         detailTabs.addSelectedChangeListener(event -> {
             detailContent.removeAll();
@@ -1313,6 +1335,7 @@ public class MainView extends VerticalLayout {
         dialog.setHeaderTitle("Player filter");
         dialog.setWidth("1280px");
         dialog.setMaxWidth("calc(100vw - 32px)");
+        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
         dialog.getElement().getThemeList().add("wide-dialog");
@@ -1394,7 +1417,7 @@ public class MainView extends VerticalLayout {
         attributeLayout.addClassName("attribute-filter-grid");
         attributeLayout.getStyle()
                 .set("display", "grid")
-                .set("grid-template-columns", "repeat(6, minmax(180px, 1fr))")
+                .set("grid-template-columns", "repeat(auto-fill, minmax(160px, 1fr))")
                 .set("gap", "16px")
                 .set("align-items", "start");
 
@@ -1475,6 +1498,7 @@ public class MainView extends VerticalLayout {
         dialog.setHeaderTitle("Club filter");
         dialog.setWidth("1280px");
         dialog.setMaxWidth("calc(100vw - 32px)");
+        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
 
@@ -1549,6 +1573,7 @@ public class MainView extends VerticalLayout {
         dialog.setHeaderTitle("Competition filter");
         dialog.setWidth("1280px");
         dialog.setMaxWidth("calc(100vw - 32px)");
+        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
 
