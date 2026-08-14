@@ -9,6 +9,11 @@ installed/
 ram_dumps/
 rebuild/
 target/
+node_modules/
+package.json
+package-lock.json
+tsconfig.json
+types.d.ts
 src/main/frontend/generated/
 src/main/frontend/index.html
 
