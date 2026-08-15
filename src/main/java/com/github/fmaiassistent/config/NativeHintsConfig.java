@@ -34,6 +34,7 @@ public class NativeHintsConfig {
             hints.reflection().registerType(LoadDataColumnConfig.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
             hints.reflection().registerType(ColumnConfig.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
             hints.reflection().registerType(com.github.fmaiassistent.web.ui.SavedPlayerView.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
+            hints.reflection().registerType(com.github.fmaiassistent.web.ui.SavedChatPrompt.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
             hints.reflection().registerType(com.github.fmaiassistent.repository.PlayerFilterCriteria.class, MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS, MemberCategory.INVOKE_PUBLIC_METHODS);
 
             hints.resources().registerPattern("db/changelog/**");

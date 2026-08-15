@@ -84,8 +84,16 @@ public class SquadTrimView extends VerticalLayout {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Pick your club in the top bar to rank the squad.");
         grid.addItemClickListener(event -> {
+            if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
+                return;
+            }
             PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
         });
+        grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
+                .setHeader("")
+                .setKey("ask")
+                .setWidth("3.5em")
+                .setFlexGrow(0);
         grid.addColumn(SquadAdvice.SellRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.SellRow::recommendation)
                 .setHeader("Call")

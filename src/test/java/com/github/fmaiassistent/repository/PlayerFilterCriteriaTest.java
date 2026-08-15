@@ -2,6 +2,7 @@ package com.github.fmaiassistent.repository;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,5 +18,12 @@ class PlayerFilterCriteriaTest {
         assertTrue(filter.isEmpty());
         assertFalse(filter.isClubOnly());
         assertTrue(filter.withClub("Test FC").isClubOnly());
+    }
+
+    @Test
+    void chatSummaryListsActiveFilters() {
+        PlayerFilterCriteria filter = PlayerFilterCriteria.empty()
+                .withClub("Ajax");
+        assertEquals("club Ajax", filter.chatSummary());
     }
 }

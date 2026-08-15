@@ -98,7 +98,12 @@ public class ContractsView extends VerticalLayout {
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("Nobody out of contract in the next 180 days.");
-        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
+        grid.addItemClickListener(event -> {
+            if (event.getColumn() != null && "chat".equals(event.getColumn().getKey())) {
+                return;
+            }
+            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+        });
         grid.addColumn(SquadAdvice.ContractRow::action)
                 .setHeader("Action")
                 .setRenderer(new ComponentRenderer<>(row -> {
@@ -123,6 +128,16 @@ public class ContractsView extends VerticalLayout {
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
         grid.addColumn(SquadAdvice.ContractRow::contractEnd).setHeader("Contract");
         grid.addColumn(SquadAdvice.ContractRow::daysUntilExpiry).setHeader("Days").setWidth("5em").setFlexGrow(0);
+        grid.addComponentColumn(row -> {
+            Button ask = ChatLaunch.askButton(row.name(), sessionClub);
+            Button note = new Button("Board note", event -> ChatLaunch.open(
+                    ChatLaunch.boardNote(row.name(), row.action(), sessionClub)));
+            note.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            HorizontalLayout actions = new HorizontalLayout(ask, note);
+            actions.setPadding(false);
+            actions.setSpacing(false);
+            return actions;
+        }).setHeader("Chat").setKey("chat").setAutoWidth(true);
         grid.addColumn(row -> String.join(", ", row.reasons())).setHeader("Reasons").setFlexGrow(1);
     }
 

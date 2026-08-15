@@ -8,13 +8,18 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
+import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.select.Select;
+import com.vaadin.flow.component.textfield.NumberField;
 import com.vaadin.flow.component.textfield.PasswordField;
+import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.component.textfield.TextField;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -48,10 +53,16 @@ final class SettingsDialog {
         apiKey.setPlaceholder("sk-or-... or leave empty to use MCP only");
         apiKey.setHelperText("From openrouter.ai/keys. Empty disables in-app chat; Claude or another MCP client can still use /mcp.");
 
+        ComboBox<String> fallback = OpenRouterModelPicker.comboBox();
+        fallback.setLabel("Fallback model");
+        fallback.setHelperText("Used once if the primary model fails. Leave blank to skip.");
+        Map<String, String> fallbackLabels = new LinkedHashMap<>();
+
         ComboBox<String> model = OpenRouterModelPicker.comboBox();
         model.setHelperText("Catalog refreshes from OpenRouter when this dialog opens. Type an id if a model is missing.");
         Map<String, String> labels = new LinkedHashMap<>();
         OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), false, labels);
+        OpenRouterModelPicker.bind(fallback, catalog, settings.openRouterFallbackModel(), false, fallbackLabels);
         Span catalogStatus = new Span("Refreshing OpenRouter models…");
         catalogStatus.addClassName("settings-path");
         UI ui = UI.getCurrent();
@@ -62,10 +73,14 @@ final class SettingsDialog {
             if (models != null && !models.isEmpty()) {
                 OpenRouterModelPicker.apply(model, labels, models,
                         OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
+                OpenRouterModelPicker.apply(fallback, fallbackLabels, models,
+                        OpenRouterModelPicker.firstNonBlank(fallback.getValue(), settings.openRouterFallbackModel()));
                 catalogStatus.setText(models.size() + " OpenRouter models · live catalog");
             } else {
                 OpenRouterModelPicker.apply(model, labels, catalog.cachedModels(),
                         OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
+                OpenRouterModelPicker.apply(fallback, fallbackLabels, catalog.cachedModels(),
+                        OpenRouterModelPicker.firstNonBlank(fallback.getValue(), settings.openRouterFallbackModel()));
                 String detail = error == null ? catalog.lastError() : OpenRouterModelPicker.errorMessage(error);
                 catalogStatus.setText(detail == null || detail.isBlank()
                         ? "Could not refresh OpenRouter models. Type a model id."
@@ -73,12 +88,75 @@ final class SettingsDialog {
             }
         }));
 
+        NumberField dailyCap = new NumberField("Daily spend cap (USD)");
+        dailyCap.setWidthFull();
+        dailyCap.setMin(0);
+        dailyCap.setStep(0.5);
+        dailyCap.setValue(settings.dailySpendCapUsd());
+        dailyCap.setHelperText("0 or empty means no cap. Estimates use catalog prompt rates.");
+
+        NumberField topP = new NumberField("Top-p (advanced)");
+        topP.setWidthFull();
+        topP.setMin(0.05);
+        topP.setMax(1);
+        topP.setStep(0.05);
+        topP.setValue(settings.chatTopP());
+        topP.setHelperText("Leave empty for the model default. Lower values make replies more focused.");
+
+        TextArea instructions = new TextArea("Custom instructions");
+        instructions.setWidthFull();
+        instructions.setMinHeight("6em");
+        instructions.setValue(settings.chatInstructions());
+        instructions.setPlaceholder("Answer in Dutch. Always compare 3 options. Never suggest over budget.");
+        instructions.setHelperText("Injected into the system prompt for every in-app chat turn.");
+
+        Span testStatus = new Span("");
+        testStatus.addClassName("settings-path");
+        Button test = new Button("Test connection", VaadinIcon.CONNECT.create(), event -> {
+            testStatus.setText("Testing…");
+            String key = apiKey.getValue();
+            java.util.concurrent.CompletableFuture
+                    .supplyAsync(() -> catalog.probe(key))
+                    .whenComplete((result, error) -> OpenRouterModelPicker.access(ui, () -> {
+                        OpenRouterModelCatalog.ProbeResult probe = result != null
+                                ? result
+                                : new OpenRouterModelCatalog.ProbeResult(false, OpenRouterModelPicker.errorMessage(error));
+                        testStatus.setText(probe.message());
+                        Notification notice = Notification.show(probe.message(), 2800, Notification.Position.TOP_CENTER);
+                        notice.addThemeVariants(probe.ok()
+                                ? NotificationVariant.LUMO_SUCCESS
+                                : NotificationVariant.LUMO_ERROR);
+                    }));
+        });
+        test.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
         Span intro = new Span("Display currency and optional in-app chat via OpenRouter. Chat is unused if the key is empty.");
         intro.addClassName("settings-intro");
         Span file = new Span("Stored in " + settings.settingsPath());
         file.addClassName("settings-path");
 
-        VerticalLayout layout = new VerticalLayout(intro, currencySelect, apiKey, model, catalogStatus, file);
+        TextField promptName = new TextField("Saved prompt name");
+        promptName.setWidthFull();
+        TextArea promptText = new TextArea("Prompt");
+        promptText.setWidthFull();
+        promptText.setMinHeight("4em");
+        Div promptList = new Div();
+        Button savePrompt = new Button("Save prompt", event -> {
+            try {
+                settings.saveChatPrompt(new SavedChatPrompt(promptName.getValue(), promptText.getValue()));
+                promptName.clear();
+                promptText.clear();
+                refreshPromptList(settings, promptList);
+            } catch (IllegalArgumentException error) {
+                Notification.show(error.getMessage(), 2500, Notification.Position.TOP_CENTER);
+            }
+        });
+        savePrompt.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        refreshPromptList(settings, promptList);
+
+        VerticalLayout layout = new VerticalLayout(
+                intro, currencySelect, apiKey, test, testStatus, model, fallback, catalogStatus,
+                dailyCap, topP, instructions, promptName, promptText, savePrompt, promptList, file);
         layout.setPadding(false);
         layout.setSpacing(true);
         layout.addClassName("settings-content");
@@ -88,6 +166,10 @@ final class SettingsDialog {
             MoneyCurrency currency = currencySelect.getValue() == null ? MoneyCurrency.POUND : currencySelect.getValue();
             settings.saveCurrency(currency);
             settings.saveOpenRouter(apiKey.getValue(), model.getValue());
+            settings.saveOpenRouterFallbackModel(fallback.getValue());
+            settings.saveDailySpendCapUsd(dailyCap.getValue());
+            settings.saveChatTopP(topP.getValue());
+            settings.saveChatInstructions(instructions.getValue());
             if (onSaved != null) {
                 onSaved.accept(currency);
             }
@@ -101,5 +183,21 @@ final class SettingsDialog {
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(cancel, save);
         dialog.open();
+    }
+
+    private static void refreshPromptList(AppSettingsService settings, Div promptList) {
+        promptList.removeAll();
+        for (SavedChatPrompt prompt : settings.chatPrompts()) {
+            Button delete = new Button("Delete", event -> {
+                settings.deleteChatPrompt(prompt.name());
+                refreshPromptList(settings, promptList);
+            });
+            delete.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            Span label = new Span(prompt.name());
+            HorizontalLayout row = new HorizontalLayout(label, delete);
+            row.setWidthFull();
+            row.setFlexGrow(1, label);
+            promptList.add(row);
+        }
     }
 }

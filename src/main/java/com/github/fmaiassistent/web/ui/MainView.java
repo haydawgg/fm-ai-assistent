@@ -474,6 +474,8 @@ public class MainView extends VerticalLayout {
     }
 
     private void showPlayers() {
+        ChatUiContext.setView("Desk");
+        ChatUiContext.setFilters(playerFilter.chatSummary());
         List<PlayerColumn> allColumns = allPlayerColumns();
         List<PlayerColumn> columns = showAllPlayerColumns
                 ? allColumns
@@ -1165,8 +1167,8 @@ public class MainView extends VerticalLayout {
                 ? "Waiting for second player"
                 : "Compare with another player");
         compare.getElement().setAttribute("aria-label", "Compare with another player");
-        Button argue = new Button("Argue in Chat", event ->
-                ChatLaunch.open(ChatLaunch.argueFor(player.getName(), settings.sessionClub())));
+        Button argue = new Button("Ask FM AI", event ->
+                ChatLaunch.open(ChatLaunch.askAbout(player.getName(), settings.sessionClub())));
         argue.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);

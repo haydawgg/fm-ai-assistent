@@ -87,6 +87,51 @@ public record PlayerFilterCriteria(
                 Map.of(), Map.of());
     }
 
+    public String chatSummary() {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        addPart(parts, "name", name);
+        addPart(parts, "gender", gender);
+        addPart(parts, "nation", playingNation);
+        addPart(parts, "competition", playingCompetition);
+        addPart(parts, "club", club);
+        addPart(parts, "nationality", nationality);
+        if (ageMin != null || ageMax != null) {
+            parts.add("age " + range(ageMin, ageMax));
+        }
+        if (caMin != null || caMax != null) {
+            parts.add("CA " + range(caMin, caMax));
+        }
+        if (paMin != null || paMax != null) {
+            parts.add("PA " + range(paMin, paMax));
+        }
+        if (askingPriceMax != null) {
+            parts.add("fee ≤ " + askingPriceMax);
+        }
+        if (salaryMax != null) {
+            parts.add("wage ≤ " + salaryMax);
+        }
+        if (positionMinimums != null && !positionMinimums.isEmpty()) {
+            parts.add("positions " + positionMinimums);
+        }
+        return String.join(", ", parts);
+    }
+
+    private static void addPart(java.util.List<String> parts, String label, String value) {
+        if (value != null && !value.isBlank()) {
+            parts.add(label + " " + value.strip());
+        }
+    }
+
+    private static String range(Integer min, Integer max) {
+        if (min != null && max != null) {
+            return min + "–" + max;
+        }
+        if (min != null) {
+            return "≥ " + min;
+        }
+        return "≤ " + max;
+    }
+
     public boolean isEmpty() {
         return isBlank(name)
                 && isBlank(gender)

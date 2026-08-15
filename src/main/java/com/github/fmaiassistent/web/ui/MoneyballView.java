@@ -132,8 +132,17 @@ public class MoneyballView extends VerticalLayout {
         grid.addClassName("moneyball-grid");
         grid.setSelectionMode(Grid.SelectionMode.NONE);
         grid.setEmptyStateText("Pick your club in the top bar to see value signings.");
-        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
-
+        grid.addItemClickListener(event -> {
+            if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
+                return;
+            }
+            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+        });
+        grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
+                .setHeader("")
+                .setKey("ask")
+                .setWidth("3.5em")
+                .setFlexGrow(0);
         grid.addColumn(MoneyballRow::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(ratingRenderer()).setHeader("Signing")
                 .setSortable(true)
@@ -184,6 +193,8 @@ public class MoneyballView extends VerticalLayout {
             return;
         }
         String position = "Any".equals(positionFilter.getValue()) ? null : positionFilter.getValue();
+        ChatUiContext.setView("Moneyball");
+        ChatUiContext.setFilters(moneyballContext(position));
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
         CompletableFuture.supplyAsync(() ->
@@ -248,7 +259,7 @@ public class MoneyballView extends VerticalLayout {
         cost.addClassName("deal-card-cost");
         Button dossier = new Button("Dossier", event -> PlayerDossier.openNamed(tools, row.name(), currency, sessionClub));
         dossier.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
-        Button explain = new Button("Explain in Chat", event ->
+        Button explain = new Button("Ask FM AI", event ->
                 ChatLaunch.open(ChatLaunch.explainDeal(row.name(), sessionClub)));
         explain.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         HorizontalLayout actions = new HorizontalLayout(dossier, explain);
@@ -318,6 +329,23 @@ public class MoneyballView extends VerticalLayout {
 
     private String money(long pounds) {
         return MoneyDisplay.format(pounds, currency);
+    }
+
+    private String moneyballContext(String position) {
+        List<String> parts = new ArrayList<>();
+        if (position != null && !position.isBlank()) {
+            parts.add(position);
+        }
+        if (!maxPrice.isEmpty()) {
+            parts.add("fee cap " + money(feePounds() == null ? 0 : feePounds()));
+        }
+        if (!maxWage.isEmpty()) {
+            parts.add("wage cap " + money(wagePounds() == null ? 0 : wagePounds().longValue()));
+        }
+        if (!minCa.isEmpty()) {
+            parts.add("CA ≥ " + minCa.getValue());
+        }
+        return String.join(", ", parts);
     }
 
     private static String capitalize(String value) {

@@ -86,10 +86,28 @@ public class OpenRouterModelCatalog {
         return CompletableFuture.supplyAsync(this::refreshNow, fetchExecutor);
     }
 
-    public record Model(String id, String name, boolean tools) {
+    public record Model(
+            String id,
+            String name,
+            boolean tools,
+            Integer contextLength,
+            Double promptPerToken,
+            Double completionPerToken) {
         public String label() {
             String display = name == null || name.isBlank() ? id : name;
-            return tools ? display + " · " + id : display + " · " + id + " (no tools)";
+            StringBuilder label = new StringBuilder(display);
+            String ctx = formatContext(contextLength);
+            if (!ctx.isEmpty()) {
+                label.append(" · ").append(ctx);
+            }
+            String price = formatPrice(id, promptPerToken, completionPerToken);
+            if (!price.isEmpty()) {
+                label.append(" · ").append(price);
+            }
+            if (!tools) {
+                label.append(" (no tools)");
+            }
+            return label.toString();
         }
     }
 
@@ -106,7 +124,13 @@ public class OpenRouterModelCatalog {
                 continue;
             }
             String name = text(item, "name");
-            models.add(new Model(id, name.isBlank() ? id : name, supportsTools(item)));
+            models.add(new Model(
+                    id,
+                    name.isBlank() ? id : name,
+                    supportsTools(item),
+                    contextLength(item),
+                    rate(item.path("pricing").path("prompt")),
+                    rate(item.path("pricing").path("completion"))));
         }
         models.sort(Comparator
                 .comparing((Model model) -> !model.tools())
@@ -151,19 +175,140 @@ public class OpenRouterModelCatalog {
     }
 
     private String download(URI uri) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        return download(uri, null);
+    }
+
+    private String download(URI uri, String apiKey) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/json")
                 .header("User-Agent", APP_TITLE)
                 .header("HTTP-Referer", HTTP_REFERER)
                 .header("X-Title", APP_TITLE)
-                .GET()
-                .build();
+                .GET();
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+        HttpRequest request = builder.build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IllegalStateException("OpenRouter models HTTP " + response.statusCode());
         }
         return response.body() == null ? "" : response.body();
+    }
+
+    public ProbeResult probe(String apiKey) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return new ProbeResult(false, "Enter an OpenRouter API key first.");
+        }
+        try {
+            String body = download(MODELS_URI, apiKey.strip());
+            List<Model> models = parseModels(objectMapper, body);
+            if (models.isEmpty()) {
+                return new ProbeResult(false, "Key accepted but OpenRouter returned no text models.");
+            }
+            return new ProbeResult(true, "Connected · " + models.size() + " text models");
+        } catch (RuntimeException | IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return new ProbeResult(false, rootMessage(ex));
+        }
+    }
+
+    public record ProbeResult(boolean ok, String message) {
+    }
+
+    public Double estimateUsd(String modelId, Integer promptTokens, Integer completionTokens) {
+        return estimateUsd(cached, modelId, promptTokens, completionTokens);
+    }
+
+    public Integer estimatePromptTokens(String... parts) {
+        int chars = 0;
+        if (parts != null) {
+            for (String part : parts) {
+                if (part != null) {
+                    chars += part.length();
+                }
+            }
+        }
+        return Math.max(1, chars / 4);
+    }
+
+    static String formatContext(Integer contextLength) {
+        if (contextLength == null || contextLength <= 0) {
+            return "";
+        }
+        if (contextLength >= 1000) {
+            long thousands = Math.round(contextLength / 1000.0);
+            return thousands + "k ctx";
+        }
+        return contextLength + " ctx";
+    }
+
+    static String formatPrice(String id, Double promptPerToken, Double completionPerToken) {
+        boolean taggedFree = id != null && id.toLowerCase(Locale.ROOT).contains(":free");
+        boolean zeroRates = (promptPerToken == null || promptPerToken == 0)
+                && (completionPerToken == null || completionPerToken == 0);
+        if (taggedFree || (promptPerToken != null && completionPerToken != null && zeroRates)) {
+            return "Free";
+        }
+        if (promptPerToken == null || promptPerToken <= 0) {
+            return "";
+        }
+        double perMillion = promptPerToken * 1_000_000d;
+        if (perMillion >= 0.01) {
+            return String.format(Locale.US, "$%.2f/M", perMillion);
+        }
+        return String.format(Locale.US, "$%.4f/M", perMillion);
+    }
+
+    static Double estimateUsd(List<Model> models, String modelId, Integer promptTokens, Integer completionTokens) {
+        if (modelId == null || modelId.isBlank() || models == null) {
+            return null;
+        }
+        for (Model model : models) {
+            if (!modelId.equals(model.id())) {
+                continue;
+            }
+            double cost = 0;
+            boolean any = false;
+            if (model.promptPerToken() != null && promptTokens != null && promptTokens > 0) {
+                cost += model.promptPerToken() * promptTokens;
+                any = true;
+            }
+            if (model.completionPerToken() != null && completionTokens != null && completionTokens > 0) {
+                cost += model.completionPerToken() * completionTokens;
+                any = true;
+            }
+            return any ? cost : null;
+        }
+        return null;
+    }
+
+    private static Integer contextLength(JsonNode item) {
+        JsonNode node = item.get("context_length");
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        try {
+            int value = Integer.parseInt(node.asText().strip());
+            return value > 0 ? value : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Double rate(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        try {
+            double value = Double.parseDouble(node.asText().strip());
+            return value > 0 ? value : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private static boolean outputsText(JsonNode item) {

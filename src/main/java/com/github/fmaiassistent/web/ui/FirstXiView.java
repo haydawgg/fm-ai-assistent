@@ -145,6 +145,9 @@ public class FirstXiView extends VerticalLayout {
         grid.addClassName("first-xi-grid");
         grid.setEmptyStateText("Pick your club in the top bar and run.");
         grid.addItemClickListener(event -> {
+            if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
+                return;
+            }
             SquadAdvice.XiPick pick = event.getItem();
             if (pick.hole()) {
                 ChatLaunch.open(ChatLaunch.explainHole(pick.position(), sessionClub));
@@ -152,6 +155,17 @@ public class FirstXiView extends VerticalLayout {
             }
             PlayerDossier.openNamed(tools, pick.playerName(), currency, sessionClub);
         });
+        grid.addComponentColumn(pick -> {
+            if (pick.hole()) {
+                Button button = new Button(VaadinIcon.CHAT.create());
+                button.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+                button.setTooltipText("Ask FM AI about this hole");
+                button.getElement().setAttribute("aria-label", "Ask FM AI about this hole");
+                button.addClickListener(event -> ChatLaunch.open(ChatLaunch.explainHole(pick.position(), sessionClub)));
+                return button;
+            }
+            return ChatLaunch.askButton(pick.playerName(), sessionClub);
+        }).setHeader("").setKey("ask").setWidth("3.5em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.XiPick::playerName).setHeader("Player");
         grid.addColumn(SquadAdvice.XiPick::inPossessionRole).setHeader("In possession");

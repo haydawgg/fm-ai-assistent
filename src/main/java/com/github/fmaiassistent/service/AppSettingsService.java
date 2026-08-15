@@ -6,6 +6,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.github.fmaiassistent.FmAiAssistentApplication;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
+import com.github.fmaiassistent.web.ui.SavedChatPrompt;
 import com.github.fmaiassistent.web.ui.SavedPlayerView;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +33,15 @@ public class AppSettingsService {
     private static final String PLAYER_VIEWS_KEY = "player.views";
     private static final String OPENROUTER_API_KEY = "openrouter.api.key";
     private static final String OPENROUTER_MODEL_KEY = "openrouter.model";
+    private static final String CHAT_SESSION_KEY = "chat.session.id";
+    private static final String CHAT_PROMPTS_KEY = "chat.prompts";
+    private static final String CHAT_INSTRUCTIONS_KEY = "chat.instructions";
+    private static final String CHAT_DAILY_CAP_KEY = "chat.daily.cap.usd";
+    private static final String OPENROUTER_FALLBACK_KEY = "openrouter.fallback.model";
+    private static final String CHAT_TONE_KEY = "chat.tone";
+    private static final String PINNED_MODELS_KEY = "openrouter.models.pinned";
+    private static final String ONBOARDING_KEY = "onboarding.complete";
+    private static final String CHAT_TOP_P_KEY = "chat.top.p";
     private static final String LEGACY_OPENAI_API_KEY = "openai.api.key";
     private static final String LEGACY_OPENAI_MODEL_KEY = "openai.model";
 
@@ -178,6 +188,228 @@ public class AppSettingsService {
         return !openRouterApiKey().isBlank();
     }
 
+    public String chatInstructions() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(CHAT_INSTRUCTIONS_KEY, "");
+            return value == null ? "" : value;
+        }
+    }
+
+    public void saveChatInstructions(String instructions) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (instructions == null || instructions.isBlank()) {
+                properties.remove(CHAT_INSTRUCTIONS_KEY);
+            } else {
+                properties.setProperty(CHAT_INSTRUCTIONS_KEY, instructions.strip());
+            }
+            save(properties);
+        }
+    }
+
+    public double dailySpendCapUsd() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(CHAT_DAILY_CAP_KEY, "0");
+            if (value == null || value.isBlank()) {
+                return 0;
+            }
+            try {
+                return Math.max(0, Double.parseDouble(value.strip()));
+            } catch (NumberFormatException ex) {
+                return 0;
+            }
+        }
+    }
+
+    public void saveDailySpendCapUsd(Double capUsd) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (capUsd == null || capUsd <= 0) {
+                properties.remove(CHAT_DAILY_CAP_KEY);
+            } else {
+                properties.setProperty(CHAT_DAILY_CAP_KEY, Double.toString(capUsd));
+            }
+            save(properties);
+        }
+    }
+
+    public String openRouterFallbackModel() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(OPENROUTER_FALLBACK_KEY, "");
+            return value == null ? "" : value.strip();
+        }
+    }
+
+    public void saveOpenRouterFallbackModel(String model) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (model == null || model.isBlank()) {
+                properties.remove(OPENROUTER_FALLBACK_KEY);
+            } else {
+                properties.setProperty(OPENROUTER_FALLBACK_KEY, model.strip());
+            }
+            save(properties);
+        }
+    }
+
+    public ChatTone chatTone() {
+        synchronized (settingsLock) {
+            return ChatTone.fromProperty(load().getProperty(CHAT_TONE_KEY, ""));
+        }
+    }
+
+    public void saveChatTone(ChatTone tone) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            properties.setProperty(CHAT_TONE_KEY, (tone == null ? ChatTone.DETAILED : tone).name());
+            save(properties);
+        }
+    }
+
+    public List<String> pinnedModels() {
+        synchronized (settingsLock) {
+            String json = load().getProperty(PINNED_MODELS_KEY, "[]");
+            try {
+                List<String> ids = objectMapper.readValue(json, new TypeReference<>() {
+                });
+                if (ids == null || ids.isEmpty()) {
+                    return List.of();
+                }
+                return ids.stream().filter(id -> id != null && !id.isBlank()).map(String::strip).distinct().toList();
+            } catch (JacksonException ex) {
+                return List.of();
+            }
+        }
+    }
+
+    public void togglePinnedModel(String modelId) {
+        if (modelId == null || modelId.isBlank()) {
+            return;
+        }
+        synchronized (settingsLock) {
+            List<String> ids = new ArrayList<>(pinnedModels());
+            String id = modelId.strip();
+            if (!ids.remove(id)) {
+                ids.add(id);
+            }
+            Properties properties = load();
+            try {
+                properties.setProperty(PINNED_MODELS_KEY, objectMapper.writeValueAsString(ids));
+            } catch (JacksonException ex) {
+                throw new IllegalStateException("Could not serialize pinned models", ex);
+            }
+            save(properties);
+        }
+    }
+
+    public boolean onboardingComplete() {
+        synchronized (settingsLock) {
+            return "true".equalsIgnoreCase(load().getProperty(ONBOARDING_KEY, ""));
+        }
+    }
+
+    public void saveOnboardingComplete(boolean complete) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            properties.setProperty(ONBOARDING_KEY, Boolean.toString(complete));
+            save(properties);
+        }
+    }
+
+    public Double chatTopP() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(CHAT_TOP_P_KEY, "");
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            try {
+                double parsed = Double.parseDouble(value.strip());
+                if (parsed <= 0 || parsed > 1) {
+                    return null;
+                }
+                return parsed;
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+    }
+
+    public void saveChatTopP(Double topP) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (topP == null || topP <= 0 || topP > 1) {
+                properties.remove(CHAT_TOP_P_KEY);
+            } else {
+                properties.setProperty(CHAT_TOP_P_KEY, Double.toString(topP));
+            }
+            save(properties);
+        }
+    }
+
+    public String lastChatSessionId() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(CHAT_SESSION_KEY, "");
+            return value == null ? "" : value.strip();
+        }
+    }
+
+    public void saveLastChatSessionId(String sessionId) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (sessionId == null || sessionId.isBlank()) {
+                properties.remove(CHAT_SESSION_KEY);
+            } else {
+                properties.setProperty(CHAT_SESSION_KEY, sessionId.strip());
+            }
+            save(properties);
+        }
+    }
+
+    public List<SavedChatPrompt> chatPrompts() {
+        synchronized (settingsLock) {
+            String json = load().getProperty(CHAT_PROMPTS_KEY, "[]");
+            try {
+                List<SavedChatPrompt> prompts = objectMapper.readValue(json, new TypeReference<>() {
+                });
+                if (prompts == null || prompts.isEmpty()) {
+                    return List.of();
+                }
+                return prompts.stream()
+                        .filter(prompt -> prompt != null && prompt.name() != null && !prompt.name().isBlank()
+                                && prompt.text() != null && !prompt.text().isBlank())
+                        .toList();
+            } catch (JacksonException ex) {
+                return List.of();
+            }
+        }
+    }
+
+    public void saveChatPrompt(SavedChatPrompt prompt) {
+        if (prompt == null || prompt.name() == null || prompt.name().isBlank()
+                || prompt.text() == null || prompt.text().isBlank()) {
+            throw new IllegalArgumentException("Prompt name and text are required");
+        }
+        synchronized (settingsLock) {
+            List<SavedChatPrompt> prompts = new ArrayList<>(chatPrompts());
+            prompts.removeIf(existing -> existing.name().equalsIgnoreCase(prompt.name().strip()));
+            prompts.add(new SavedChatPrompt(prompt.name().strip(), prompt.text().strip()));
+            writeChatPrompts(prompts);
+        }
+    }
+
+    public void deleteChatPrompt(String name) {
+        if (name == null || name.isBlank()) {
+            return;
+        }
+        synchronized (settingsLock) {
+            List<SavedChatPrompt> prompts = new ArrayList<>(chatPrompts());
+            boolean removed = prompts.removeIf(existing -> existing.name().equalsIgnoreCase(name));
+            if (removed) {
+                writeChatPrompts(prompts);
+            }
+        }
+    }
+
     private static String firstNonBlank(String... values) {
         if (values == null) {
             return "";
@@ -188,6 +420,16 @@ public class AppSettingsService {
             }
         }
         return "";
+    }
+
+    private void writeChatPrompts(List<SavedChatPrompt> prompts) {
+        Properties properties = load();
+        try {
+            properties.setProperty(CHAT_PROMPTS_KEY, objectMapper.writeValueAsString(prompts));
+        } catch (JacksonException ex) {
+            throw new IllegalStateException("Could not serialize chat prompts", ex);
+        }
+        save(properties);
     }
 
     private void writePlayerViews(List<SavedPlayerView> views) {

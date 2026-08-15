@@ -89,7 +89,17 @@ public class AcademyView extends VerticalLayout {
     private void configureGrid() {
         grid.addClassName("moneyball-grid");
         grid.setEmptyStateText("No youth players at this age cap.");
-        grid.addItemClickListener(event -> PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub));
+        grid.addItemClickListener(event -> {
+            if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
+                return;
+            }
+            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+        });
+        grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
+                .setHeader("")
+                .setKey("ask")
+                .setWidth("3.5em")
+                .setFlexGrow(0);
         grid.addColumn(SquadAdvice.AcademyRow::name).setHeader("Name").setAutoWidth(true);
         grid.addColumn(SquadAdvice.AcademyRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(SquadAdvice.AcademyRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);

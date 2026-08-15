@@ -1,21 +1,36 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
+import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
+import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.AssistantChatService;
+import com.github.fmaiassistent.service.ChatTone;
+import com.github.fmaiassistent.service.ChatSessionService;
+import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.github.fmaiassistent.tactic.TacticContextService;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.DetachEvent;
+import com.vaadin.flow.component.ClientCallable;
+import com.vaadin.flow.component.Key;
+import com.vaadin.flow.component.Shortcuts;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.UIDetachedException;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
 import com.vaadin.flow.component.dependency.CssImport;
+import com.vaadin.flow.component.details.Details;
+import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.html.Pre;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.markdown.Markdown;
@@ -23,25 +38,32 @@ import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.component.upload.Upload;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.BeforeEnterEvent;
 import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.server.Command;
+import com.vaadin.flow.server.streams.UploadHandler;
 import reactor.core.Disposable;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -51,6 +73,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
 public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("d MMM");
     private static final long STREAM_PAINT_NANOS = 32_000_000L;
     private static final List<String> STARTERS = List.of(
             "Build my best XI from the live formation",
@@ -62,39 +85,69 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private final AppSettingsService settings;
     private final OpenRouterModelCatalog catalog;
     private final PlayerDatabaseService players;
+    private final ClubDatabaseService clubs;
+    private final ChatSessionService sessions;
     private final TacticContextService tacticContexts;
+    private final FmAiAssistentTools tools;
+    private final TacticContextPanel tacticPanel;
 
+    private final Div sessionList = new Div();
     private final Div transcript = new Div();
     private final TextArea input = new TextArea();
     private final Button send = new Button("Send", VaadinIcon.PAPERPLANE.create());
     private final Button stop = new Button("Stop", VaadinIcon.STOP.create());
     private final Button clear = new Button("New chat", VaadinIcon.PLUS.create());
+    private final Button export = new Button("Export", VaadinIcon.DOWNLOAD.create());
     private final Button settingsButton = new Button("Settings", VaadinIcon.COG.create());
     private final ComboBox<String> model = OpenRouterModelPicker.comboBox();
     private final Map<String, String> modelLabels = new LinkedHashMap<>();
     private final Span snapshot = new Span();
+    private final Span sessionCost = new Span();
+    private final Span omitted = new Span();
+    private final Span staleBanner = new Span();
+    private final Span composerHint = new Span();
     private final Div welcome = new Div();
     private final Div unconfigured = new Div();
     private final Div starters = new Div();
+    private final ComboBox<String> mention = new ComboBox<>();
+    private final ComboBox<String> slash = new ComboBox<>();
+    private final TextField sessionSearch = new TextField();
+    private final Select<ChatTone> tone = new Select<>();
+    private final Button pinModel = new Button(VaadinIcon.STAR.create());
+    private final Component sidebar;
 
     private Disposable activeStream;
     private AssistantTurn activeTurn;
     private boolean applyingModel;
-    private String conversationId = newConversationId();
+    private String conversationId;
     private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
     private String pendingPrompt = "";
+    private String lastUserText = "";
+    private String queuedMessage = "";
+    private boolean usedFallback;
+    private int lastUserOrdinal = -1;
+    private double sessionCostUsd;
+    private Integer pendingReplaceFrom;
 
     public ChatView(
             AssistantChatService chat,
             AppSettingsService settings,
             OpenRouterModelCatalog catalog,
             PlayerDatabaseService players,
-            TacticContextService tacticContexts) {
+            ClubDatabaseService clubs,
+            ChatSessionService sessions,
+            TacticContextService tacticContexts,
+            FmAiAssistentTools tools) {
         this.chat = chat;
         this.settings = settings;
         this.catalog = catalog;
         this.players = players;
+        this.clubs = clubs;
+        this.sessions = sessions;
         this.tacticContexts = tacticContexts;
+        this.tools = tools;
+        this.tacticPanel = new TacticContextPanel(tacticContexts);
+        this.sidebar = buildSidebar();
 
         setSizeFull();
         setPadding(false);
@@ -103,17 +156,37 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
         transcript.addClassName("chat-transcript");
         transcript.setWidthFull();
-        transcript.getElement().setAttribute("aria-live", "polite");
+        transcript.getElement().setAttribute("role", "log");
+        sessionList.addClassName("chat-session-list");
 
         buildWelcome();
         buildUnconfigured();
         transcript.add(unconfigured, welcome);
 
-        add(toolbar(), new TacticContextPanel(tacticContexts), transcript, composer());
-        setFlexGrow(1, transcript);
-        OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), true, modelLabels);
+        VerticalLayout main = new VerticalLayout(toolbar(), staleBanner, omitted, tacticPanel, transcript, composer());
+        main.setPadding(false);
+        main.setSpacing(false);
+        main.setSizeFull();
+        main.addClassName("chat-main");
+        main.setFlexGrow(1, transcript);
+
+        HorizontalLayout body = new HorizontalLayout(sidebar, main);
+        body.setSizeFull();
+        body.setPadding(false);
+        body.setSpacing(false);
+        body.setFlexGrow(0, sidebar);
+        body.setFlexGrow(1, main);
+        body.addClassName("chat-body");
+        add(body);
+        setFlexGrow(1, body);
+
+        OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), true, modelLabels, settings.pinnedModels());
+        refreshPinnedButton();
         refreshSnapshot();
         updateConfigurationState();
+        Shortcuts.addShortcutListener(this, this::openCommandPalette, Key.KEY_K)
+                .withCtrl()
+                .listenOn(this);
     }
 
     @Override
@@ -124,27 +197,72 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     @Override
     protected void onAttach(AttachEvent event) {
         super.onAttach(event);
+        openOrRestoreSession();
         refreshSnapshot();
         updateConfigurationState();
+        refreshSessions();
+        getElement().executeJs("""
+                this.addEventListener('paste', event => {
+                  const items = event.clipboardData ? event.clipboardData.items : [];
+                  for (const item of items) {
+                    if (item.type && item.type.startsWith('image/')) {
+                      event.preventDefault();
+                      const file = item.getAsFile();
+                      const reader = new FileReader();
+                      reader.onload = () => $0.$server.receivePastedImage(file.name || 'pasted.png', reader.result);
+                      reader.readAsDataURL(file);
+                      return;
+                    }
+                  }
+                });
+                """, getElement());
         if (!pendingPrompt.isBlank() && chat.configured()) {
             String prompt = pendingPrompt;
             pendingPrompt = "";
             event.getUI().getPage().getHistory().replaceState(null, "chat");
             input.setValue(prompt);
             send();
+        } else if (input.getValue() == null || input.getValue().isBlank()) {
+            String draft = ChatUiContext.draft();
+            if (!draft.isBlank()) {
+                input.setValue(draft);
+            }
         }
     }
 
     @Override
     protected void onDetach(DetachEvent event) {
+        ChatUiContext.setDraft(input.getValue());
         stopStream();
         super.onDetach(event);
+    }
+
+    private Component buildSidebar() {
+        Span heading = new Span("Chats");
+        heading.addClassName("chat-session-heading");
+        Button neu = new Button("New", VaadinIcon.PLUS.create(), event -> confirmNewChat());
+        neu.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        HorizontalLayout header = new HorizontalLayout(heading, neu);
+        header.setWidthFull();
+        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+        sessionSearch.setPlaceholder("Search chats");
+        sessionSearch.setWidthFull();
+        sessionSearch.setClearButtonVisible(true);
+        sessionSearch.setValueChangeMode(ValueChangeMode.EAGER);
+        sessionSearch.addValueChangeListener(event -> refreshSessions());
+        VerticalLayout sidebar = new VerticalLayout(header, sessionSearch, sessionList);
+        sidebar.setPadding(true);
+        sidebar.setSpacing(false);
+        sidebar.setWidth("16rem");
+        sidebar.addClassName("chat-sidebar");
+        return sidebar;
     }
 
     private Component toolbar() {
         Span title = new Span("FM AI chat");
         title.addClassName("chat-title");
         snapshot.addClassName("chat-snapshot");
+        sessionCost.addClassName("chat-session-cost");
 
         model.setLabel("");
         model.setPlaceholder("Model");
@@ -160,28 +278,53 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 return;
             }
             settings.saveOpenRouter(settings.openRouterApiKey(), selected);
+            refreshPinnedButton();
+        });
+
+        pinModel.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        pinModel.getElement().setAttribute("aria-label", "Pin model");
+        pinModel.addClickListener(event -> {
+            if (model.getValue() != null && !model.getValue().isBlank()) {
+                settings.togglePinnedModel(model.getValue());
+                OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), model.getValue(), settings.pinnedModels());
+                refreshPinnedButton();
+            }
+        });
+
+        tone.setLabel("");
+        tone.setItems(ChatTone.values());
+        tone.setItemLabelGenerator(ChatTone::label);
+        tone.setValue(settings.chatTone());
+        tone.setWidth("9rem");
+        tone.addValueChangeListener(event -> {
+            if (event.getValue() != null) {
+                settings.saveChatTone(event.getValue());
+            }
         });
 
         clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-        clear.addClickListener(event -> clearChat());
+        clear.addClickListener(event -> confirmNewChat());
+        export.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        export.addClickListener(event -> exportMarkdown());
         settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         settingsButton.addClickListener(event -> SettingsDialog.open(
                 settings, catalog, settings.currency(), ignored -> {
                     applyingModel = true;
                     try {
-                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel());
+                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel(), settings.pinnedModels());
                     } finally {
                         applyingModel = false;
                     }
                     updateConfigurationState();
+                    refreshStarters();
                 }));
 
-        HorizontalLayout identity = new HorizontalLayout(title, snapshot);
+        HorizontalLayout identity = new HorizontalLayout(title, snapshot, sessionCost);
         identity.setAlignItems(FlexComponent.Alignment.CENTER);
         identity.setSpacing(true);
         identity.addClassName("chat-identity");
 
-        HorizontalLayout actions = new HorizontalLayout(model, clear, settingsButton);
+        HorizontalLayout actions = new HorizontalLayout(tone, model, pinModel, clear, export, settingsButton);
         actions.setAlignItems(FlexComponent.Alignment.CENTER);
         actions.setSpacing(true);
         actions.addClassName("chat-toolbar-actions");
@@ -199,10 +342,28 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         H3 title = new H3("What are we solving today?");
         Span copy = new Span("Ask naturally. I inspect the loaded FM snapshot with the same recruitment and squad tools as /mcp. Upload an .fmf below for role-fit context.");
         copy.addClassName("chat-welcome-copy");
-        Span tip = new Span("Every answer is grounded in your latest saved snapshot. Mention a budget, position, or club to make recommendations sharper.");
+        Span tip = new Span("Type / for commands or @ to mention a squad player. Answers stay grounded in your latest snapshot.");
         tip.addClassName("chat-welcome-tip");
         starters.addClassName("chat-starters");
-        for (String prompt : STARTERS) {
+        refreshStarters();
+        welcome.add(title, copy, tip, starters);
+    }
+
+    private void refreshStarters() {
+        starters.removeAll();
+        if (players.countPlayers() <= 0) {
+            Button load = new Button("Load from RAM first", event -> Notification.show(
+                    "Use Load in the top bar with FM26 running.", 2500, Notification.Position.TOP_CENTER));
+            load.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+            load.addClassName("chat-starter");
+            starters.add(load);
+            return;
+        }
+        LinkedHashSet<String> prompts = new LinkedHashSet<>(STARTERS);
+        for (SavedChatPrompt prompt : settings.chatPrompts()) {
+            prompts.add(prompt.text());
+        }
+        for (String prompt : prompts) {
             Button button = new Button(prompt, event -> {
                 if (!chat.configured() || activeStream != null) {
                     return;
@@ -214,7 +375,6 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             button.addClassName("chat-starter");
             starters.add(button);
         }
-        welcome.add(title, copy, tip, starters);
     }
 
     private void buildUnconfigured() {
@@ -226,31 +386,46 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 settings, catalog, settings.currency(), ignored -> {
                     applyingModel = true;
                     try {
-                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel());
+                        OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel(), settings.pinnedModels());
                     } finally {
                         applyingModel = false;
                     }
                     updateConfigurationState();
+                    refreshStarters();
                 }));
         openSettings.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         unconfigured.add(title, copy, openSettings);
     }
 
     private Component composer() {
-        input.setPlaceholder("Ask about your squad, transfers, tactics, or a player...");
+        omitted.addClassName("chat-omitted");
+        omitted.setVisible(false);
+        staleBanner.addClassName("chat-stale");
+        staleBanner.setVisible(false);
+
+        input.setPlaceholder("Ask about your squad, transfers, tactics, or a player...  /xi  @name");
         input.setWidthFull();
         input.setMinHeight("4.5em");
         input.setMaxHeight("12em");
         input.setAriaLabel("Message");
         input.setValueChangeMode(ValueChangeMode.EAGER);
+        input.addValueChangeListener(event -> {
+            updateComposerHint();
+            maybeOfferMention(event.getValue());
+            maybeOfferSlash(event.getValue());
+            ChatUiContext.setDraft(event.getValue());
+        });
         input.getElement().addEventListener("keydown", event -> send())
                 .setFilter("event.key === 'Enter' && !event.shiftKey")
                 .addEventData("event.preventDefault()");
+        input.getElement().addEventListener("keydown", event -> editLastUser())
+                .setFilter("event.key === 'ArrowUp' && event.target.value === ''");
 
         send.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         send.addClickListener(event -> send());
         send.addClassName("chat-send");
         send.getElement().setAttribute("aria-label", "Send message");
+        send.getElement().setProperty("title", chat.configured() ? "Send" : "Set an OpenRouter key in Settings to use in-app chat");
         stop.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
         stop.setVisible(false);
         stop.addClickListener(event -> stopStream());
@@ -258,8 +433,52 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         stop.getElement().setAttribute("aria-label", "Stop generating");
         clear.getElement().setAttribute("aria-label", "Start a new chat");
 
-        Span hint = new Span("Enter to send · Shift + Enter for a new line");
-        hint.addClassName("chat-composer-hint");
+        composerHint.addClassName("chat-composer-hint");
+        updateComposerHint();
+
+        mention.setPlaceholder("@ player");
+        mention.setClearButtonVisible(true);
+        mention.setVisible(false);
+        mention.addValueChangeListener(event -> {
+            if (event.getValue() == null || event.getValue().isBlank()) {
+                return;
+            }
+            String current = input.getValue() == null ? "" : input.getValue();
+            int at = current.lastIndexOf('@');
+            String prefix = at >= 0 ? current.substring(0, at) : current;
+            input.setValue(prefix + event.getValue() + " ");
+            mention.clear();
+            mention.setVisible(false);
+            input.focus();
+        });
+        slash.setPlaceholder("/ command");
+        slash.setClearButtonVisible(true);
+        slash.setVisible(false);
+        slash.addValueChangeListener(event -> {
+            if (event.getValue() == null || event.getValue().isBlank()) {
+                return;
+            }
+            String name = event.getValue().split(" — ", 2)[0];
+            ChatSlashCommands.COMMANDS.stream()
+                    .filter(command -> command.name().equals(name))
+                    .findFirst()
+                    .ifPresent(command -> input.setValue(command.prompt()));
+            slash.clear();
+            slash.setVisible(false);
+            input.focus();
+        });
+
+        Upload drop = new Upload(UploadHandler.inMemory((metadata, bytes) -> {
+            String name = metadata.fileName() == null ? "uploaded-tactic" : metadata.fileName();
+            tacticContexts.loadUploads(Map.of(name, bytes));
+        }));
+        drop.setDropAllowed(true);
+        drop.setAutoUpload(true);
+        drop.setMaxFiles(4);
+        drop.setAcceptedFileTypes(".fmf", ".png", ".jpg", ".jpeg");
+        drop.setUploadButton(new Button("Drop .fmf", VaadinIcon.UPLOAD.create()));
+        drop.addClassName("chat-drop");
+        drop.addAllFinishedListener(event -> Notification.show("Tactic context updated", 1600, Notification.Position.BOTTOM_CENTER));
 
         HorizontalLayout actions = new HorizontalLayout(send, stop);
         actions.setPadding(false);
@@ -273,7 +492,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         row.setFlexGrow(1, input);
         row.addClassName("chat-composer-row");
 
-        VerticalLayout composer = new VerticalLayout(row, hint);
+        VerticalLayout composer = new VerticalLayout(row, mention, slash, drop, composerHint);
         composer.setPadding(false);
         composer.setSpacing(false);
         composer.setWidthFull();
@@ -282,31 +501,64 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void refreshSnapshot() {
-        long count = players.countPlayers();
-        snapshot.setText(count <= 0
-                ? "No RAM snapshot — load from the top bar"
-                : count + " players loaded");
-        snapshot.getElement().setAttribute("data-empty", count <= 0);
+        SnapshotHeartbeat.Status status = SnapshotHeartbeat.from(players.metadata(), players.countPlayers());
+        snapshot.setText(status.label());
+        snapshot.getElement().setAttribute("data-empty", status.empty());
+        snapshot.getElement().setAttribute("data-stale", status.stale());
+        staleBanner.setVisible(status.empty() || status.stale());
+        staleBanner.setText(status.empty()
+                ? "No RAM snapshot loaded — answers will be thin until you load from the top bar."
+                : "Snapshot is stale. Load from RAM again if the save has moved on.");
+    }
+
+    private void updateComposerHint() {
+        String text = input.getValue() == null ? "" : input.getValue();
+        int approx = catalog.estimatePromptTokens(text);
+        Double estimate = catalog.estimateUsd(settings.openRouterModel(), approx, 600);
+        double cap = settings.dailySpendCapUsd();
+        double spent = todaySpendUsd();
+        StringBuilder hint = new StringBuilder("Enter to send · Shift+Enter newline · ~" + approx + " tok");
+        if (estimate != null) {
+            hint.append(String.format(" · est. $%.4f", estimate));
+        }
+        if (cap > 0) {
+            hint.append(String.format(" · cap $%.2f ($%.4f today)", cap, spent));
+        }
+        if (activeStream != null) {
+            hint.append(" · sending queues until this reply finishes");
+        }
+        composerHint.setText(hint.toString());
+    }
+
+    private void updateOmitted() {
+        int omittedCount = AssistantChatService.omittedCount(history);
+        omitted.setVisible(omittedCount > 0);
+        omitted.setText(omittedCount + " earlier messages are summarised for the model.");
     }
 
     private void updateConfigurationState() {
         boolean configured = chat.configured();
         boolean streaming = activeStream != null;
-        input.setEnabled(configured && !streaming);
-        send.setEnabled(configured && !streaming);
-        send.setVisible(!streaming);
+        input.setEnabled(configured);
+        send.setEnabled(configured);
+        send.setVisible(true);
+        send.getElement().setProperty("title", configured
+                ? "Send"
+                : "Set an OpenRouter key in Settings to use in-app chat");
         stop.setVisible(streaming);
         stop.setEnabled(streaming);
         stop.getElement().setAttribute("data-busy", streaming);
-        model.setEnabled(!streaming);
-        clear.setEnabled(!streaming);
+        model.setEnabled(true);
+        clear.setEnabled(true);
+        export.setEnabled(hasMessages());
         starters.getChildren().forEach(child -> {
             if (child instanceof Button button) {
-                button.setEnabled(configured && !streaming);
+                button.setEnabled(configured);
             }
         });
         unconfigured.setVisible(!configured);
         welcome.setVisible(configured && !hasMessages());
+        updateOmitted();
     }
 
     private boolean hasMessages() {
@@ -314,28 +566,88 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void send() {
-        String message = input.getValue();
-        if (message == null || message.isBlank() || activeStream != null || !chat.configured()) {
+        String raw = input.getValue();
+        if (raw == null || raw.isBlank() || !chat.configured()) {
             return;
         }
-        appendUserMessage(message.trim());
+        String message = ChatSlashCommands.expand(raw.trim()).orElse(raw.trim());
+        if (activeStream != null) {
+            queuedMessage = message;
+            input.clear();
+            ChatUiContext.setDraft("");
+            Notification.show("Queued — sending when this reply finishes", 1800, Notification.Position.BOTTOM_CENTER)
+                    .addClassName("app-toast");
+            return;
+        }
+        Double estimate = catalog.estimateUsd(
+                settings.openRouterModel(),
+                catalog.estimatePromptTokens(message, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                600);
+        String blocked = ChatSessionService.blockIfOverCap(settings.dailySpendCapUsd(), todaySpendUsd(), estimate);
+        if (blocked != null) {
+            Notification.show(blocked, 4000, Notification.Position.MIDDLE)
+                    .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+            return;
+        }
         input.clear();
+        ChatUiContext.setDraft("");
+        mention.setVisible(false);
+        slash.setVisible(false);
+        if (pendingReplaceFrom != null && conversationId != null) {
+            sessions.deleteFrom(conversationId, pendingReplaceFrom);
+            if (pendingReplaceFrom <= history.size()) {
+                history.subList(pendingReplaceFrom, history.size()).clear();
+            }
+            pendingReplaceFrom = null;
+            reloadTranscript();
+        }
+        streamUserMessage(message, true, null);
+    }
+
+    private void streamUserMessage(String message, boolean persistUser) {
+        streamUserMessage(message, persistUser, null);
+    }
+
+    private void streamUserMessage(String message, boolean persistUser, String modelOverride) {
+        ensureSession();
         welcome.setVisible(false);
         unconfigured.setVisible(false);
+        lastUserText = message;
+        List<AssistantChatService.ChatTurn> prior = historyForModel();
+        if (persistUser) {
+            ChatMessageEntity saved = persist("user", message, ChatSessionService.MessageExtras.NONE);
+            lastUserOrdinal = saved.getOrdinal();
+            transcript.add(userCard(message, lastUserOrdinal));
+            history.add(new AssistantChatService.ChatTurn(true, message));
+        } else if (!history.isEmpty() && history.getLast().user()) {
+            prior = historyForModel(history.subList(0, history.size() - 1));
+        }
+        refreshSessions();
+        updateOmitted();
 
-        AssistantTurn turn = new AssistantTurn();
+        String modelId = modelOverride == null || modelOverride.isBlank()
+                ? settings.openRouterModel()
+                : modelOverride;
+        if (modelOverride == null || modelOverride.isBlank()) {
+            usedFallback = false;
+        }
+        AssistantTurn turn = new AssistantTurn(modelId);
         activeTurn = turn;
         transcript.add(turn.root);
         scrollToLatest();
         updateConfigurationState();
+        updateComposerHint();
 
         UI ui = getUI().orElse(null);
         StringBuilder response = new StringBuilder();
         AtomicBoolean first = new AtomicBoolean(true);
         AtomicLong lastPaint = new AtomicLong(0);
-        List<AssistantChatService.ChatTurn> prior = List.copyOf(history);
-        history.add(new AssistantChatService.ChatTurn(true, message.trim()));
-        activeStream = chat.streamEvents(prior, message.trim(), conversationId)
+        AtomicLong started = new AtomicLong(System.nanoTime());
+        AtomicLong firstToken = new AtomicLong(0);
+        List<AssistantChatService.ToolTrace> traces = new ArrayList<>();
+        AssistantChatService.UsageSnapshot[] usage = {new AssistantChatService.UsageSnapshot(null, null)};
+        AssistantChatService.ThinkSplitter splitter = new AssistantChatService.ThinkSplitter();
+        activeStream = chat.streamEvents(prior, message, conversationId, grounding(), modelOverride)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         event -> access(ui, () -> {
@@ -343,7 +655,32 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                                 turn.addTool(event.text());
                                 return;
                             }
-                            response.append(event.text());
+                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE && event.trace() != null) {
+                                traces.add(event.trace());
+                                turn.addTrace(event.trace());
+                                return;
+                            }
+                            if (event.usage() != null && (event.usage().promptTokens() != null || event.usage().completionTokens() != null)) {
+                                usage[0] = event.usage();
+                            }
+                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.REASONING) {
+                                turn.addReasoning(event.text());
+                                return;
+                            }
+                            if (event.kind() != AssistantChatService.ChatStreamEvent.Kind.TOKEN || event.text() == null || event.text().isEmpty()) {
+                                return;
+                            }
+                            AssistantChatService.ThinkSplitter.Piece piece = splitter.push(event.text());
+                            if (!piece.reasoning().isBlank()) {
+                                turn.addReasoning(piece.reasoning());
+                            }
+                            if (piece.answer().isEmpty()) {
+                                return;
+                            }
+                            if (firstToken.get() == 0) {
+                                firstToken.set(System.nanoTime());
+                            }
+                            response.append(piece.answer());
                             turn.buffer(response.toString());
                             if (first.compareAndSet(true, false)) {
                                 turn.showContent();
@@ -356,14 +693,22 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             }
                         }),
                         error -> access(ui, () -> {
+                            if (tryFallback()) {
+                                if (turn.close()) {
+                                    turn.root.removeFromParent();
+                                }
+                                finishStream(false);
+                                streamUserMessage(lastUserText, false, settings.openRouterFallbackModel());
+                                return;
+                            }
                             if (!turn.close()) {
                                 return;
                             }
                             if (first.get()) {
                                 turn.showContent();
                             }
-                            rememberAssistant(response.toString());
-                            turn.setError("I couldn't complete that request. " + safeMessage(error));
+                            turn.setError("I couldn't complete that request. " + safeMessage(error), lastUserText, this::retryLast);
+                            persist("error", turn.rawText(), extras(traces, usage[0], started.get(), firstToken.get(), turn.reasoningText()));
                             turn.finishStreaming();
                             finishStream();
                         }),
@@ -374,34 +719,162 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             if (first.get()) {
                                 turn.showContent();
                             }
+                            AssistantChatService.ThinkSplitter.Piece tail = splitter.flush();
+                            if (!tail.reasoning().isBlank()) {
+                                turn.addReasoning(tail.reasoning());
+                            }
+                            if (!tail.answer().isEmpty()) {
+                                response.append(tail.answer());
+                            }
+                            long duration = (System.nanoTime() - started.get()) / 1_000_000L;
+                            Integer ttft = firstToken.get() == 0 ? null : (int) ((firstToken.get() - started.get()) / 1_000_000L);
                             turn.setMarkdown(response.toString());
+                            turn.setStats(usage[0], catalog.estimateUsd(settings.openRouterModel(), usage[0].promptTokens(), usage[0].completionTokens()), ttft, duration);
+                            turn.setMentions(ChatEntityLinker.mentions(response.toString(), squadNames(), clubs.findNames()), this::openPlayer, this::openClub);
+                            turn.setCitations(traces);
+                            turn.setFollowUps(this::sendPrompt);
                             rememberAssistant(response.toString());
+                            ChatMessageEntity saved = persist("assistant", response.toString(), extras(traces, usage[0], started.get(), firstToken.get(), turn.reasoningText()));
+                            addSessionCost(usage[0]);
                             turn.finishStreaming();
+                            turn.bindFeedback(saved);
+                            pingIfTabHidden();
                             finishStream();
+                            refreshSessions();
                             scrollToLatest();
                         }));
     }
 
-    private void appendUserMessage(String text) {
+    private List<AssistantChatService.ChatTurn> historyForModel() {
+        return historyForModel(history);
+    }
+
+    private static List<AssistantChatService.ChatTurn> historyForModel(List<AssistantChatService.ChatTurn> turns) {
+        int start = Math.max(0, turns.size() - AssistantChatService.MAX_HISTORY_MESSAGES);
+        return List.copyOf(turns.subList(start, turns.size()));
+    }
+
+    private ChatSessionService.MessageExtras extras(
+            List<AssistantChatService.ToolTrace> traces,
+            AssistantChatService.UsageSnapshot usage,
+            long startedNs,
+            long firstTokenNs,
+            String reasoning) {
+        Integer ttft = firstTokenNs == 0 ? null : (int) ((firstTokenNs - startedNs) / 1_000_000L);
+        int duration = (int) ((System.nanoTime() - startedNs) / 1_000_000L);
+        Double cost = catalog.estimateUsd(settings.openRouterModel(), usage.promptTokens(), usage.completionTokens());
+        return new ChatSessionService.MessageExtras(
+                tracesJson(traces),
+                usage.promptTokens(),
+                usage.completionTokens(),
+                cost,
+                ttft,
+                duration,
+                reasoning == null || reasoning.isBlank() ? null : reasoning);
+    }
+
+    private static String tracesJson(List<AssistantChatService.ToolTrace> traces) {
+        if (traces == null || traces.isEmpty()) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder("[");
+        for (int index = 0; index < traces.size(); index++) {
+            AssistantChatService.ToolTrace trace = traces.get(index);
+            if (index > 0) {
+                out.append(',');
+            }
+            out.append("{\"name\":").append(json(trace.name()))
+                    .append(",\"label\":").append(json(trace.label()))
+                    .append(",\"input\":").append(json(trace.input()))
+                    .append(",\"output\":").append(json(trace.output()))
+                    .append(",\"elapsedMs\":").append(trace.elapsedMs())
+                    .append('}');
+        }
+        return out.append(']').toString();
+    }
+
+    private static String json(String value) {
+        String text = value == null ? "" : value;
+        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "") + "\"";
+    }
+
+    private ChatMessageEntity persist(String role, String body, ChatSessionService.MessageExtras extras) {
+        ensureSession();
+        return sessions.append(conversationId, role, body, settings.openRouterModel(), extras);
+    }
+
+    private Div userCard(String text, int ordinal) {
         Div message = new Div();
         message.addClassName("chat-message");
         message.addClassName("chat-message-user");
-        Span meta = new Span("You · " + LocalTime.now().format(TIME_FORMAT));
+        Span meta = new Span("You · " + LocalTime.now().format(TIME_FORMAT) + asOfStamp());
         meta.addClassName("chat-message-meta");
+        Button copy = iconButton(VaadinIcon.COPY, "Copy", () -> copyText(text));
+        Button edit = iconButton(VaadinIcon.EDIT, "Edit", () -> editUser(text, ordinal));
+        Button delete = iconButton(VaadinIcon.TRASH, "Delete", () -> deleteFrom(ordinal));
+        HorizontalLayout heading = new HorizontalLayout(meta, copy, edit, delete);
+        heading.setWidthFull();
+        heading.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+        heading.addClassName("chat-message-heading");
         Span body = new Span(text);
         body.addClassName("chat-message-body");
-        message.add(meta, body);
-        transcript.add(message);
+        message.add(heading, body);
+        return message;
     }
 
-    private void clearChat() {
-        stopStream();
-        tacticContexts.forgetConversation(conversationId);
-        conversationId = newConversationId();
-        history.clear();
-        transcript.removeAll();
-        transcript.add(unconfigured, welcome);
-        updateConfigurationState();
+    private void editUser(String text, int ordinal) {
+        pendingReplaceFrom = ordinal;
+        input.setValue(text);
+        input.focus();
+    }
+
+    private void editLastUser() {
+        if (input.getValue() != null && !input.getValue().isBlank()) {
+            return;
+        }
+        int lastUser = history.size() - 1;
+        while (lastUser >= 0 && !history.get(lastUser).user()) {
+            lastUser--;
+        }
+        if (lastUser >= 0) {
+            pendingReplaceFrom = lastUser;
+            input.setValue(history.get(lastUser).text());
+        }
+    }
+
+    private void deleteFrom(int ordinal) {
+        if (conversationId == null) {
+            return;
+        }
+        sessions.deleteFrom(conversationId, ordinal);
+        reloadTranscript();
+    }
+
+    private void retryLast() {
+        if (lastUserText.isBlank() || activeStream != null) {
+            return;
+        }
+        streamUserMessage(lastUserText, false);
+    }
+
+    private void regenerateFrom(String userText) {
+        if (userText == null || userText.isBlank() || activeStream != null) {
+            return;
+        }
+        if (conversationId != null && !history.isEmpty()) {
+            int lastUser = history.size() - 1;
+            while (lastUser >= 0 && !history.get(lastUser).user()) {
+                lastUser--;
+            }
+            if (lastUser >= 0) {
+                int cut = lastUserOrdinal >= 0 ? lastUserOrdinal + 1 : lastUser + 1;
+                sessions.deleteFrom(conversationId, cut);
+                history.subList(lastUser + 1, history.size()).clear();
+                reloadTranscript();
+            }
+        }
+        streamUserMessage(userText, false);
     }
 
     private void rememberAssistant(String text) {
@@ -424,6 +897,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             } else {
                 turn.paint();
                 rememberAssistant(turn.rawText());
+                persist("assistant", turn.rawText(), extras(List.of(),
+                        new AssistantChatService.UsageSnapshot(null, null), System.nanoTime(), 0, turn.reasoningText()));
             }
             turn.finishStreaming();
         }
@@ -431,9 +906,332 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void finishStream() {
+        finishStream(true);
+    }
+
+    private void finishStream(boolean drainQueue) {
         activeStream = null;
         activeTurn = null;
         updateConfigurationState();
+        updateComposerHint();
+        if (!drainQueue || queuedMessage == null || queuedMessage.isBlank() || !chat.configured()) {
+            return;
+        }
+        String next = queuedMessage;
+        queuedMessage = "";
+        streamUserMessage(next, true, null);
+    }
+
+    private boolean tryFallback() {
+        if (usedFallback) {
+            return false;
+        }
+        String fallback = settings.openRouterFallbackModel();
+        String primary = settings.openRouterModel();
+        if (fallback == null || fallback.isBlank() || fallback.equals(primary)) {
+            return false;
+        }
+        usedFallback = true;
+        Notification.show("Retrying with " + fallback, 2200, Notification.Position.BOTTOM_CENTER)
+                .addClassName("app-toast");
+        return true;
+    }
+
+    private void sendPrompt(String prompt) {
+        if (prompt == null || prompt.isBlank() || !chat.configured() || activeStream != null) {
+            return;
+        }
+        streamUserMessage(prompt, true, null);
+    }
+
+    private void confirmNewChat() {
+        if (!hasMessages()) {
+            newChat();
+            return;
+        }
+        ConfirmDialog dialog = new ConfirmDialog();
+        dialog.setHeader("Start a new chat?");
+        dialog.setText("The current conversation stays in the sidebar.");
+        dialog.setConfirmText("New chat");
+        dialog.setCancelText("Cancel");
+        dialog.setCancelable(true);
+        dialog.addConfirmListener(event -> newChat());
+        dialog.open();
+    }
+
+    private void exportMarkdown() {
+        StringBuilder markdown = new StringBuilder("# FM AI chat\n\n");
+        for (AssistantChatService.ChatTurn turn : history) {
+            markdown.append(turn.user() ? "## You\n\n" : "## FM AI\n\n")
+                    .append(turn.text() == null ? "" : turn.text())
+                    .append("\n\n");
+        }
+        copyText(markdown.toString());
+    }
+
+    private AssistantChatService.ChatGrounding grounding() {
+        SnapshotHeartbeat.Status status = SnapshotHeartbeat.from(players.metadata(), players.countPlayers());
+        Object gameDate = players.metadata().get("game_date");
+        String date = gameDate == null ? "" : String.valueOf(gameDate).strip();
+        return new AssistantChatService.ChatGrounding(
+                settings.sessionClub(),
+                settings.currency().label() + " (" + settings.currency().symbol() + ")",
+                ChatUiContext.view(),
+                ChatUiContext.filters(),
+                date,
+                status.empty(),
+                status.stale(),
+                settings.chatInstructions());
+    }
+
+    private String asOfStamp() {
+        Object gameDate = players.metadata().get("game_date");
+        if (gameDate == null || String.valueOf(gameDate).isBlank()) {
+            return "";
+        }
+        return " · as of " + String.valueOf(gameDate).strip();
+    }
+
+    private double todaySpendUsd() {
+        OffsetDateTime start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+        return sessions.spendUsdSince(start);
+    }
+
+    private void newChat() {
+        stopStream();
+        if (conversationId != null) {
+            tacticContexts.forgetConversation(conversationId);
+        }
+        ChatSessionEntity created = sessions.create(settings.openRouterModel());
+        conversationId = created.getId();
+        settings.saveLastChatSessionId(conversationId);
+        history.clear();
+        sessionCostUsd = 0;
+        sessionCost.setText("");
+        lastUserText = "";
+        lastUserOrdinal = -1;
+        pendingReplaceFrom = null;
+        queuedMessage = "";
+        usedFallback = false;
+        transcript.removeAll();
+        transcript.add(unconfigured, welcome);
+        refreshStarters();
+        refreshSessions();
+        updateConfigurationState();
+    }
+
+    private void openOrRestoreSession() {
+        String last = settings.lastChatSessionId();
+        ChatSessionEntity session = sessions.find(last).orElse(null);
+        if (session == null) {
+            newChat();
+            return;
+        }
+        conversationId = session.getId();
+        reloadTranscript();
+    }
+
+    private void openSession(String id) {
+        stopStream();
+        conversationId = id;
+        settings.saveLastChatSessionId(id);
+        reloadTranscript();
+        refreshSessions();
+    }
+
+    private void reloadTranscript() {
+        history.clear();
+        sessionCostUsd = 0;
+        transcript.removeAll();
+        transcript.add(unconfigured, welcome);
+        if (conversationId == null) {
+            updateConfigurationState();
+            return;
+        }
+        List<ChatMessageEntity> rows = sessions.messages(conversationId);
+        for (ChatMessageEntity row : rows) {
+            if ("user".equals(row.getRole())) {
+                lastUserText = row.getBody();
+                lastUserOrdinal = row.getOrdinal();
+                history.add(new AssistantChatService.ChatTurn(true, row.getBody()));
+                transcript.add(userCard(row.getBody(), row.getOrdinal()));
+            } else if ("assistant".equals(row.getRole())) {
+                history.add(new AssistantChatService.ChatTurn(false, row.getBody()));
+                AssistantTurn turn = new AssistantTurn(row.getModel());
+                turn.showContent();
+                turn.setMarkdown(row.getBody());
+                turn.finishStreaming();
+                if (row.getCostUsd() != null) {
+                    sessionCostUsd += row.getCostUsd();
+                }
+                turn.setStats(
+                        new AssistantChatService.UsageSnapshot(row.getPromptTokens(), row.getCompletionTokens()),
+                        row.getCostUsd(),
+                        row.getTtftMs(),
+                        row.getDurationMs() == null ? 0 : row.getDurationMs());
+                turn.setMentions(ChatEntityLinker.mentions(row.getBody(), squadNames(), clubs.findNames()), this::openPlayer, this::openClub);
+                turn.setCitationsFromJson(row.getToolsJson());
+                turn.setStoredReasoning(row.getReasoning());
+                turn.addStoredTraces(row.getToolsJson());
+                turn.bindFeedback(row);
+                transcript.add(turn.root);
+            } else if ("error".equals(row.getRole())) {
+                AssistantTurn turn = new AssistantTurn(row.getModel());
+                turn.setError(row.getBody(), lastUserText, this::retryLast);
+                transcript.add(turn.root);
+            }
+        }
+        addSessionCost(new AssistantChatService.UsageSnapshot(null, null));
+        welcome.setVisible(chat.configured() && rows.isEmpty());
+        updateConfigurationState();
+        scrollToLatest();
+    }
+
+    private void refreshSessions() {
+        sessionList.removeAll();
+        LocalDate lastDay = null;
+        for (ChatSessionEntity session : sessions.search(sessionSearch.getValue())) {
+            LocalDate day = session.getUpdatedAt() == null ? LocalDate.now() : session.getUpdatedAt().toLocalDate();
+            if (!day.equals(lastDay)) {
+                Span label = new Span(day.format(DAY_FORMAT));
+                label.addClassName("chat-session-day");
+                sessionList.add(label);
+                lastDay = day;
+            }
+            Button open = new Button(session.getTitle() == null ? ChatSessionService.DEFAULT_TITLE : session.getTitle());
+            open.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            open.addClassName("chat-session-item");
+            if (session.getId().equals(conversationId)) {
+                open.addClassName("chat-session-active");
+            }
+            open.addClickListener(event -> openSession(session.getId()));
+            Button rename = iconButton(VaadinIcon.EDIT, "Rename", () -> renameSession(session));
+            Button delete = iconButton(VaadinIcon.TRASH, "Delete", () -> {
+                sessions.delete(session.getId());
+                if (session.getId().equals(conversationId)) {
+                    newChat();
+                } else {
+                    refreshSessions();
+                }
+            });
+            HorizontalLayout row = new HorizontalLayout(open, rename, delete);
+            row.setWidthFull();
+            row.setFlexGrow(1, open);
+            sessionList.add(row);
+        }
+    }
+
+    private void renameSession(ChatSessionEntity session) {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Rename chat");
+        TextField title = new TextField();
+        title.setWidthFull();
+        title.setValue(session.getTitle());
+        Button save = new Button("Save", event -> {
+            sessions.rename(session.getId(), title.getValue());
+            dialog.close();
+            refreshSessions();
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        dialog.add(title);
+        dialog.getFooter().add(save);
+        dialog.open();
+        title.focus();
+    }
+
+    private void ensureSession() {
+        if (conversationId != null && sessions.find(conversationId).isPresent()) {
+            return;
+        }
+        ChatSessionEntity created = sessions.create(settings.openRouterModel());
+        conversationId = created.getId();
+        settings.saveLastChatSessionId(conversationId);
+    }
+
+    private void addSessionCost(AssistantChatService.UsageSnapshot usage) {
+        Double extra = catalog.estimateUsd(settings.openRouterModel(), usage.promptTokens(), usage.completionTokens());
+        if (extra != null) {
+            sessionCostUsd += extra;
+        }
+        sessionCost.setText(sessionCostUsd <= 0 ? "" : String.format("Session $%.4f", sessionCostUsd));
+    }
+
+    private void maybeOfferSlash(String value) {
+        if (value == null || !value.startsWith("/") || value.contains(" ")) {
+            slash.setVisible(false);
+            return;
+        }
+        String token = value.strip().toLowerCase();
+        List<String> items = ChatSlashCommands.COMMANDS.stream()
+                .filter(command -> command.name().startsWith(token) || "/".equals(token))
+                .map(command -> command.name() + " — " + command.hint())
+                .toList();
+        slash.setItems(items);
+        slash.setVisible(!items.isEmpty());
+    }
+
+    private void maybeOfferMention(String value) {
+        if (value == null) {
+            mention.setVisible(false);
+            return;
+        }
+        int at = value.lastIndexOf('@');
+        if (at < 0) {
+            mention.setVisible(false);
+            return;
+        }
+        String prefix = value.substring(at + 1).toLowerCase();
+        List<String> names = squadNames().stream()
+                .filter(name -> name.toLowerCase().contains(prefix))
+                .limit(12)
+                .toList();
+        mention.setItems(names);
+        mention.setVisible(!names.isEmpty());
+    }
+
+    private List<String> squadNames() {
+        String club = settings.sessionClub();
+        if (club == null || club.isBlank()) {
+            return List.of();
+        }
+        return players.findPlayerEntities(PlayerFilterCriteria.clubOnly(club)).stream()
+                .map(PlayerEntity::getName)
+                .filter(name -> name != null && !name.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private void openPlayer(String name) {
+        PlayerDossier.openNamed(tools, name, settings.currency(), settings.sessionClub());
+    }
+
+    private void openClub(String name) {
+        ChatLaunch.open("Summarize " + name + " from the save: reputation, budget and notable players.");
+    }
+
+    private void openCommandPalette() {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Commands");
+        VerticalLayout list = new VerticalLayout();
+        list.add(new Button("New chat", event -> {
+            dialog.close();
+            confirmNewChat();
+        }));
+        for (ChatSlashCommands.Command command : ChatSlashCommands.COMMANDS) {
+            list.add(new Button(command.name() + " — " + command.hint(), event -> {
+                input.setValue(command.prompt());
+                dialog.close();
+                send();
+            }));
+        }
+        for (ChatSessionEntity session : sessions.list().stream().limit(6).toList()) {
+            list.add(new Button(session.getTitle(), event -> {
+                dialog.close();
+                openSession(session.getId());
+            }));
+        }
+        dialog.add(list);
+        dialog.open();
     }
 
     private void scrollToLatest() {
@@ -450,74 +1248,133 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
     }
 
-    private static String newConversationId() {
-        return "openrouter:" + UUID.randomUUID();
+    private static Button iconButton(VaadinIcon icon, String label, Runnable action) {
+        Button button = new Button(icon.create(), event -> action.run());
+        button.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        button.getElement().setAttribute("aria-label", label);
+        button.addClassName("chat-copy");
+        return button;
+    }
+
+    private static void copyText(String text) {
+        UI ui = UI.getCurrent();
+        if (ui != null && text != null) {
+            ui.getPage().executeJs("navigator.clipboard.writeText($0)", text);
+        }
+        Notification.show("Copied", 1200, Notification.Position.BOTTOM_CENTER).addClassName("app-toast");
+    }
+
+    @ClientCallable
+    public void receivePastedImage(String name, String dataUrl) {
+        if (dataUrl == null || !dataUrl.contains(",")) {
+            return;
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(dataUrl.substring(dataUrl.indexOf(',') + 1));
+            String fileName = name == null || name.isBlank() ? "pasted.png" : name;
+            tacticContexts.loadUploads(Map.of(fileName, bytes));
+            Notification.show("Pasted screenshot added as tactic context", 1800, Notification.Position.BOTTOM_CENTER)
+                    .addClassName("app-toast");
+        } catch (RuntimeException ex) {
+            Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                    .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+        }
+    }
+
+    private void refreshPinnedButton() {
+        boolean pinned = model.getValue() != null && settings.pinnedModels().contains(model.getValue());
+        pinModel.getElement().setAttribute("title", pinned ? "Unpin model" : "Pin model");
+        pinModel.getStyle().set("color", pinned ? "var(--fmai-accent)" : "");
     }
 
     private static String safeMessage(Throwable error) {
         return error.getMessage() == null || error.getMessage().isBlank() ? "Please try again." : error.getMessage();
     }
 
-    private static String sanitizeMarkdown(String markdown) {
-        if (markdown == null || markdown.isEmpty()) {
-            return "";
+    private void pingIfTabHidden() {
+        UI ui = getUI().orElse(null);
+        if (ui == null) {
+            return;
         }
-        return markdown
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replaceAll("(?i)]\\s*\\((?:javascript|data|vbscript):", "](#blocked-");
+        ui.getPage().executeJs("""
+                if (document.hidden) {
+                  const previous = document.title;
+                  document.title = 'Reply ready · ' + previous;
+                  setTimeout(() => {
+                    if (document.title.startsWith('Reply ready')) {
+                      document.title = previous;
+                    }
+                  }, 5000);
+                }
+                """);
     }
 
-    private static final class AssistantTurn {
+    private final class AssistantTurn {
         private final Div root = new Div();
         private final Div typing = new Div();
         private final Span typingLabel = new Span("Thinking");
         private final Markdown body = new Markdown("");
+        private final Pre reasoningBody = new Pre("");
+        private final Details reasoning = new Details("Thinking", reasoningBody);
+        private final Div traces = new Div();
+        private final Div chips = new Div();
+        private final Span stats = new Span();
         private final Button copy = new Button(VaadinIcon.COPY.create());
+        private final Button thumbsUp = new Button(VaadinIcon.THUMBS_UP.create());
+        private final Button thumbsDown = new Button(VaadinIcon.THUMBS_DOWN.create());
+        private final Button retry = new Button("Retry");
         private final Set<String> tools = new LinkedHashSet<>();
         private String raw = "";
+        private String reasoningRaw = "";
         private boolean contentVisible;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private AssistantTurn() {
+        private AssistantTurn(String modelId) {
             root.addClassName("chat-message");
             root.addClassName("chat-message-assistant");
-            Span meta = new Span("FM AI · " + LocalTime.now().format(TIME_FORMAT));
+            String model = modelId == null || modelId.isBlank() ? settings.openRouterModel() : modelId;
+            Span meta = new Span("FM AI · " + shortModel(model) + " · " + LocalTime.now().format(TIME_FORMAT) + asOfStamp());
             meta.addClassName("chat-message-meta");
             copy.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             copy.addClassName("chat-copy");
             copy.getElement().setAttribute("aria-label", "Copy reply");
             copy.setVisible(false);
-            copy.addClickListener(event -> {
-                if (raw.isBlank()) {
-                    return;
-                }
-                UI ui = UI.getCurrent();
-                if (ui != null) {
-                    ui.getPage().executeJs("navigator.clipboard.writeText($0)", raw);
-                }
-                Notification.show("Copied", 1200, Notification.Position.BOTTOM_CENTER)
-                        .addClassName("app-toast");
-            });
-            HorizontalLayout heading = new HorizontalLayout(meta, copy);
+            copy.addClickListener(event -> copyText(raw));
+            thumbsUp.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            thumbsDown.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            thumbsUp.addClassName("chat-copy");
+            thumbsDown.addClassName("chat-copy");
+            thumbsUp.getElement().setAttribute("aria-label", "Helpful");
+            thumbsDown.getElement().setAttribute("aria-label", "Not helpful");
+            thumbsUp.setVisible(false);
+            thumbsDown.setVisible(false);
+            Button regenerate = iconButton(VaadinIcon.REFRESH, "Regenerate", () -> regenerateFrom(lastUserText));
+            retry.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            retry.setVisible(false);
+            HorizontalLayout heading = new HorizontalLayout(meta, copy, thumbsUp, thumbsDown, regenerate, retry);
             heading.setWidthFull();
             heading.setAlignItems(FlexComponent.Alignment.CENTER);
-            heading.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+            heading.setJustifyContentMode(FlexComponent.JustifyContentMode.END);
             heading.addClassName("chat-message-heading");
+            heading.getStyle().set("justify-content", "space-between");
 
             typing.addClassName("chat-typing");
             typingLabel.addClassName("chat-typing-label");
             Div dots = new Div(dot(), dot(), dot());
             dots.addClassName("chat-typing-dots");
             typing.add(dots, typingLabel);
-            typing.getElement().setAttribute("aria-live", "polite");
-            typing.getElement().setAttribute("aria-label", "Thinking");
-
             body.addClassName("chat-markdown");
             body.addClassName("chat-streaming");
+            body.getElement().setAttribute("aria-live", "polite");
+            body.getElement().setAttribute("aria-busy", "true");
             body.setVisible(false);
-            root.add(heading, typing, body);
+            traces.addClassName("chat-traces");
+            chips.addClassName("chat-chips");
+            stats.addClassName("chat-stats");
+            reasoning.setOpened(false);
+            reasoning.setVisible(false);
+            reasoning.addClassName("chat-reasoning");
+            root.add(heading, typing, reasoning, traces, body, chips, stats);
         }
 
         private static Span dot() {
@@ -530,6 +1387,31 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             return closed.compareAndSet(false, true);
         }
 
+        private void addReasoning(String text) {
+            if (text == null || text.isBlank() || closed.get()) {
+                return;
+            }
+            reasoning.setVisible(true);
+            reasoningBody.setText(reasoningBody.getText() + text);
+            if (reasoningRaw == null) {
+                reasoningRaw = "";
+            }
+            reasoningRaw += text;
+        }
+
+        private String reasoningText() {
+            return reasoningRaw == null ? "" : reasoningRaw;
+        }
+
+        private void setStoredReasoning(String text) {
+            if (text == null || text.isBlank()) {
+                return;
+            }
+            reasoningRaw = text;
+            reasoningBody.setText(text);
+            reasoning.setVisible(true);
+        }
+
         private void addTool(String name) {
             if (name == null || name.isBlank() || closed.get()) {
                 return;
@@ -537,15 +1419,29 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             tools.add(name.strip());
             if (!contentVisible) {
                 typingLabel.setText(String.join(" · ", tools));
-                typing.getElement().setAttribute("aria-label", typingLabel.getText());
             }
+        }
+
+        private void addTrace(AssistantChatService.ToolTrace trace) {
+            Details details = new Details(trace.label() + " · " + trace.elapsedMs() + " ms", new Pre(
+                    (trace.input() == null ? "" : trace.input()) + "\n\n" + (trace.output() == null ? "" : trace.output())));
+            details.setOpened(false);
+            traces.add(details);
+        }
+
+        private void addStoredTraces(String toolsJson) {
+            if (toolsJson == null || toolsJson.isBlank()) {
+                return;
+            }
+            Details details = new Details("Tool traces", new Pre(toolsJson));
+            details.setOpened(false);
+            traces.add(details);
         }
 
         private void showContent() {
             contentVisible = true;
             typing.addClassName("chat-typing-compact");
             typingLabel.setText("Writing");
-            typing.getElement().setAttribute("aria-label", "Writing");
             body.setVisible(true);
             copy.setVisible(true);
         }
@@ -553,6 +1449,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         private void finishStreaming() {
             typing.setVisible(false);
             body.removeClassName("chat-streaming");
+            body.getElement().setAttribute("aria-busy", "false");
         }
 
         private boolean hasContent() {
@@ -573,15 +1470,212 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
 
         private void paint() {
-            body.setContent(sanitizeMarkdown(raw));
+            body.setContent(ChatMarkdown.sanitize(raw));
+            enhanceCodeBlocks();
         }
 
-        private void setError(String message) {
+        private void enhanceCodeBlocks() {
+            body.getElement().executeJs("""
+                    const root = this;
+                    const highlight = (code) => {
+                      if (!code || code.dataset.hl) {
+                        return;
+                      }
+                      const cls = [...code.classList].find(c => c.startsWith('language-'));
+                      const name = cls ? cls.slice(9).toLowerCase() : '';
+                      let html = code.innerHTML;
+                      const paint = (re, cls) => { html = html.replace(re, m => '<span class="' + cls + '">' + m + '</span>'); };
+                      if (name === 'json' || name === 'javascript' || name === 'js') {
+                        paint(/&quot;(?:\\\\.|[^&])*&quot;/g, 'hl-str');
+                        paint(/\\b(true|false|null)\\b/g, 'hl-kw');
+                        paint(/\\b-?\\d+(?:\\.\\d+)?\\b/g, 'hl-num');
+                      } else if (name === 'java' || name === 'kotlin') {
+                        paint(/\\b(class|return|new|if|else|for|void|public|private|static|final|null|true|false)\\b/g, 'hl-kw');
+                        paint(/&quot;(?:\\\\.|[^&])*&quot;/g, 'hl-str');
+                      } else if (name === 'sql') {
+                        paint(/\\b(SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|RIGHT|INNER|ON|AS|LIMIT|NULL|INSERT|UPDATE)\\b/gi, 'hl-kw');
+                      } else if (name === 'xml' || name === 'html') {
+                        paint(/&lt;\\/?[\\w:-]+/g, 'hl-kw');
+                      } else if (name === 'bash' || name === 'sh' || name === 'shell') {
+                        paint(/\\b(if|then|fi|echo|export|for|do|done)\\b/g, 'hl-kw');
+                      } else {
+                        return;
+                      }
+                      code.innerHTML = html;
+                      code.dataset.hl = '1';
+                    };
+                    const attach = () => {
+                      root.querySelectorAll('pre').forEach(pre => {
+                        const code = pre.querySelector('code');
+                        highlight(code);
+                        if (pre.dataset.copyReady) {
+                          return;
+                        }
+                        pre.dataset.copyReady = '1';
+                        if (code) {
+                          const lang = [...code.classList].find(c => c.startsWith('language-'));
+                          if (lang) {
+                            const tag = document.createElement('span');
+                            tag.className = 'chat-code-lang';
+                            tag.textContent = lang.replace('language-', '');
+                            pre.appendChild(tag);
+                          }
+                        }
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'chat-code-copy';
+                        btn.textContent = 'Copy';
+                        btn.setAttribute('aria-label', 'Copy code');
+                        btn.addEventListener('click', event => {
+                          event.stopPropagation();
+                          const text = code ? code.innerText : pre.innerText;
+                          navigator.clipboard.writeText(text);
+                          btn.textContent = 'Copied';
+                          setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+                        });
+                        pre.appendChild(btn);
+                      });
+                    };
+                    attach();
+                    requestAnimationFrame(attach);
+                    """);
+        }
+
+        private void bindFeedback(ChatMessageEntity row) {
+            if (row == null || !"assistant".equals(row.getRole())) {
+                return;
+            }
+            int ordinal = row.getOrdinal();
+            thumbsUp.setVisible(true);
+            thumbsDown.setVisible(true);
+            paintFeedback(row.getFeedback());
+            thumbsUp.addClickListener(event -> paintFeedback(sessions.setFeedback(conversationId, ordinal, "up")));
+            thumbsDown.addClickListener(event -> paintFeedback(sessions.setFeedback(conversationId, ordinal, "down")));
+        }
+
+        private void paintFeedback(String value) {
+            thumbsUp.getElement().setAttribute("aria-pressed", Boolean.toString("up".equals(value)));
+            thumbsDown.getElement().setAttribute("aria-pressed", Boolean.toString("down".equals(value)));
+            thumbsUp.removeClassName("chat-feedback-on");
+            thumbsDown.removeClassName("chat-feedback-on");
+            if ("up".equals(value)) {
+                thumbsUp.addClassName("chat-feedback-on");
+            } else if ("down".equals(value)) {
+                thumbsDown.addClassName("chat-feedback-on");
+            }
+        }
+
+        private void setError(String message, String retryText, Runnable onRetry) {
             showContent();
             raw = message == null ? "" : message;
-            body.setContent(sanitizeMarkdown(raw));
+            body.setContent(ChatMarkdown.sanitize(raw));
             body.addClassName("chat-error");
+            retry.setVisible(retryText != null && !retryText.isBlank());
+            retry.addClickListener(event -> onRetry.run());
             finishStreaming();
         }
+
+        private void setStats(AssistantChatService.UsageSnapshot usage, Double cost, Integer ttftMs, long durationMs) {
+            List<String> parts = new ArrayList<>();
+            if (ttftMs != null && ttftMs > 0) {
+                parts.add(String.format("%.1fs", ttftMs / 1000.0));
+            }
+            if (usage != null && usage.completionTokens() != null && durationMs > 0) {
+                parts.add(String.format("%.0f tok/s", usage.completionTokens() / Math.max(0.001, durationMs / 1000.0)));
+            }
+            if (usage != null && (usage.promptTokens() != null || usage.completionTokens() != null)) {
+                parts.add((usage.promptTokens() == null ? 0 : usage.promptTokens())
+                        + "+" + (usage.completionTokens() == null ? 0 : usage.completionTokens()) + " tok");
+            }
+            if (cost != null && cost > 0) {
+                parts.add(String.format("$%.4f", cost));
+            }
+            stats.setText(String.join(" · ", parts));
+        }
+
+        private void setFollowUps(java.util.function.Consumer<String> onPrompt) {
+            if (players.countPlayers() <= 0) {
+                return;
+            }
+            for (String prompt : List.of(
+                    "Compare with another named club",
+                    "Show the XI from the live formation",
+                    "How much transfer budget is left?")) {
+                Button chip = new Button(prompt, event -> onPrompt.accept(prompt));
+                chip.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+                chip.addClassName("chat-chip");
+                chips.add(chip);
+            }
+        }
+
+        private void setMentions(List<String> names, java.util.function.Consumer<String> onPlayer, java.util.function.Consumer<String> onClub) {
+            chips.removeAll();
+            Set<String> clubsNames = new LinkedHashSet<>(clubs.findNames());
+            for (String name : names) {
+                Button chip = new Button(name);
+                chip.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+                chip.addClassName("chat-chip");
+                boolean club = clubsNames.stream().anyMatch(item -> item.equalsIgnoreCase(name));
+                chip.addClickListener(event -> {
+                    if (club) {
+                        onClub.accept(name);
+                    } else {
+                        onPlayer.accept(name);
+                    }
+                });
+                chips.add(chip);
+            }
+        }
+
+        private void setCitations(List<AssistantChatService.ToolTrace> traces) {
+            if (traces == null) {
+                return;
+            }
+            for (AssistantChatService.ToolTrace trace : traces) {
+                addCitationChip(trace.label() == null || trace.label().isBlank() ? trace.name() : trace.label());
+            }
+        }
+
+        private void setCitationsFromJson(String toolsJson) {
+            if (toolsJson == null || toolsJson.isBlank()) {
+                return;
+            }
+            int from = 0;
+            String key = "\"label\":";
+            while (true) {
+                int index = toolsJson.indexOf(key, from);
+                if (index < 0) {
+                    return;
+                }
+                int start = toolsJson.indexOf('"', index + key.length());
+                if (start < 0) {
+                    return;
+                }
+                int end = toolsJson.indexOf('"', start + 1);
+                if (end < 0) {
+                    return;
+                }
+                addCitationChip(toolsJson.substring(start + 1, end).replace("\\\"", "\""));
+                from = end + 1;
+            }
+        }
+
+        private void addCitationChip(String label) {
+            if (label == null || label.isBlank()) {
+                return;
+            }
+            Span chip = new Span("from " + label);
+            chip.addClassName("chat-chip");
+            chip.addClassName("chat-citation");
+            chips.add(chip);
+        }
+    }
+
+    private static String shortModel(String model) {
+        if (model == null || model.isBlank()) {
+            return "model";
+        }
+        int slash = model.lastIndexOf('/');
+        return slash < 0 ? model : model.substring(slash + 1);
     }
 }

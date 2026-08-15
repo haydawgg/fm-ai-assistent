@@ -1,6 +1,9 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.vaadin.flow.component.UI;
+import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.router.QueryParameters;
 
 import java.util.Map;
@@ -15,6 +18,26 @@ final class ChatLaunch {
             return;
         }
         ui.navigate("chat", QueryParameters.simple(Map.of("q", prompt.strip())));
+    }
+
+    static Button askButton(String playerName, String club) {
+        String who = playerName == null || playerName.isBlank() ? "this player" : playerName;
+        Button button = new Button(VaadinIcon.CHAT.create());
+        button.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        button.setTooltipText("Ask FM AI about " + who);
+        button.getElement().setAttribute("aria-label", "Ask FM AI about " + who);
+        button.addClickListener(event -> open(askAbout(playerName, club)));
+        return button;
+    }
+
+    static String askAbout(String playerName, String club) {
+        String who = playerName == null ? "this player" : playerName;
+        if (club == null || club.isBlank()) {
+            return "Using the save data, tell me about " + who
+                    + ": role, contract, injuries and whether they are a buy, sell, or keep.";
+        }
+        return "For " + club + ", tell me about " + who
+                + " using the save data: role, contract, injuries and whether they are a buy, sell, or keep.";
     }
 
     static String argueFor(String playerName, String club) {

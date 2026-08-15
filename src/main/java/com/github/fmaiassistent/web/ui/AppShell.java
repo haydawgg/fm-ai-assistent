@@ -5,6 +5,7 @@ import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
+import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.HasElement;
 import com.vaadin.flow.component.UI;
@@ -37,6 +38,8 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     private final AppSettingsService settings;
     private final OpenRouterModelCatalog catalog;
     private final RamLoadCoordinator ramLoad;
+    private final ClubDatabaseService clubs;
+    private final PlayerDatabaseService players;
     private final Map<String, NavItem> navItems = new LinkedHashMap<>();
     private final Span pageTitle = new Span();
     private final Div contentWrapper = new Div();
@@ -55,6 +58,8 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         this.settings = settings;
         this.catalog = catalog;
         this.ramLoad = ramLoad;
+        this.clubs = clubs;
+        this.players = players;
         setPrimarySection(Section.DRAWER);
         addClassName("fmai-shell");
 
@@ -63,6 +68,12 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
         contentWrapper.addClassName("fmai-content");
         setContent(contentWrapper);
+    }
+
+    @Override
+    protected void onAttach(AttachEvent attachEvent) {
+        super.onAttach(attachEvent);
+        OnboardingWizard.openIfNeeded(settings, clubs, players, ramLoad, catalog);
     }
 
     @Override
@@ -205,6 +216,8 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         }
         updateActiveNav(route);
         updatePageTitle(route);
+        NavItem item = navItems.get(route.isEmpty() ? "" : route);
+        ChatUiContext.setView(item == null ? "Desk" : item.label());
     }
 
     private void updateActiveNav(String currentRoute) {

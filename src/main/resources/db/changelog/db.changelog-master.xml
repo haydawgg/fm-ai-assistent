@@ -369,4 +369,59 @@
         </addColumn>
         <modifyDataType tableName="load_metadata" columnName="meta_value" newDataType="VARCHAR(4096)"/>
     </changeSet>
+
+    <changeSet id="003-chat-sessions" author="codex">
+        <createTable tableName="chat_session">
+            <column name="id" type="VARCHAR(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="title" type="VARCHAR(256)"/>
+            <column name="model" type="VARCHAR(256)"/>
+            <column name="created_at" type="TIMESTAMP"/>
+            <column name="updated_at" type="TIMESTAMP"/>
+            <column name="title_locked" type="BOOLEAN"/>
+        </createTable>
+        <createTable tableName="chat_message">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="session_id" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ordinal" type="INT"/>
+            <column name="role" type="VARCHAR(32)"/>
+            <column name="body" type="CLOB"/>
+            <column name="model" type="VARCHAR(256)"/>
+            <column name="created_at" type="TIMESTAMP"/>
+            <column name="tools_json" type="CLOB"/>
+            <column name="prompt_tokens" type="INT"/>
+            <column name="completion_tokens" type="INT"/>
+            <column name="cost_usd" type="DOUBLE"/>
+            <column name="ttft_ms" type="INT"/>
+            <column name="duration_ms" type="INT"/>
+        </createTable>
+        <createIndex tableName="chat_message" indexName="idx_chat_message_session">
+            <column name="session_id"/>
+            <column name="ordinal"/>
+        </createIndex>
+        <addForeignKeyConstraint
+                baseTableName="chat_message"
+                baseColumnNames="session_id"
+                referencedTableName="chat_session"
+                referencedColumnNames="id"
+                constraintName="fk_chat_message_session"
+                onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="004-chat-message-feedback" author="codex">
+        <addColumn tableName="chat_message">
+            <column name="feedback" type="VARCHAR(8)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="005-chat-message-reasoning" author="codex">
+        <addColumn tableName="chat_message">
+            <column name="reasoning" type="CLOB"/>
+        </addColumn>
+    </changeSet>
 </databaseChangeLog>

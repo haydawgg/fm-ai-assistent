@@ -48,11 +48,12 @@ final class PlayerDossier {
         dialog.setMaxHeight("calc(100vh - 48px)");
         dialog.getElement().getThemeList().add("professional-dialog");
 
-        Button chat = new Button("Argue in Chat", VaadinIcon.CHAT.create());
+        Button chat = new Button("Ask FM AI about " + (player.getName() == null ? "player" : player.getName()),
+                VaadinIcon.CHAT.create());
         chat.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         chat.addClickListener(event -> {
             dialog.close();
-            ChatLaunch.open(ChatLaunch.argueFor(player.getName(), sessionClub));
+            ChatLaunch.open(ChatLaunch.askAbout(player.getName(), sessionClub));
         });
         Button close = new Button("Close", event -> dialog.close());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
