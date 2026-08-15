@@ -61,7 +61,7 @@ public class ContractsView extends VerticalLayout {
         summary.addClassName("moneyball-summary");
         add(header(), filterBar(), health, summary, grid);
         expand(grid);
-        if (clubs.findAllClubs().isEmpty()) {
+        if (!clubs.hasClubs()) {
             grid.setVisible(false);
             health.setVisible(false);
             summary.setText("Load from the top bar with FM26 running.");

@@ -4,6 +4,7 @@ import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
 import com.github.fmaiassistent.service.DatabaseLoadAllService;
+import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
@@ -81,15 +82,8 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Minimum club reputation") Integer reputationMin,
             @ToolParam(required = false, description = "Maximum number of clubs to return") Integer limit) {
         int safeLimit = safeLimit(limit);
-        List<Map<String, Object>> rows = allClubs().stream()
-                .filter(club -> contains(club.getName(), name))
-                .filter(club -> blank(nation) || equalsIgnoreCase(club.getNation(), nation))
-                .filter(club -> blank(competition) || equalsIgnoreCase(club.getCompetition(), competition))
-                .filter(club -> reputationMin == null || value(club.getReputation()) >= reputationMin)
-                .sorted(Comparator
-                        .comparing((ClubEntity club) -> value(club.getReputation())).reversed()
-                        .thenComparing(ClubEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
-                .limit(safeLimit)
+        List<Map<String, Object>> rows = clubs.searchClubs(name, nation, competition, reputationMin, safeLimit)
+                .stream()
                 .map(this::clubMap)
                 .toList();
         return result("clubs", rows, safeLimit);
@@ -481,8 +475,8 @@ public class FmAiAssistentTools {
         ClubEntity left = requireClub(leftClub);
         ClubEntity right = requireClub(rightClub);
         return SquadAdvice.compareSquads(left.getName(), right.getName(),
-                currentSquad(allPlayers(), left.getName()),
-                currentSquad(allPlayers(), right.getName()));
+                squadPlayers(left.getName()),
+                squadPlayers(right.getName()));
     }
 
     @Tool(name = "fm26_compare_players", description = "Compare two players on CA/PA, wages, contract and key attributes.")
@@ -540,7 +534,7 @@ public class FmAiAssistentTools {
                     "error", "Invalid tacticSlots format: " + ex.getMessage(),
                     "expected", "POSITION,In Possession Role,Out of Possession Role");
         }
-        List<PlayerEntity> squad = currentSquad(allPlayers(), club.getName());
+        List<PlayerEntity> squad = squadPlayers(club.getName());
         List<SquadAdvice.XiPick> picks = SquadAdvice.bestXi(squad, slots, this::slotRoleFit);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("club", recruitmentClubMap(club));
@@ -561,27 +555,27 @@ public class FmAiAssistentTools {
     public List<SquadAdvice.SellRow> sellRows(String managingClub) {
         ClubEntity club = requireClub(managingClub);
         return SquadAdvice.sellShortlist(
-                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+                ownedSquad(squadPlayers(club.getName()), club.getName()), club);
     }
 
     @Transactional(readOnly = true)
     public List<SquadAdvice.ContractRow> contractRows(String managingClub) {
         ClubEntity club = requireClub(managingClub);
         return SquadAdvice.contractQueue(
-                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+                ownedSquad(squadPlayers(club.getName()), club.getName()), club);
     }
 
     @Transactional(readOnly = true)
     public SquadAdvice.WageHealth wageHealth(String managingClub) {
         ClubEntity club = requireClub(managingClub);
         return SquadAdvice.wageHealth(
-                ownedSquad(currentSquad(allPlayers(), club.getName()), club.getName()), club);
+                ownedSquad(squadPlayers(club.getName()), club.getName()), club);
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> unavailableForClub(String managingClub) {
         ClubEntity club = requireClub(managingClub);
-        return unavailablePlayers(currentSquad(allPlayers(), club.getName()));
+        return unavailablePlayers(squadPlayers(club.getName()));
     }
 
     @Transactional(readOnly = true)
@@ -593,9 +587,7 @@ public class FmAiAssistentTools {
     public List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge) {
         ClubEntity club = requireClub(managingClub);
         int cap = maxAge == null ? 21 : maxAge;
-        List<PlayerEntity> youth = allPlayers().stream()
-                .filter(player -> belongsToClub(player, club.getName()))
-                .toList();
+        List<PlayerEntity> youth = players.findPlayerEntities(PlayerFilterCriteria.clubOnly(club.getName()));
         return SquadAdvice.academy(youth, cap);
     }
 
@@ -645,7 +637,7 @@ public class FmAiAssistentTools {
     @Transactional(readOnly = true)
     public List<SquadAdvice.XiPick> bestXiRows(String managingClub, List<SquadAdvice.XiSlot> slots) {
         ClubEntity club = requireClub(managingClub);
-        return SquadAdvice.bestXi(currentSquad(allPlayers(), club.getName()), slots, this::slotRoleFit);
+        return SquadAdvice.bestXi(squadPlayers(club.getName()), slots, this::slotRoleFit);
     }
 
     @Transactional(readOnly = true)
@@ -1026,13 +1018,7 @@ public class FmAiAssistentTools {
     }
 
     private ClubEntity requireClub(String clubName) {
-        return allClubs().stream()
-                .filter(club -> equalsIgnoreCase(club.getName(), clubName))
-                .max(Comparator.comparingInt(club -> value(club.getReputation())))
-                .or(() -> allClubs().stream()
-                        .filter(club -> contains(club.getName(), clubName))
-                        .max(Comparator.comparingInt(club -> value(club.getReputation()))))
-                .orElseThrow(() -> new IllegalArgumentException("club not found: " + clubName));
+        return clubs.requireNamed(clubName);
     }
 
     private PlayerEntity requirePlayer(String name) {
@@ -1185,7 +1171,10 @@ public class FmAiAssistentTools {
     }
 
     private List<PlayerEntity> squadPlayers(String clubName) {
-        return currentSquad(allPlayers(), clubName);
+        if (blank(clubName)) {
+            return List.of();
+        }
+        return currentSquad(players.findPlayerEntities(PlayerFilterCriteria.clubOnly(clubName)), clubName);
     }
 
     private static Map<String, ClubEntity> clubsByName(List<ClubEntity> clubs) {

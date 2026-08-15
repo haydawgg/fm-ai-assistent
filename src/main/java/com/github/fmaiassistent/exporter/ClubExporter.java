@@ -40,6 +40,13 @@ public class ClubExporter {
     public ExportResult exportAllClubs(
             int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
+            return exportAllClubs(reader, build, gamePluginBase, progress);
+        }
+    }
+
+    public ExportResult exportAllClubs(
+            ProcessMemoryReader reader, int build, Long gamePluginBase, Consumer<LoadProgress> progress)
+            throws IOException {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "TeamOffset");
             long total = bounds.count();
             LoadProgressReporter reporter = new LoadProgressReporter(progress);
@@ -79,7 +86,6 @@ public class ClubExporter {
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
             reporter.finish(new LoadProgress(LoadProgress.Phase.CLUBS, total, total, rows.size()));
             return new ExportResult(rows);
-        }
     }
 
     private Map<String, Object> decodeTeamClub(ProcessMemoryReader reader, long team) throws IOException {

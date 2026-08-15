@@ -10,6 +10,8 @@ import com.github.fmaiassistent.player.PlayerTraits;
 import com.github.fmaiassistent.linux.GameDateFinder;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryUsage;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -17,7 +19,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.Collections;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +45,7 @@ import static com.github.fmaiassistent.player.AttributeDefinitions.CURRENT_REPUT
 import static com.github.fmaiassistent.player.AttributeDefinitions.DISPLAY_VALUE_REL;
 import static com.github.fmaiassistent.player.AttributeDefinitions.HIDDEN_DIRECT_FIELDS;
 import static com.github.fmaiassistent.player.AttributeDefinitions.HISTORY_COPY_SOURCE_REL;
+import static com.github.fmaiassistent.player.AttributeDefinitions.MIN_PLAYER_POSITION_SCORE;
 import static com.github.fmaiassistent.player.AttributeDefinitions.HOME_REPUTATION_REL;
 import static com.github.fmaiassistent.player.AttributeDefinitions.POSITION_FIELDS;
 import static com.github.fmaiassistent.player.AttributeDefinitions.POTENTIAL_ABILITY_REL;
@@ -61,6 +68,8 @@ public class PlayerExporter {
     private static final int FUTURE_TRANSFER_ACTIVE_REL = 0x100;
     private static final int FUTURE_TRANSFER_SENTINEL_REL = 0x104;
     private static final int DUAL_PLAYER_STAFF_SHIFT = 0xF8;
+    static final int PLAYER_INSERT_CHUNK = 500;
+    private static final int DECODE_QUEUE_CAPACITY = 750;
     private static final int MAX_SOURCE_OFFSET = Math.max(
             POSITION_FIELDS.stream().mapToInt(FieldDef::offset).max().orElseThrow(),
             VISIBLE_FIELDS.stream().mapToInt(FieldDef::offset).max().orElseThrow())
@@ -77,68 +86,182 @@ public class PlayerExporter {
     public ExportResult exportAllPlayers(
             int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
-            FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
-            long total = bounds.count();
-            int threads = Math.min(Runtime.getRuntime().availableProcessors(), 4);
-            int expected = total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
-            List<Map<String, Object>> rows = Collections.synchronizedList(new ArrayList<>(Math.min(expected, 250_000)));
-            Map<Long, String> clubNames = new ConcurrentHashMap<>();
-            ExecutorService pool = Executors.newFixedThreadPool(threads);
-            AtomicInteger skipped = new AtomicInteger();
-            AtomicLong scanned = new AtomicLong();
-            LoadProgressReporter reporter = new LoadProgressReporter(progress);
-            reporter.start(LoadProgress.Phase.PEOPLE, total);
-            try {
-                long chunk = (total + threads - 1) / threads;
-                List<Future<?>> futures = new ArrayList<>();
-                for (int worker = 0; worker < threads; worker++) {
-                    long from = worker * chunk;
-                    long to = Math.min(total, from + chunk);
-                    futures.add(pool.submit(() -> exportRange(
-                            reader, bounds.start(), from, to, clubNames, rows, skipped, scanned, total, reporter)));
-                }
-                for (Future<?> future : futures) {
+            return exportAllPlayers(reader, build, gamePluginBase, progress, null);
+        }
+    }
+
+    public ExportResult exportAllPlayers(
+            ProcessMemoryReader reader,
+            int build,
+            Long gamePluginBase,
+            Consumer<LoadProgress> progress,
+            Consumer<List<Map<String, Object>>> chunkSink) throws IOException {
+        FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
+        long total = bounds.count();
+        int threads = Math.min(Runtime.getRuntime().availableProcessors(), 4);
+        LocalDate gameDate = gameDateFinder.find(reader, 0, build, gamePluginBase).orElse(null);
+        BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>(DECODE_QUEUE_CAPACITY);
+        Set<Long> peoplePointers = ConcurrentHashMap.newKeySet();
+        Map<Long, String> clubNames = new ConcurrentHashMap<>();
+        SkipCounts skips = new SkipCounts();
+        AtomicLong scanned = new AtomicLong();
+        AtomicLong kept = new AtomicLong();
+        LoadProgressReporter reporter = new LoadProgressReporter(progress);
+        reporter.start(LoadProgress.Phase.PEOPLE, total);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<Future<?>> futures = new ArrayList<>();
+        List<Map<String, Object>> collected = chunkSink == null ? new ArrayList<>() : null;
+        AtomicLong persistCallbackNs = new AtomicLong();
+        Consumer<List<Map<String, Object>>> timedSink = chunkSink == null ? null : chunk -> {
+            long started = System.nanoTime();
+            chunkSink.accept(chunk);
+            persistCallbackNs.addAndGet(System.nanoTime() - started);
+        };
+        long peopleStarted = System.nanoTime();
+        try {
+            long chunk = (total + threads - 1) / threads;
+            for (int worker = 0; worker < threads; worker++) {
+                long from = worker * chunk;
+                long to = Math.min(total, from + chunk);
+                futures.add(pool.submit(() -> {
                     try {
-                        future.get();
+                        exportRange(
+                                reader, bounds.start(), from, to, clubNames, decoded, peoplePointers, skips,
+                                scanned, kept, total, reporter);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                        pool.shutdownNow();
-                        throw new IOException("Interrupted while exporting players", e);
-                    } catch (ExecutionException e) {
-                        pool.shutdownNow();
-                        for (Future<?> pending : futures) {
-                            pending.cancel(true);
-                        }
-                        Throwable root = e.getCause() == null ? e : e.getCause();
-                        if (root instanceof OutOfMemoryError) {
-                            throw new IOException(
-                                    "Not enough memory to export " + total
-                                            + " people from RAM. Restart with start.bat (6 GB heap).",
-                                    root);
-                        }
-                        throw new IOException("Player export failed: " + root.getMessage(), root);
+                        throw new IllegalStateException(e);
+                    }
+                }));
+            }
+            List<Map<String, Object>> batch = new ArrayList<>(PLAYER_INSERT_CHUNK);
+            while (true) {
+                boolean finished = futures.stream().allMatch(Future::isDone);
+                Map<String, Object> row = decoded.poll(50, TimeUnit.MILLISECONDS);
+                if (row != null) {
+                    applyGameDate(row, gameDate);
+                    batch.add(row);
+                    if (batch.size() >= PLAYER_INSERT_CHUNK) {
+                        flushPlayerChunk(batch, collected, timedSink);
                     }
                 }
-            } finally {
-                pool.shutdown();
+                if (finished && decoded.isEmpty()) {
+                    break;
+                }
+            }
+            for (Future<?> future : futures) {
                 try {
-                    if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
-                        pool.shutdownNow();
-                    }
+                    future.get();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     pool.shutdownNow();
+                    throw new IOException("Interrupted while exporting players", e);
+                } catch (ExecutionException e) {
+                    pool.shutdownNow();
+                    for (Future<?> pending : futures) {
+                        pending.cancel(true);
+                    }
+                    Throwable root = e.getCause() == null ? e : e.getCause();
+                    if (root instanceof OutOfMemoryError) {
+                        throw new IOException(
+                                "Not enough memory to export " + total
+                                        + " people from RAM. Restart with start.bat (2 GB heap).",
+                                root);
+                    }
+                    throw new IOException("Player export failed: " + root.getMessage(), root);
                 }
             }
-            reporter.finish(new LoadProgress(LoadProgress.Phase.PEOPLE, total, total, rows.size()));
-            if (skipped.get() > 0) {
-                LOGGER.warn("Skipped {} people records that could not be decoded", skipped.get());
+            Map<String, Object> leftover;
+            while ((leftover = decoded.poll()) != null) {
+                applyGameDate(leftover, gameDate);
+                batch.add(leftover);
+                if (batch.size() >= PLAYER_INSERT_CHUNK) {
+                    flushPlayerChunk(batch, collected, timedSink);
+                }
             }
-            LocalDate gameDate = gameDateFinder.find(reader, rows.size(), build, gamePluginBase).orElse(null);
-            applyGameDate(rows, gameDate);
-            rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
-            TacticExporter.Snapshot tactic = TacticExporter.export(reader, build, gamePluginBase).orElse(null);
-            return new ExportResult(gameDate == null ? "" : gameDate.toString(), rows, tactic);
+            if (!batch.isEmpty()) {
+                flushPlayerChunk(batch, collected, timedSink);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            pool.shutdownNow();
+            throw new IOException("Interrupted while exporting players", e);
+        } finally {
+            pool.shutdown();
+            try {
+                if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                pool.shutdownNow();
+            }
+        }
+        SkipSnapshot skipSnapshot = skips.snapshot();
+        reporter.finish(new LoadProgress(
+                LoadProgress.Phase.PEOPLE, total, total, kept.get(), skipSnapshot.toastFragment()));
+        if (skipSnapshot.decodeError() > 0) {
+            LOGGER.warn("Skipped {} people records that could not be decoded", skipSnapshot.decodeError());
+        }
+        LOGGER.info("People table classification: {}", skipSnapshot.summary());
+        long peopleMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - peopleStarted);
+        long persistMs = TimeUnit.NANOSECONDS.toMillis(persistCallbackNs.get());
+        LOGGER.info("people drain {} ms (persist chunks {} ms, decode+queue {} ms)",
+                peopleMs, persistMs, Math.max(0, peopleMs - persistMs));
+        logHeap("after people decode");
+        long tacticStarted = System.nanoTime();
+        TacticExporter.Snapshot tactic = TacticExporter.export(reader, build, gamePluginBase, peoplePointers).orElse(null);
+        LOGGER.info("tactic {} ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - tacticStarted));
+        logHeap("after tactic");
+        if (collected != null) {
+            collected.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
+        }
+        return new ExportResult(
+                gameDate == null ? "" : gameDate.toString(),
+                collected == null ? List.of() : collected,
+                tactic,
+                skipSnapshot,
+                kept.get());
+    }
+
+    private static void flushPlayerChunk(
+            List<Map<String, Object>> batch,
+            List<Map<String, Object>> collected,
+            Consumer<List<Map<String, Object>>> chunkSink) {
+        if (chunkSink != null) {
+            chunkSink.accept(List.copyOf(batch));
+        } else if (collected != null) {
+            collected.addAll(batch);
+        }
+        batch.clear();
+    }
+
+    private static void logHeap(String label) {
+        MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        LOGGER.info(
+                "{} heap used={} MB committed={} MB max={} MB",
+                label,
+                heap.getUsed() / (1024 * 1024),
+                heap.getCommitted() / (1024 * 1024),
+                heap.getMax() / (1024 * 1024));
+    }
+
+    void exportRange(
+            ProcessMemoryReader reader,
+            long slotBase,
+            long from,
+            long to,
+            Map<Long, String> clubNames,
+            List<Map<String, Object>> rows,
+            SkipCounts skips) {
+        BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>((int) Math.max(16, to - from + 8));
+        try {
+            exportRange(
+                    reader, slotBase, from, to, clubNames, decoded, ConcurrentHashMap.newKeySet(), skips,
+                    new AtomicLong(), new AtomicLong(), to, new LoadProgressReporter(LoadProgressReporter.NONE));
+            decoded.drainTo(rows);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -150,17 +273,9 @@ public class PlayerExporter {
             Map<Long, String> clubNames,
             List<Map<String, Object>> rows,
             AtomicInteger skipped) {
-        exportRange(
-                reader,
-                slotBase,
-                from,
-                to,
-                clubNames,
-                rows,
-                skipped,
-                new AtomicLong(),
-                to,
-                new LoadProgressReporter(LoadProgressReporter.NONE));
+        SkipCounts skips = new SkipCounts();
+        exportRange(reader, slotBase, from, to, clubNames, rows, skips);
+        skipped.addAndGet(skips.decodeError.get() + skips.staff.get() + skips.noName.get() + skips.badCa.get());
     }
 
     void exportSlots(
@@ -169,12 +284,21 @@ public class PlayerExporter {
             long total,
             List<Map<String, Object>> rows,
             Consumer<LoadProgress> progress) {
-        AtomicInteger skipped = new AtomicInteger();
+        SkipCounts skips = new SkipCounts();
         AtomicLong scanned = new AtomicLong();
+        AtomicLong kept = new AtomicLong();
         LoadProgressReporter reporter = new LoadProgressReporter(progress);
         reporter.start(LoadProgress.Phase.PEOPLE, total);
-        exportRange(reader, slotBase, 0, total, new ConcurrentHashMap<>(), rows, skipped, scanned, total, reporter);
-        reporter.finish(new LoadProgress(LoadProgress.Phase.PEOPLE, total, total, rows.size()));
+        BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>((int) Math.max(16, total + 8));
+        try {
+            exportRange(
+                    reader, slotBase, 0, total, new ConcurrentHashMap<>(), decoded, ConcurrentHashMap.newKeySet(),
+                    skips, scanned, kept, total, reporter);
+            decoded.drainTo(rows);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        reporter.finish(new LoadProgress(LoadProgress.Phase.PEOPLE, total, total, kept.get()));
     }
 
     void exportRange(
@@ -183,21 +307,30 @@ public class PlayerExporter {
             long from,
             long to,
             Map<Long, String> clubNames,
-            List<Map<String, Object>> rows,
-            AtomicInteger skipped,
+            BlockingQueue<Map<String, Object>> decoded,
+            Set<Long> peoplePointers,
+            SkipCounts skips,
             AtomicLong scanned,
+            AtomicLong kept,
             long total,
-            LoadProgressReporter reporter) {
+            LoadProgressReporter reporter) throws InterruptedException {
         for (long index = from; index < to; index++) {
             long done = scanned.incrementAndGet();
-            reporter.report(new LoadProgress(LoadProgress.Phase.PEOPLE, done, total, rows.size()));
+            reporter.report(new LoadProgress(LoadProgress.Phase.PEOPLE, done, total, kept.get()));
             long slotAddress = slotBase + index * 8;
             var recordOpt = reader.qwordOrNull(slotAddress);
             if (recordOpt.isEmpty()) {
+                skips.empty.incrementAndGet();
                 continue;
             }
             long record = recordOpt.get();
+            peoplePointers.add(record);
             try {
+                SlotClass classified = classifyPerson(reader, record);
+                if (classified.skip() != null) {
+                    skips.record(classified.skip());
+                    continue;
+                }
                 var contractedClubAddress = currentClubAddress(reader, record);
                 var playingClubAddress = playingClubAddress(reader, record);
                 if (playingClubAddress.isEmpty()) {
@@ -210,17 +343,15 @@ public class PlayerExporter {
                     contractedClubAddress = playingClubAddress;
                     contractedClub = playingClub;
                 }
-                Map<String, Object> row = decodeRow(reader, (int) index, record, contractedClub, playingClub, null);
+                Map<String, Object> row = decodeRow(
+                        reader, (int) index, record, contractedClub, playingClub, null,
+                        classified.layout(), classified.name());
                 contractedClubAddress.ifPresent(value -> row.put("_club_address", value));
                 playingClubAddress.ifPresent(value -> row.put("_playing_club_address", value));
-                int ca = ((Number) row.get("ca")).intValue();
-                int pa = ((Number) row.get("pa")).intValue();
-                if (ca <= 0 || ca > 200 || pa <= 0 || pa > 200) {
-                    continue;
-                }
-                rows.add(row);
+                kept.incrementAndGet();
+                decoded.put(row);
             } catch (IOException | RuntimeException ex) {
-                skipped.incrementAndGet();
+                skips.decodeError.incrementAndGet();
                 LOGGER.debug("Skipping person at slot {}: {}", index, ex.toString());
             }
         }
@@ -248,8 +379,29 @@ public class PlayerExporter {
             String club,
             String playingClub,
             LocalDate gameDate) throws IOException {
-        PlayerMemoryLayout layout = playerMemoryLayout(reader, record);
-        byte[] data = reader.readBytes(record + layout.historyCopySourceRel(), MAX_SOURCE_OFFSET + 1);
+        PlayerMemoryLayout layout = resolvePlayerLayout(reader, record).orElseGet(() -> fallbackLayout(reader, record));
+        String name = FmMemoryStrings.playerName(reader, record).orElse("0x" + Long.toHexString(record));
+        return decodeRow(reader, index, record, club, playingClub, gameDate, layout, name);
+    }
+
+    Map<String, Object> decodeRow(
+            ProcessMemoryReader reader,
+            int index,
+            long record,
+            String club,
+            String playingClub,
+            LocalDate gameDate,
+            PlayerMemoryLayout layout,
+            String name) throws IOException {
+        byte[] data = layout.sourceData();
+        if (data == null) {
+            data = reader.readBytes(record + layout.historyCopySourceRel(), MAX_SOURCE_OFFSET + 1);
+        }
+        int nearbyFrom = layout.relative(HEIGHT_CM_REL);
+        int nearbySize = layout.relative(WORLD_REPUTATION_REL) + 2 - nearbyFrom;
+        byte[] nearby = readBytesOrEmpty(reader, record + nearbyFrom, nearbySize);
+        byte[] hidden = readBytesOrEmpty(
+                reader, record + HIDDEN_DIRECT_FIELDS.getFirst().offset(), HIDDEN_DIRECT_FIELDS.size());
 
         String loanClub = !club.isBlank() && !playingClub.equalsIgnoreCase(club) ? playingClub : "";
         LocalDate dob = dateOfBirth(reader, record);
@@ -259,18 +411,24 @@ public class PlayerExporter {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("index", index);
         row.put("record", "0x" + Long.toHexString(record));
-        row.put("name", FmMemoryStrings.playerName(reader, record).orElse("0x" + Long.toHexString(record)));
+        row.put("name", name);
         row.put("gender", playerGender(reader, record));
         row.put("nationality", FmMemoryStrings.playerNationality(reader, record).orElse(""));
         row.put("club", club);
         row.put("playing_club", playingClub);
         row.put("loan_club", loanClub);
         row.put("is_loaned_out", loanClub.isBlank() ? "no" : "yes");
-        row.put("current_reputation", reader.readU16(record + layout.relative(CURRENT_REPUTATION_REL)));
-        row.put("home_reputation", reader.readU16(record + layout.relative(HOME_REPUTATION_REL)));
-        row.put("world_reputation", reader.readU16(record + layout.relative(WORLD_REPUTATION_REL)));
+        row.put("current_reputation", nearbyU16(
+                reader, nearby, nearbyFrom, record + layout.relative(CURRENT_REPUTATION_REL),
+                layout.relative(CURRENT_REPUTATION_REL)));
+        row.put("home_reputation", nearbyU16(
+                reader, nearby, nearbyFrom, record + layout.relative(HOME_REPUTATION_REL),
+                layout.relative(HOME_REPUTATION_REL)));
+        row.put("world_reputation", nearbyU16(
+                reader, nearby, nearbyFrom, record + layout.relative(WORLD_REPUTATION_REL),
+                layout.relative(WORLD_REPUTATION_REL)));
         row.put("ca", layout.ca());
-        row.put("pa", layout.pa());
+        row.put("pa", storedPa(layout.pa()));
         row.put("asking_price", AttributeDefinitions.roundObservedAskingPrice(displayValue));
         row.put("asking_price_raw", displayValue);
         row.put("joined_club_date", joinedClubDate(reader, record, club));
@@ -296,7 +454,9 @@ public class PlayerExporter {
         row.put("date_of_birth", dob == null ? "" : dob.toString());
         row.put("age", dob == null || gameDate == null ? "" : ageOn(dob, gameDate));
         row.put("age_as_of", gameDate == null ? "" : gameDate.toString());
-        row.put("height_cm", reader.readU8(record + layout.relative(HEIGHT_CM_REL)));
+        row.put("height_cm", nearbyU8(
+                reader, nearby, nearbyFrom, record + layout.relative(HEIGHT_CM_REL),
+                layout.relative(HEIGHT_CM_REL)));
         row.put("traits", PlayerTraits.read(reader, record));
         row.put("morale", "");
         row.put("form", "");
@@ -312,47 +472,94 @@ public class PlayerExporter {
             int raw = data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff;
             row.put(field.name(), AttributeDefinitions.norm20(raw));
         }
-        for (FieldDef field : HIDDEN_DIRECT_FIELDS) {
-            row.put(field.name(), reader.readU8(record + field.offset()));
+        for (int i = 0; i < HIDDEN_DIRECT_FIELDS.size(); i++) {
+            FieldDef field = HIDDEN_DIRECT_FIELDS.get(i);
+            if (hidden.length == HIDDEN_DIRECT_FIELDS.size()) {
+                row.put(field.name(), hidden[i] & 0xff);
+            } else {
+                row.put(field.name(), reader.readU8(record + field.offset()));
+            }
         }
         return row;
     }
 
-    private static PlayerMemoryLayout playerMemoryLayout(ProcessMemoryReader reader, long record) throws IOException {
-        int ca = reader.readI16(record + CURRENT_ABILITY_REL);
-        int pa = reader.readI16(record + POTENTIAL_ABILITY_REL);
-        if (validAbility(ca) && validAbility(pa)) {
-            return new PlayerMemoryLayout(0, HISTORY_COPY_SOURCE_REL, ca, pa);
+    private static SlotClass classifyPerson(ProcessMemoryReader reader, long record) throws IOException {
+        Optional<PlayerMemoryLayout> layout = resolvePlayerLayout(reader, record);
+        if (layout.isEmpty()) {
+            int ca = reader.readI16(record + CURRENT_ABILITY_REL);
+            int alternateCa = reader.readI16(record + CURRENT_ABILITY_REL - DUAL_PLAYER_STAFF_SHIFT);
+            if (validAbility(ca) || validAbility(alternateCa)) {
+                return SlotClass.skip(SkipReason.STAFF);
+            }
+            return SlotClass.skip(SkipReason.BAD_CA);
         }
+        Optional<String> name = FmMemoryStrings.playerName(reader, record);
+        if (name.isEmpty()) {
+            return SlotClass.skip(SkipReason.NO_NAME);
+        }
+        return SlotClass.keep(layout.get(), name.get());
+    }
 
-        int alternateCa = reader.readI16(record + CURRENT_ABILITY_REL - DUAL_PLAYER_STAFF_SHIFT);
-        int alternatePa = reader.readI16(record + POTENTIAL_ABILITY_REL - DUAL_PLAYER_STAFF_SHIFT);
-        int alternateSourceRel = HISTORY_COPY_SOURCE_REL - DUAL_PLAYER_STAFF_SHIFT;
-        if (validAbility(alternateCa) && validAbility(alternatePa) && plausiblePlayerBlock(reader, record + alternateSourceRel)) {
-            return new PlayerMemoryLayout(-DUAL_PLAYER_STAFF_SHIFT, alternateSourceRel, alternateCa, alternatePa);
+    private static Optional<PlayerMemoryLayout> resolvePlayerLayout(ProcessMemoryReader reader, long record)
+            throws IOException {
+        Optional<PlayerMemoryLayout> primary = tryPlayerLayout(reader, record, 0);
+        if (primary.isPresent()) {
+            return primary;
         }
-        return new PlayerMemoryLayout(0, HISTORY_COPY_SOURCE_REL, ca, pa);
+        return tryPlayerLayout(reader, record, -DUAL_PLAYER_STAFF_SHIFT);
+    }
+
+    private static Optional<PlayerMemoryLayout> tryPlayerLayout(
+            ProcessMemoryReader reader, long record, int recordRelShift) throws IOException {
+        int ca = reader.readI16(record + CURRENT_ABILITY_REL + recordRelShift);
+        if (!validAbility(ca)) {
+            return Optional.empty();
+        }
+        int pa = reader.readI16(record + POTENTIAL_ABILITY_REL + recordRelShift);
+        int sourceRel = HISTORY_COPY_SOURCE_REL + recordRelShift;
+        byte[] data = reader.readBytes(record + sourceRel, MAX_SOURCE_OFFSET + 1);
+        if (!plausiblePlayerBlock(data) || !hasPlayableRawPositions(data)) {
+            return Optional.empty();
+        }
+        return Optional.of(new PlayerMemoryLayout(recordRelShift, sourceRel, ca, pa, data));
+    }
+
+    private static PlayerMemoryLayout fallbackLayout(ProcessMemoryReader reader, long record) {
+        try {
+            int ca = reader.readI16(record + CURRENT_ABILITY_REL);
+            int pa = reader.readI16(record + POTENTIAL_ABILITY_REL);
+            return new PlayerMemoryLayout(0, HISTORY_COPY_SOURCE_REL, ca, pa, null);
+        } catch (IOException ex) {
+            return new PlayerMemoryLayout(0, HISTORY_COPY_SOURCE_REL, 0, 0, null);
+        }
+    }
+
+    private static Integer storedPa(int pa) {
+        return validAbility(pa) ? pa : null;
     }
 
     private static boolean validAbility(int value) {
         return value > 0 && value <= 200;
     }
 
-    private static boolean plausiblePlayerBlock(ProcessMemoryReader reader, long sourceAddress) {
-        try {
-            byte[] data = reader.readBytes(sourceAddress, MAX_SOURCE_OFFSET + 1);
-            long plausiblePositions = POSITION_FIELDS.stream()
-                    .mapToInt(field -> data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff)
-                    .filter(value -> value <= 20)
-                    .count();
-            long plausibleAttributes = VISIBLE_FIELDS.stream()
-                    .mapToInt(field -> data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff)
-                    .filter(value -> value >= 1 && value <= 100)
-                    .count();
-            return plausiblePositions >= 12 && plausibleAttributes >= 25;
-        } catch (IOException | RuntimeException ex) {
-            return false;
+    private static boolean hasPlayableRawPositions(byte[] data) {
+        int best = 0;
+        for (FieldDef field : POSITION_FIELDS) {
+            best = Math.max(best, data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff);
         }
+        return best >= MIN_PLAYER_POSITION_SCORE;
+    }
+
+    private static boolean plausiblePlayerBlock(byte[] data) {
+        long plausiblePositions = POSITION_FIELDS.stream()
+                .mapToInt(field -> data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff)
+                .filter(value -> value <= 20)
+                .count();
+        long plausibleAttributes = VISIBLE_FIELDS.stream()
+                .mapToInt(field -> data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff)
+                .filter(value -> value >= 1 && value <= 100)
+                .count();
+        return plausiblePositions >= 12 && plausibleAttributes >= 25;
     }
 
     private static LocalDate dateOfBirth(ProcessMemoryReader reader, long record) throws IOException {
@@ -541,6 +748,10 @@ public class PlayerExporter {
         return age;
     }
 
+    private static void applyGameDate(Map<String, Object> row, LocalDate gameDate) {
+        applyGameDate(List.of(row), gameDate);
+    }
+
     private static void applyGameDate(List<Map<String, Object>> rows, LocalDate gameDate) {
         for (Map<String, Object> row : rows) {
             String dobValue = String.valueOf(row.getOrDefault("date_of_birth", ""));
@@ -646,9 +857,86 @@ public class PlayerExporter {
         return List.copyOf(names);
     }
 
-    public record ExportResult(String gameDate, List<Map<String, Object>> rows, TacticExporter.Snapshot tactic) {
+    public record ExportResult(
+            String gameDate,
+            List<Map<String, Object>> rows,
+            TacticExporter.Snapshot tactic,
+            SkipSnapshot skips,
+            long kept) {
         public ExportResult(String gameDate, List<Map<String, Object>> rows) {
-            this(gameDate, rows, null);
+            this(gameDate, rows, null, SkipSnapshot.EMPTY, rows == null ? 0 : rows.size());
+        }
+
+        public ExportResult(String gameDate, List<Map<String, Object>> rows, TacticExporter.Snapshot tactic) {
+            this(gameDate, rows, tactic, SkipSnapshot.EMPTY, rows == null ? 0 : rows.size());
+        }
+    }
+
+    public record SkipSnapshot(int empty, int staff, int noName, int badCa, int decodeError) {
+        public static final SkipSnapshot EMPTY = new SkipSnapshot(0, 0, 0, 0, 0);
+
+        public int totalRejected() {
+            return empty + staff + noName + badCa + decodeError;
+        }
+
+        public String summary() {
+            return "empty " + empty
+                    + ", staff " + staff
+                    + ", no name " + noName
+                    + ", bad CA " + badCa
+                    + ", decode errors " + decodeError;
+        }
+
+        public String toastFragment() {
+            List<String> parts = new ArrayList<>();
+            if (staff > 0) {
+                parts.add(staff + " staff skipped");
+            }
+            if (noName > 0) {
+                parts.add(noName + " unnamed skipped");
+            }
+            if (badCa > 0) {
+                parts.add(badCa + " bad CA skipped");
+            }
+            if (decodeError > 0) {
+                parts.add(decodeError + " decode errors");
+            }
+            return parts.isEmpty() ? "" : " · " + String.join(", ", parts);
+        }
+    }
+
+    static final class SkipCounts {
+        final AtomicInteger empty = new AtomicInteger();
+        final AtomicInteger staff = new AtomicInteger();
+        final AtomicInteger noName = new AtomicInteger();
+        final AtomicInteger badCa = new AtomicInteger();
+        final AtomicInteger decodeError = new AtomicInteger();
+
+        void record(SkipReason reason) {
+            switch (reason) {
+                case EMPTY -> empty.incrementAndGet();
+                case STAFF -> staff.incrementAndGet();
+                case NO_NAME -> noName.incrementAndGet();
+                case BAD_CA -> badCa.incrementAndGet();
+            }
+        }
+
+        SkipSnapshot snapshot() {
+            return new SkipSnapshot(empty.get(), staff.get(), noName.get(), badCa.get(), decodeError.get());
+        }
+    }
+
+    private enum SkipReason {
+        EMPTY, STAFF, NO_NAME, BAD_CA
+    }
+
+    private record SlotClass(SkipReason skip, PlayerMemoryLayout layout, String name) {
+        static SlotClass skip(SkipReason reason) {
+            return new SlotClass(reason, null, null);
+        }
+
+        static SlotClass keep(PlayerMemoryLayout layout, String name) {
+            return new SlotClass(null, layout, name);
         }
     }
 
@@ -672,10 +960,51 @@ public class PlayerExporter {
     private record InjuryStatus(boolean injured, String description, String startDate, int lightTrainingTotalDays, int fullTrainingTotalDays) {
     }
 
+    private static int u8At(byte[] data, int baseRel, int fieldRel) {
+        int index = fieldRel - baseRel;
+        if (index < 0 || index >= data.length) {
+            return 0;
+        }
+        return data[index] & 0xff;
+    }
+
+    private static int u16At(byte[] data, int baseRel, int fieldRel) {
+        int index = fieldRel - baseRel;
+        if (index < 0 || index + 1 >= data.length) {
+            return 0;
+        }
+        return (data[index] & 0xff) | ((data[index + 1] & 0xff) << 8);
+    }
+
+    private static byte[] readBytesOrEmpty(ProcessMemoryReader reader, long address, int size) {
+        try {
+            return reader.readBytes(address, size);
+        } catch (IOException | RuntimeException ex) {
+            return new byte[0];
+        }
+    }
+
+    private static int nearbyU8(
+            ProcessMemoryReader reader, byte[] nearby, int baseRel, long address, int fieldRel) throws IOException {
+        if (nearby.length > 0) {
+            return u8At(nearby, baseRel, fieldRel);
+        }
+        return reader.readU8(address);
+    }
+
+    private static int nearbyU16(
+            ProcessMemoryReader reader, byte[] nearby, int baseRel, long address, int fieldRel) throws IOException {
+        if (nearby.length > 0) {
+            return u16At(nearby, baseRel, fieldRel);
+        }
+        return reader.readU16(address);
+    }
+
     private record FutureTransfer(boolean transferAgreed, String club, String date, String contractEndDate) {
     }
 
-    private record PlayerMemoryLayout(int recordRelShift, int historyCopySourceRel, int ca, int pa) {
+    private record PlayerMemoryLayout(
+            int recordRelShift, int historyCopySourceRel, int ca, int pa, byte[] sourceData) {
         private int relative(int rel) {
             return rel + recordRelShift;
         }

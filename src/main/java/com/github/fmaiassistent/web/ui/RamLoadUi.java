@@ -72,7 +72,8 @@ final class RamLoadUi {
                     restore(loadButton);
                     Notification loaded = Notification.show(
                             "Loaded " + result.players() + " players · in-game "
-                                    + (result.gameDate() == null || result.gameDate().isBlank() ? "date unknown" : result.gameDate()),
+                                    + (result.gameDate() == null || result.gameDate().isBlank() ? "date unknown" : result.gameDate())
+                                    + (result.skipSummary() == null ? "" : result.skipSummary()),
                             3500,
                             Notification.Position.TOP_CENTER);
                     loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);

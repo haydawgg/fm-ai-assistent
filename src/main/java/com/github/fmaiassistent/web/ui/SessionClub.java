@@ -11,12 +11,7 @@ final class SessionClub {
     }
 
     static List<String> names(ClubDatabaseService clubs) {
-        return clubs.findAllClubs().stream()
-                .map(club -> club.getName())
-                .filter(name -> name != null && !name.isBlank())
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+        return clubs.findNames();
     }
 
     static String resolved(AppSettingsService settings, List<String> names) {

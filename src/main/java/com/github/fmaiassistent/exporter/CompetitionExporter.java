@@ -34,6 +34,13 @@ public class CompetitionExporter {
     public ExportResult exportAllCompetitions(
             int pid, int build, Long gamePluginBase, Consumer<LoadProgress> progress) throws IOException {
         try (ProcessMemoryReader reader = ProcessReaders.open(pid)) {
+            return exportAllCompetitions(reader, build, gamePluginBase, progress);
+        }
+    }
+
+    public ExportResult exportAllCompetitions(
+            ProcessMemoryReader reader, int build, Long gamePluginBase, Consumer<LoadProgress> progress)
+            throws IOException {
             FmOffsets.Bounds bounds = FmOffsets.tableBounds(reader, build, gamePluginBase, "CompetitionOffset");
             long total = bounds.count();
             LoadProgressReporter reporter = new LoadProgressReporter(progress);
@@ -68,7 +75,6 @@ public class CompetitionExporter {
             rows.sort(Comparator.comparing(row -> String.valueOf(row.get("name")).toLowerCase()));
             reporter.finish(new LoadProgress(LoadProgress.Phase.COMPETITIONS, total, total, rows.size()));
             return new ExportResult(rows);
-        }
     }
 
     private Map<String, Object> decodeCompetition(ProcessMemoryReader reader, long competition) throws IOException {

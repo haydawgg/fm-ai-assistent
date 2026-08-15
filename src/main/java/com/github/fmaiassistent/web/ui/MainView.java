@@ -387,7 +387,8 @@ public class MainView extends VerticalLayout {
                     Notification loaded = Notification.show(
                             "Loaded " + result.players() + " players, "
                                     + result.clubs() + " clubs, "
-                                    + result.competitions() + " competitions",
+                                    + result.competitions() + " competitions"
+                                    + (result.skipSummary() == null ? "" : result.skipSummary()),
                             4000,
                             Notification.Position.TOP_CENTER
                     );
@@ -466,12 +467,30 @@ public class MainView extends VerticalLayout {
         }
     }
 
+    private boolean noDeskClub() {
+        String filterClub = playerFilter == null ? "" : playerFilter.club();
+        String sessionClub = settings.sessionClub();
+        return (filterClub == null || filterClub.isBlank()) && (sessionClub == null || sessionClub.isBlank());
+    }
+
     private void showPlayers() {
         List<PlayerColumn> allColumns = allPlayerColumns();
         List<PlayerColumn> columns = showAllPlayerColumns
                 ? allColumns
                 : allColumns.stream().filter(column -> DEFAULT_PLAYER_COLUMN_KEYS.contains(column.key())).toList();
-        List<PlayerEntity> rows = playerFilter.isEmpty() ? players.findAllPlayerEntities() : players.findPlayerEntities(playerFilter);
+        String club = playerFilter.club() != null && !playerFilter.club().isBlank()
+                ? playerFilter.club()
+                : settings.sessionClub();
+        List<PlayerEntity> rows;
+        if (club == null || club.isBlank()) {
+            rows = playerFilter.isEmpty()
+                    ? players.findAllPlayerEntities()
+                    : players.findPlayerEntities(playerFilter);
+        } else if (playerFilter.isEmpty() || playerFilter.isClubOnly()) {
+            rows = players.findPlayerEntities(PlayerFilterCriteria.clubOnly(club));
+        } else {
+            rows = players.findPlayerEntities(playerFilter.withClub(club));
+        }
         syncQuickFiltersFromCriteria();
         setPlayerGrid(columns, rows);
         setFilterActive(!playerFilter.isEmpty());
@@ -652,7 +671,9 @@ public class MainView extends VerticalLayout {
                 buildSidePanel(),
                 true,
                 "No players match",
-                "Adjust filters or load from RAM to fill the desk.");
+                noDeskClub()
+                        ? "No players yet — load from RAM to fill the desk, or pick your club in the top bar to focus on your squad."
+                        : "Adjust filters or load from RAM to fill the desk.");
     }
 
     private void showWorkspace(
@@ -1477,10 +1498,9 @@ public class MainView extends VerticalLayout {
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
 
-        List<ClubEntity> clubRows = clubs.findAllClubs();
-        ComboBox<String> name = comboBox("Name", distinctColumnValues(clubRows, "NAME"), clubFilter.name());
-        ComboBox<String> competition = comboBox("Competition", distinctColumnValues(clubRows, "COMPETITION"), clubFilter.competition());
-        ComboBox<String> nation = comboBox("Nation", distinctColumnValues(clubRows, "NATION"), clubFilter.nation());
+        ComboBox<String> name = comboBox("Name", clubs.findNames(), clubFilter.name());
+        ComboBox<String> competition = comboBox("Competition", clubs.findCompetitionNames(), clubFilter.competition());
+        ComboBox<String> nation = comboBox("Nation", clubs.findNations(), clubFilter.nation());
 
         IntegerField reputationMin = intField("Reputation min", clubFilter.reputationMin(), 1, 10000);
         IntegerField reputationMax = intField("Reputation max", clubFilter.reputationMax(), 1, 10000);

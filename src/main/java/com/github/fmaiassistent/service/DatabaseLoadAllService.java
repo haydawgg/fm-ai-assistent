@@ -9,6 +9,8 @@ import com.github.fmaiassistent.memory.ProcessMemoryReader;
 import com.github.fmaiassistent.memory.ProcessReaders;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryUsage;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -16,6 +18,7 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StopWatch;
 
 @Service
 public class DatabaseLoadAllService {
@@ -38,18 +41,31 @@ public class DatabaseLoadAllService {
         int resolvedPid = pid == null ? detectFmPid() : pid;
         LOGGER.info("Loading RAM snapshot from fm.exe pid {}", resolvedPid);
         Consumer<LoadProgress> listener = LoadProgressReporter.orNone(progress);
-        try {
+        StopWatch stopWatch = new StopWatch("ram-load");
+        stopWatch.start("open");
+        try (ProcessMemoryReader reader = ProcessReaders.open(resolvedPid)) {
+            stopWatch.stop();
+            logHeap("after open");
+            stopWatch.start("competitions");
             CompetitionExporter.ExportResult competitionRows =
-                    competitionExporter.exportAllCompetitions(resolvedPid, build, gamePluginBase, listener);
+                    competitionExporter.exportAllCompetitions(reader, build, gamePluginBase, listener);
+            stopWatch.stop();
+            stopWatch.start("clubs");
             ClubExporter.ExportResult clubRows =
-                    clubExporter.exportAllClubs(resolvedPid, build, gamePluginBase, listener);
-            PlayerExporter.ExportResult playerRows =
-                    playerExporter.exportAllPlayers(resolvedPid, build, gamePluginBase, listener);
-            if (playerRows.rows().isEmpty()) {
-                throw new IllegalStateException(
-                        "RAM export found no players. Previous snapshot kept. Is FM26 running with a save loaded?");
-            }
-            LoadAllResult result = persist.persist(resolvedPid, competitionRows, clubRows, playerRows, listener);
+                    clubExporter.exportAllClubs(reader, build, gamePluginBase, listener);
+            stopWatch.stop();
+            logHeap("after maps");
+            stopWatch.start("people+persist");
+            LoadAllResult result = persist.persist(
+                    resolvedPid,
+                    competitionRows,
+                    clubRows,
+                    listener,
+                    chunkSink -> playerExporter.exportAllPlayers(
+                            reader, build, gamePluginBase, listener, chunkSink));
+            stopWatch.stop();
+            logHeap("after persist");
+            LOGGER.info("RAM load timings:\n{}", stopWatch.prettyPrint());
             LOGGER.info(
                     "Loaded RAM snapshot: {} players, {} clubs, {} competitions",
                     result.players(),
@@ -99,7 +115,22 @@ public class DatabaseLoadAllService {
         return score;
     }
 
-    public record LoadAllResult(int pid, String gameDate, long players, long clubs, long competitions) {
+    private static void logHeap(String label) {
+        MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        LOGGER.info(
+                "{} heap used={} MB committed={} MB max={} MB",
+                label,
+                heap.getUsed() / (1024 * 1024),
+                heap.getCommitted() / (1024 * 1024),
+                heap.getMax() / (1024 * 1024));
+    }
+
+    public record LoadAllResult(
+            int pid, String gameDate, long players, long clubs, long competitions, String skipSummary) {
+        public LoadAllResult(int pid, String gameDate, long players, long clubs, long competitions) {
+            this(pid, gameDate, players, clubs, competitions, "");
+        }
+
         public static int defaultBuild() {
             return FmOffsets.DEFAULT_BUILD;
         }

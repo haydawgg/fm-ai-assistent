@@ -80,7 +80,7 @@ public class MoneyballView extends VerticalLayout {
         expand(grid);
         summary.addClassName("moneyball-summary");
 
-        if (clubs.findAllClubs().isEmpty()) {
+        if (!clubs.hasClubs()) {
             grid.setVisible(false);
             summary.setText("Load from the top bar with FM26 running.");
             summary.addClassName("moneyball-empty");

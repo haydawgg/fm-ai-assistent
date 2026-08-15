@@ -20,7 +20,25 @@ public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpec
             """)
     List<String> findDistinctNameByOrderByNameAsc();
 
-    @Cacheable(cacheNames = JCacheConfiguration.CLUB_CACHE)
-    @Override
-    List<ClubEntity> findAll();
+    @Cacheable(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE)
+    @Query("""
+                select distinct c.competition
+                from ClubEntity c
+                where c.competition is not null
+                order by c.competition
+            """)
+    List<String> findDistinctCompetitionByOrderByCompetitionAsc();
+
+    @Cacheable(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE)
+    @Query("""
+                select distinct c.nation
+                from ClubEntity c
+                where c.nation is not null
+                order by c.nation
+            """)
+    List<String> findDistinctNationByOrderByNationAsc();
+
+    List<ClubEntity> findByNameIgnoreCase(String name);
+
+    List<ClubEntity> findByNameContainingIgnoreCase(String name);
 }

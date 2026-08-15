@@ -13,6 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -270,6 +271,9 @@ public class PlayerEntity {
     private Integer goals;
     @Column
     private Integer assists;
+
+    private static final Map<String, Field> EXPORT_FIELDS = exportFields();
+    private static final Map<String, Field> ENTITY_FIELDS = entityFields();
 
     protected PlayerEntity() {
     }
@@ -810,11 +814,13 @@ public class PlayerEntity {
     }
 
     private void setExportField(String exportField, Object value) {
+        Field field = EXPORT_FIELDS.get(exportField);
+        if (field == null) {
+            throw new IllegalArgumentException("unmapped player export field: " + exportField);
+        }
         try {
-            Field field = PlayerEntity.class.getDeclaredField(PlayerColumnNames.toEntityFieldName(exportField));
-            field.setAccessible(true);
             field.set(this, convertValue(value, field.getType()));
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
+        } catch (IllegalAccessException ex) {
             throw new IllegalArgumentException("unmapped player export field: " + exportField, ex);
         }
     }
@@ -862,12 +868,41 @@ public class PlayerEntity {
     }
 
     private Object getEntityField(String entityField) {
+        Field field = ENTITY_FIELDS.get(entityField);
+        if (field == null) {
+            throw new IllegalArgumentException("unmapped player entity field: " + entityField);
+        }
         try {
-            Field field = PlayerEntity.class.getDeclaredField(entityField);
-            field.setAccessible(true);
             return field.get(this);
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
+        } catch (IllegalAccessException ex) {
             throw new IllegalArgumentException("unmapped player entity field: " + entityField, ex);
+        }
+    }
+
+    private static Map<String, Field> exportFields() {
+        Map<String, Field> fields = new HashMap<>();
+        for (String exportField : PlayerExporter.FIELD_NAMES) {
+            fields.put(exportField, declaredField(PlayerColumnNames.toEntityFieldName(exportField)));
+        }
+        return Map.copyOf(fields);
+    }
+
+    private static Map<String, Field> entityFields() {
+        Map<String, Field> fields = new HashMap<>();
+        for (Field field : PlayerEntity.class.getDeclaredFields()) {
+            field.setAccessible(true);
+            fields.put(field.getName(), field);
+        }
+        return Map.copyOf(fields);
+    }
+
+    private static Field declaredField(String name) {
+        try {
+            Field field = PlayerEntity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException ex) {
+            throw new IllegalStateException("unmapped player entity field: " + name, ex);
         }
     }
 }

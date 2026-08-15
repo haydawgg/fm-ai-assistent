@@ -31,6 +31,55 @@ public record PlayerFilterCriteria(
         Long salaryMax,
         Map<String, Integer> positionMinimums,
         Map<String, Integer> attributeMinimums) {
+    public PlayerFilterCriteria {
+        positionMinimums = positionMinimums == null ? Map.of() : positionMinimums;
+        attributeMinimums = attributeMinimums == null ? Map.of() : attributeMinimums;
+    }
+
+    public static PlayerFilterCriteria clubOnly(String club) {
+        return empty().withClub(club);
+    }
+
+    public PlayerFilterCriteria withClub(String club) {
+        return new PlayerFilterCriteria(
+                name, gender, playingNation, playingCompetition, club == null ? "" : club,
+                ageMin, ageMax, heightMin, heightMax, nationality,
+                currentReputationMin, currentReputationMax, homeReputationMin, homeReputationMax,
+                worldReputationMin, worldReputationMax, caMin, caMax, paMin, paMax,
+                contractEndDateFrom, contractEndDateTo, askingPriceMin, askingPriceMax, salaryMax,
+                positionMinimums, attributeMinimums);
+    }
+
+    public boolean isClubOnly() {
+        return !isBlank(club)
+                && isBlank(name)
+                && isBlank(gender)
+                && isBlank(playingNation)
+                && isBlank(playingCompetition)
+                && ageMin == null
+                && ageMax == null
+                && heightMin == null
+                && heightMax == null
+                && isBlank(nationality)
+                && currentReputationMin == null
+                && currentReputationMax == null
+                && homeReputationMin == null
+                && homeReputationMax == null
+                && worldReputationMin == null
+                && worldReputationMax == null
+                && caMin == null
+                && caMax == null
+                && paMin == null
+                && paMax == null
+                && contractEndDateFrom == null
+                && contractEndDateTo == null
+                && askingPriceMin == null
+                && askingPriceMax == null
+                && salaryMax == null
+                && positionMinimums.isEmpty()
+                && attributeMinimums.isEmpty();
+    }
+
     public static PlayerFilterCriteria empty() {
         return new PlayerFilterCriteria(
                 "", "", "", "", "", null, null, null, null, "", null, null, null, null, null, null,

@@ -12,6 +12,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -52,6 +53,8 @@ public class ClubEntity {
 
     @Column(name = "payroll_budget")
     private Long payrollBudget;
+
+    private static final Map<String, Field> FIELDS = fields();
 
     protected ClubEntity() {
     }
@@ -123,21 +126,25 @@ public class ClubEntity {
     }
 
     private void setField(String fieldName, Object value) {
+        Field field = FIELDS.get(fieldName);
+        if (field == null) {
+            throw new IllegalArgumentException("unmapped club export field: " + fieldName);
+        }
         try {
-            Field field = ClubEntity.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
             field.set(this, convertValue(value, field.getType()));
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
+        } catch (IllegalAccessException ex) {
             throw new IllegalArgumentException("unmapped club export field: " + fieldName, ex);
         }
     }
 
     private Object getField(String fieldName) {
+        Field field = FIELDS.get(fieldName);
+        if (field == null) {
+            throw new IllegalArgumentException("unmapped club export field: " + fieldName);
+        }
         try {
-            Field field = ClubEntity.class.getDeclaredField(fieldName);
-            field.setAccessible(true);
             return field.get(this);
-        } catch (NoSuchFieldException | IllegalAccessException ex) {
+        } catch (IllegalAccessException ex) {
             throw new IllegalArgumentException("unmapped club export field: " + fieldName, ex);
         }
     }
@@ -181,5 +188,19 @@ public class ClubEntity {
             }
         }
         return out.toString();
+    }
+
+    private static Map<String, Field> fields() {
+        Map<String, Field> fields = new HashMap<>();
+        for (String name : ClubExporter.FIELD_NAMES) {
+            try {
+                Field field = ClubEntity.class.getDeclaredField(name);
+                field.setAccessible(true);
+                fields.put(name, field);
+            } catch (NoSuchFieldException ex) {
+                throw new IllegalStateException("unmapped club export field: " + name, ex);
+            }
+        }
+        return Map.copyOf(fields);
     }
 }

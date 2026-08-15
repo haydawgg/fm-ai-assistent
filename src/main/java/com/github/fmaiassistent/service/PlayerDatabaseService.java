@@ -11,11 +11,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StopWatch;
 
 import java.io.IOException;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -27,6 +31,8 @@ public class PlayerDatabaseService {
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerDatabaseService.class);
 
     private static final int INSERT_BATCH_SIZE = 500;
+    private static final List<String> PLAYER_INSERT_COLUMNS = playerInsertColumns();
+    private static final String PLAYER_INSERT_SQL = playerInsertSql(PLAYER_INSERT_COLUMNS);
 
     private final PlayerRepository players;
     private final ClubRepository clubRepository;
@@ -34,6 +40,7 @@ public class PlayerDatabaseService {
     private final ClubDatabaseService clubDatabaseService;
     private final LoadMetadataRepository metadata;
     private final EntityManager entityManager;
+    private final JdbcTemplate jdbcTemplate;
     private final PlayerExporter exporter = new PlayerExporter();
 
     public PlayerDatabaseService(
@@ -42,13 +49,15 @@ public class PlayerDatabaseService {
             CompetitionRepository competitionRepository,
             ClubDatabaseService clubDatabaseService,
             LoadMetadataRepository metadata,
-            EntityManager entityManager) {
+            EntityManager entityManager,
+            JdbcTemplate jdbcTemplate) {
         this.players = players;
         this.clubRepository = clubRepository;
         this.competitionRepository = competitionRepository;
         this.clubDatabaseService = clubDatabaseService;
         this.metadata = metadata;
         this.entityManager = entityManager;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
@@ -80,21 +89,77 @@ public class PlayerDatabaseService {
         int remaining = batch.size();
         flushPlayerBatch(batch);
         saved += remaining;
+        finishSnapshot(result);
+        reporter.finish(new LoadProgress(LoadProgress.Phase.SAVING, total, total, saved));
+        return new LoadResult(result.gameDate(), (int) (result.kept() > 0 ? result.kept() : result.rows().size()));
+    }
+
+    public Map<Long, ClubEntity> clubLookup() {
+        return clubsByAddress();
+    }
+
+    public void savePlayerChunk(List<Map<String, Object>> chunk, Map<Long, ClubEntity> clubsByAddress) {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
+        List<PlayerEntity> batch = new ArrayList<>(chunk.size());
+        for (Map<String, Object> row : chunk) {
+            batch.add(playerEntity(row, clubsByAddress));
+        }
+        flushPlayerBatch(batch);
+    }
+
+    public void finishSnapshot(PlayerExporter.ExportResult result) {
         metadata.save(new LoadMetadataEntity("game_date", result.gameDate()));
         metadata.save(new LoadMetadataEntity("loaded_at", OffsetDateTime.now().toString()));
         saveTactic(result);
-        reporter.finish(new LoadProgress(LoadProgress.Phase.SAVING, total, total, saved));
-        return new LoadResult(result.gameDate(), result.rows().size());
     }
 
     private void flushPlayerBatch(List<PlayerEntity> batch) {
         if (batch.isEmpty()) {
             return;
         }
-        players.saveAll(batch);
-        players.flush();
+        jdbcTemplate.batchUpdate(PLAYER_INSERT_SQL, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int index) throws SQLException {
+                PlayerEntity entity = batch.get(index);
+                for (int column = 0; column < PLAYER_INSERT_COLUMNS.size(); column++) {
+                    ps.setObject(column + 1, insertValue(entity, PLAYER_INSERT_COLUMNS.get(column)));
+                }
+            }
+
+            @Override
+            public int getBatchSize() {
+                return batch.size();
+            }
+        });
         entityManager.clear();
         batch.clear();
+    }
+
+    private static Object insertValue(PlayerEntity entity, String column) {
+        if ("club_id".equals(column)) {
+            return entity.getClubEntity() == null ? null : entity.getClubEntity().getId();
+        }
+        if ("playing_club_id".equals(column)) {
+            return entity.getPlayingClubEntity() == null ? null : entity.getPlayingClubEntity().getId();
+        }
+        return entity.getColumnValue(column.toUpperCase(Locale.ROOT));
+    }
+
+    private static List<String> playerInsertColumns() {
+        List<String> columns = new ArrayList<>(PlayerExporter.FIELD_NAMES.size() + 2);
+        for (String field : PlayerExporter.FIELD_NAMES) {
+            columns.add(PlayerColumnNames.toColumnName(field));
+        }
+        columns.add("club_id");
+        columns.add("playing_club_id");
+        return List.copyOf(columns);
+    }
+
+    private static String playerInsertSql(List<String> columns) {
+        String placeholders = String.join(", ", Collections.nCopies(columns.size(), "?"));
+        return "INSERT INTO players (" + String.join(", ", columns) + ") VALUES (" + placeholders + ")";
     }
 
     private void saveTactic(PlayerExporter.ExportResult result) {
@@ -113,12 +178,20 @@ public class PlayerDatabaseService {
             }
         }
         if (!neededRecords.isEmpty()) {
-            for (Map<String, Object> row : result.rows()) {
-                String record = String.valueOf(row.get("record"));
-                if (neededRecords.contains(record)) {
-                    namesByRecord.put(record, String.valueOf(row.get("name")));
-                    if (namesByRecord.size() == neededRecords.size()) {
-                        break;
+            if (!result.rows().isEmpty()) {
+                for (Map<String, Object> row : result.rows()) {
+                    String record = String.valueOf(row.get("record"));
+                    if (neededRecords.contains(record)) {
+                        namesByRecord.put(record, String.valueOf(row.get("name")));
+                        if (namesByRecord.size() == neededRecords.size()) {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                for (PlayerEntity player : players.findByRecordAddressIn(neededRecords)) {
+                    if (player.getRecordAddress() != null) {
+                        namesByRecord.put(player.getRecordAddress(), player.getName());
                     }
                 }
             }
@@ -188,10 +261,18 @@ public class PlayerDatabaseService {
         PlayerFilterCriteria safeFilter = filter == null ? PlayerFilterCriteria.empty() : filter;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        List<PlayerEntity> out = players.findAllWithClubs()
-                .stream()
-                .filter(player -> matchesPlayerFilter(player, safeFilter))
-                .toList();
+        List<PlayerEntity> out;
+        if (safeFilter.club() != null && !safeFilter.club().isBlank()) {
+            out = players.findAllWithClubsByClubName(safeFilter.club().trim());
+            if (!safeFilter.isClubOnly()) {
+                out = out.stream().filter(player -> matchesPlayerFilter(player, safeFilter)).toList();
+            }
+        } else {
+            out = players.findAllWithClubs()
+                    .stream()
+                    .filter(player -> matchesPlayerFilter(player, safeFilter))
+                    .toList();
+        }
         stopWatch.stop();
         LOGGER.info("Time to get filtered player entities: {}", stopWatch.getTotalTime(TimeUnit.MILLISECONDS));
         return out;

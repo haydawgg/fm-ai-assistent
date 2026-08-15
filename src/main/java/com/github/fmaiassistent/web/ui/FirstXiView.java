@@ -105,7 +105,7 @@ public class FirstXiView extends VerticalLayout {
         add(header(), new LiveSelectedXiPanel(metadata), filterBar(), tactic, summary,
                 pitch, unavailableHeading, unavailable, boards);
         expand(boards);
-        if (clubs.findAllClubs().isEmpty()) {
+        if (!clubs.hasClubs()) {
             grid.setVisible(false);
             upgrades.setVisible(false);
             recommendedHeading.setVisible(false);

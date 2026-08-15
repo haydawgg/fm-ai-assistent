@@ -4,6 +4,8 @@ import com.github.fmaiassistent.linux.FmMemoryStrings;
 import com.github.fmaiassistent.memory.ProcessMemoryReader;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -11,9 +13,12 @@ import java.util.Optional;
 import java.util.Set;
 
 public final class PlayerTraits {
-    private static final int SCAN_FROM = -0x1C0;
-    private static final int SCAN_TO = 0x1C0;
+    static final int SCAN_FROM = -0x1C0;
+    static final int SCAN_TO = 0x1C0;
+    static final int WINDOW_SIZE = SCAN_TO - SCAN_FROM + 16;
+    static final int PREFERRED_REL = 0x40;
     private static final int MAX_TRAITS = 16;
+    private static final int[] SCAN_ORDER = scanOrder();
 
     private static final Set<String> CATALOG = Set.of(
             "places shots",
@@ -87,15 +92,42 @@ public final class PlayerTraits {
     }
 
     public static String read(ProcessMemoryReader reader, long record) {
-        for (int offset = SCAN_FROM; offset <= SCAN_TO; offset += 8) {
-            List<String> names = readVector(reader, record + offset);
-            if (names.isEmpty()) {
-                names = reader.qwordOrNull(record + offset)
-                        .map(pointer -> readVector(reader, pointer))
-                        .orElse(List.of());
+        try {
+            byte[] window = reader.readBytes(record + SCAN_FROM, WINDOW_SIZE);
+            return namesFromWindow(reader, window);
+        } catch (IOException | RuntimeException ex) {
+            return namesFromOffsetHops(reader, record);
+        }
+    }
+
+    private static String namesFromWindow(ProcessMemoryReader reader, byte[] window) {
+        ByteBuffer buf = ByteBuffer.wrap(window).order(ByteOrder.LITTLE_ENDIAN);
+        for (int offset : SCAN_ORDER) {
+            int pos = offset - SCAN_FROM;
+            if (pos < 0 || pos + 16 > window.length) {
+                continue;
             }
+            long start = buf.getLong(pos);
+            long end = buf.getLong(pos + 8);
+            List<String> names = namesFromSpan(reader, start, end, offset == PREFERRED_REL);
             if (!names.isEmpty()) {
                 return String.join("; ", names);
+            }
+        }
+        return "";
+    }
+
+    private static String namesFromOffsetHops(ProcessMemoryReader reader, long record) {
+        for (int offset : SCAN_ORDER) {
+            try {
+                long start = reader.readU64(record + offset);
+                long end = reader.readU64(record + offset + 8);
+                List<String> names = namesFromSpan(reader, start, end, offset == PREFERRED_REL);
+                if (!names.isEmpty()) {
+                    return String.join("; ", names);
+                }
+            } catch (IOException | RuntimeException ex) {
+                // try the next offset
             }
         }
         return "";
@@ -105,31 +137,52 @@ public final class PlayerTraits {
         try {
             long start = reader.readU64(vectorAddress);
             long end = reader.readU64(vectorAddress + 8);
-            if (start == 0 || end < start || (end - start) % 8 != 0) {
-                return List.of();
-            }
-            long count = (end - start) / 8;
-            if (count < 1 || count > MAX_TRAITS) {
-                return List.of();
-            }
-            List<String> names = new ArrayList<>();
-            for (long index = 0; index < count; index++) {
-                Optional<Long> item = reader.qwordOrNull(start + index * 8);
-                if (item.isEmpty()) {
-                    continue;
-                }
-                String name = traitName(reader, item.get());
-                if (name == null) {
-                    continue;
-                }
-                if (!name.isBlank()) {
-                    names.add(name);
-                }
-            }
-            return names.size() >= 1 ? List.copyOf(names) : List.of();
+            return namesFromVector(reader, start, end);
         } catch (IOException | RuntimeException ex) {
             return List.of();
         }
+    }
+
+    private static List<String> namesFromSpan(
+            ProcessMemoryReader reader, long start, long end, boolean followPointer) {
+        List<String> names = namesFromVector(reader, start, end);
+        if (!names.isEmpty() || !followPointer || plausibleItemSpan(start, end)) {
+            return names;
+        }
+        if (start <= 0 || start > ProcessMemoryReader.MAX_USER_ADDRESS) {
+            return List.of();
+        }
+        return readVector(reader, start);
+    }
+
+    private static boolean plausibleItemSpan(long start, long end) {
+        if (start == 0 || end < start || (end - start) % 8 != 0) {
+            return false;
+        }
+        long count = (end - start) / 8;
+        return count >= 1 && count <= MAX_TRAITS;
+    }
+
+    private static List<String> namesFromVector(ProcessMemoryReader reader, long start, long end) {
+        if (!plausibleItemSpan(start, end)) {
+            return List.of();
+        }
+        long count = (end - start) / 8;
+        List<String> names = new ArrayList<>();
+        for (long index = 0; index < count; index++) {
+            Optional<Long> item = reader.qwordOrNull(start + index * 8);
+            if (item.isEmpty()) {
+                continue;
+            }
+            String name = traitName(reader, item.get());
+            if (name == null) {
+                continue;
+            }
+            if (!name.isBlank()) {
+                names.add(name);
+            }
+        }
+        return names.size() >= 1 ? List.copyOf(names) : List.of();
     }
 
     private static String traitName(ProcessMemoryReader reader, long item) {
@@ -154,5 +207,18 @@ public final class PlayerTraits {
         }
         String compact = key.replace("-", " ").replace("  ", " ");
         return CATALOG.contains(compact);
+    }
+
+    private static int[] scanOrder() {
+        int count = ((SCAN_TO - SCAN_FROM) / 8) + 1;
+        int[] order = new int[count];
+        order[0] = PREFERRED_REL;
+        int index = 1;
+        for (int offset = SCAN_FROM; offset <= SCAN_TO; offset += 8) {
+            if (offset != PREFERRED_REL) {
+                order[index++] = offset;
+            }
+        }
+        return order;
     }
 }

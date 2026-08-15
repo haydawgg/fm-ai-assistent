@@ -22,6 +22,8 @@ public final class TacticExporter {
     private static final int MIN_SELECTED_PEOPLE = 8;
     private static final long MAX_SCAN_REGION_SIZE = 64L * 1024 * 1024;
     private static final long MAX_TOTAL_SCAN = 256L * 1024 * 1024;
+    private static final int SCAN_CHUNK_BYTES = 1024 * 1024;
+    private static final int PERFECT_SELECTION_HITS = 11;
 
     private TacticExporter() {
     }
@@ -37,12 +39,20 @@ public final class TacticExporter {
             int build,
             Long gamePluginBase) throws IOException {
         long pluginBase = gamePluginBase == null ? FmOffsets.findGamePluginBase(reader) : gamePluginBase;
-        Set<Long> people = peoplePointers(reader, build, pluginBase);
-        if (people.size() < 100) {
+        return export(reader, build, pluginBase, peoplePointers(reader, build, pluginBase));
+    }
+
+    public static Optional<Snapshot> export(
+            ProcessMemoryReader reader,
+            int build,
+            Long gamePluginBase,
+            Set<Long> peoplePointers) throws IOException {
+        long pluginBase = gamePluginBase == null ? FmOffsets.findGamePluginBase(reader) : gamePluginBase;
+        if (peoplePointers == null || peoplePointers.size() < 100) {
             return Optional.empty();
         }
         long vtable = pluginBase + TACTICS_MANAGER_VTABLE_RVA;
-        return scanForManager(reader, vtable, people);
+        return scanForManager(reader, vtable, peoplePointers);
     }
 
     private static Optional<Snapshot> scanForManager(ProcessMemoryReader reader, long vtable, Set<Long> people)
@@ -59,27 +69,42 @@ public final class TacticExporter {
             if (scanned >= MAX_TOTAL_SCAN) {
                 break;
             }
-            byte[] data;
-            try {
-                data = reader.readBytes(region.start(), Math.toIntExact(region.size()));
-            } catch (IOException | ArithmeticException ex) {
-                continue;
-            }
-            scanned += data.length;
-            ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
-            for (int offset = 0; offset <= data.length - 8; offset += 8) {
-                if (buffer.getLong(offset) != vtable) {
+            long regionEnd = region.start() + region.size();
+            long address = region.start();
+            while (address + 8 <= regionEnd && scanned < MAX_TOTAL_SCAN) {
+                int size = (int) Math.min(SCAN_CHUNK_BYTES, Math.min(regionEnd - address, MAX_TOTAL_SCAN - scanned));
+                size -= size % 8;
+                if (size < 8) {
+                    break;
+                }
+                byte[] data;
+                try {
+                    data = reader.readBytes(address, size);
+                } catch (IOException | RuntimeException ex) {
+                    address += size;
+                    scanned += size;
                     continue;
                 }
-                Optional<Snapshot> decoded = decodeManager(reader, region.start() + offset, people);
-                if (decoded.isEmpty()) {
-                    continue;
+                scanned += data.length;
+                ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+                for (int offset = 0; offset <= data.length - 8; offset += 8) {
+                    if (buffer.getLong(offset) != vtable) {
+                        continue;
+                    }
+                    Optional<Snapshot> decoded = decodeManager(reader, address + offset, people);
+                    if (decoded.isEmpty()) {
+                        continue;
+                    }
+                    int hits = (int) decoded.get().selectedPersonAddresses().stream().filter(people::contains).count();
+                    if (hits > bestHits) {
+                        bestHits = hits;
+                        best = decoded.get();
+                        if (bestHits >= PERFECT_SELECTION_HITS) {
+                            return Optional.of(best);
+                        }
+                    }
                 }
-                int hits = (int) decoded.get().selectedPersonAddresses().stream().filter(people::contains).count();
-                if (hits > bestHits) {
-                    bestHits = hits;
-                    best = decoded.get();
-                }
+                address += size;
             }
         }
         return Optional.ofNullable(best);

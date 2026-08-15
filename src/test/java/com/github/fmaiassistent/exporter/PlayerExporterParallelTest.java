@@ -53,6 +53,10 @@ class PlayerExporterParallelTest {
                 putShort(record + AttributeDefinitions.CURRENT_ABILITY_REL,
                         (short) (int) caOverrides.getOrDefault(i, 100));
                 putShort(record + AttributeDefinitions.POTENTIAL_ABILITY_REL, (short) 110);
+                putPlayerSource(record);
+                long nameAddress = 0x8_0000L + i * 0x100;
+                putQword(record + 0x40, nameAddress);
+                segments.put(nameAddress, clubName("Player " + i));
                 long registration = record + 0x100;
                 long body = registration + 0x80;
                 long club = 0x5_0000L + i;
@@ -64,6 +68,22 @@ class PlayerExporterParallelTest {
                 putQword(club + 0xC8, clubNameAddress);
                 segments.put(clubNameAddress, clubName("Test FC " + i));
             }
+        }
+
+        private void putPlayerSource(long record) {
+            int size = Math.max(
+                    AttributeDefinitions.POSITION_FIELDS.stream().mapToInt(com.github.fmaiassistent.player.FieldDef::offset).max().orElseThrow(),
+                    AttributeDefinitions.VISIBLE_FIELDS.stream().mapToInt(com.github.fmaiassistent.player.FieldDef::offset).max().orElseThrow())
+                    - AttributeDefinitions.SOURCE_OBJECT_BASE_OFFSET + 1;
+            byte[] data = new byte[size];
+            for (var field : AttributeDefinitions.POSITION_FIELDS) {
+                data[field.offset() - AttributeDefinitions.SOURCE_OBJECT_BASE_OFFSET] =
+                        (byte) ("Goalkeeper".equals(field.name()) ? 18 : 1);
+            }
+            for (var field : AttributeDefinitions.VISIBLE_FIELDS) {
+                data[field.offset() - AttributeDefinitions.SOURCE_OBJECT_BASE_OFFSET] = 50;
+            }
+            segments.put(record + AttributeDefinitions.HISTORY_COPY_SOURCE_REL, data);
         }
 
         private static byte[] clubName(String name) {
@@ -192,7 +212,7 @@ class PlayerExporterParallelTest {
             assertEquals("Test FC " + index, row.get("club"));
             assertEquals(100, ((Number) row.get("ca")).intValue());
             assertEquals(110, ((Number) row.get("pa")).intValue());
-            assertTrue(String.valueOf(row.get("name")).startsWith("0x"));
+            assertEquals("Player " + index, row.get("name"));
         }
     }
 

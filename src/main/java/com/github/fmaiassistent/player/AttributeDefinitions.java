@@ -11,6 +11,7 @@ public final class AttributeDefinitions {
     public static final int CURRENT_ABILITY_REL = -0x24;
     public static final int POTENTIAL_ABILITY_REL = -0x22;
     public static final int DISPLAY_VALUE_REL = -0x54;
+    public static final int MIN_PLAYER_POSITION_SCORE = 5;
 
     public static final List<FieldDef> POSITION_FIELDS = List.of(
             new FieldDef(0x2A, "Goalkeeper"), new FieldDef(0x2C, "DefenderLeft"),

@@ -28,7 +28,7 @@ public final class MarketValuation {
     /** Minimum samples before a bucket is used as market evidence. */
     public static final int MIN_BUCKET_SAMPLES = 5;
     /** Minimum best-position score for a person to count as a player; staff/retired entries have none. */
-    public static final int MIN_PLAYER_POSITION_SCORE = 5;
+    public static final int MIN_PLAYER_POSITION_SCORE = AttributeDefinitions.MIN_PLAYER_POSITION_SCORE;
     /** Contract length used to fold wages into the total cost of a deal. */
     public static final long CONTRACT_YEARS = 3;
     public static final long WEEKS_PER_YEAR = 52;
