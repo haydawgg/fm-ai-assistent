@@ -104,7 +104,7 @@ public final class MarketValuation {
             }
             int position = bestPositionIndex(player);
             Integer ca = player.getCa();
-            Integer age = asInteger(player.getAge());
+            Integer age = FmAiAssistentTools.effectiveAge(player);
             Integer pa = player.getPa();
             if (position < 0 || ca == null || ca <= 0 || age == null || age < 0) {
                 continue;
@@ -136,7 +136,7 @@ public final class MarketValuation {
      */
     public Market marketFor(PlayerEntity player) {
         Integer ca = player.getCa();
-        Integer age = asInteger(player.getAge());
+        Integer age = FmAiAssistentTools.effectiveAge(player);
         Integer pa = player.getPa();
         int position = bestPositionIndex(player);
         if (position < 0 || ca == null || ca <= 0 || age == null || age < 0) {
@@ -248,17 +248,6 @@ public final class MarketValuation {
         List<Long> sorted = new ArrayList<>(values);
         sorted.sort(Comparator.naturalOrder());
         return sorted.get(sorted.size() / 2);
-    }
-
-    private static Integer asInteger(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(value);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
     }
 
     private static int value(Integer value) {

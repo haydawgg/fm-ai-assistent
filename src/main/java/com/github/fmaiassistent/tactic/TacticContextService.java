@@ -107,16 +107,28 @@ public class TacticContextService implements AiPromptContext {
             }
             Path namePath = Path.of(name).getFileName();
             String safeName = namePath == null ? name : namePath.toString();
-            validateSize(Path.of(safeName), data == null ? 0 : data.length);
-            if (!supported(safeName)) {
-                throw new IllegalArgumentException("Unsupported tactic file: " + safeName);
-            }
             if (data == null) {
                 throw new IllegalArgumentException("Uploaded file is empty: " + safeName);
             }
-            files.put(safeName, new SourceFile(safeName, null, data.clone()));
+            validateSize(Path.of(safeName), data.length);
+            if (!supported(safeName)) {
+                throw new IllegalArgumentException("Unsupported tactic file: " + safeName);
+            }
+            String key = files.containsKey(safeName) ? uniqueName(files.keySet(), safeName) : safeName;
+            files.put(key, new SourceFile(key, null, data.clone()));
         });
         return build("browser upload", files);
+    }
+
+    private static String uniqueName(java.util.Set<String> used, String base) {
+        String candidate = base;
+        for (int count = 2; used.contains(candidate); count++) {
+            int dot = base.lastIndexOf('.');
+            candidate = dot > 0
+                    ? base.substring(0, dot) + " (" + count + ")" + base.substring(dot)
+                    : base + " (" + count + ")";
+        }
+        return candidate;
     }
 
     public TacticContext clear() {

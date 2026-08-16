@@ -311,7 +311,7 @@ public class MoneyballView extends VerticalLayout {
 
     private Long feePounds() {
         Integer displayed = value(maxPrice);
-        return displayed == null ? null : MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+        return displayed == null ? null : MoneyDisplay.inclusiveMaxToBasePounds(displayed.longValue(), currency);
     }
 
     private Integer wagePounds() {

@@ -91,6 +91,30 @@ class FmAiAssistentToolsFilterTest {
     }
 
     @Test
+    void effectiveAgeFallsBackToDateOfBirthWhenAgeIsBlank() {
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", "Kid");
+        row.put("date_of_birth", "2010-02-01");
+        row.put("age_as_of", "2026-08-16");
+        row.put("age", "");
+        row.put("Goalkeeper", 18);
+        PlayerEntity player = PlayerEntity.fromExportRow(row);
+        assertEquals(16, FmAiAssistentTools.effectiveAge(player));
+    }
+
+    @Test
+    void clubFamilyGroupsBTeamsButNotUnrelatedClubs() {
+        assertTrue(FmAiAssistentTools.inClubFamily("KVC Westerlo U21", "KVC Westerlo"));
+        assertTrue(FmAiAssistentTools.inClubFamily("Newell's Old Boys II", "Newell's Old Boys"));
+        assertTrue(!FmAiAssistentTools.inClubFamily("Ajax Cape Town", "Ajax"));
+        assertEquals("kvc westerlo", FmAiAssistentTools.clubFamilyStem("KVC Westerlo U21"));
+        assertTrue(FmAiAssistentTools.dropUnwillingCandidate(true, true, true, false));
+        assertTrue(!FmAiAssistentTools.dropUnwillingCandidate(false, true, true, false));
+        assertTrue(FmAiAssistentTools.dropUnwillingCandidate(false, true, false, false));
+        assertTrue(!FmAiAssistentTools.dropUnwillingCandidate(false, true, false, true));
+    }
+
+    @Test
     void emptyRecruitmentHintPointsAtAcademyAndTenure() {
         Map<String, Object> tight = new HashMap<>();
         tight.put("minimum_time_at_current_club", "P1Y");
@@ -102,6 +126,8 @@ class FmAiAssistentToolsFilterTest {
         assertTrue(hint.contains("min_pa=160"));
         assertTrue(hint.contains("max_age=19"));
         assertTrue(hint.contains("Do not repeat"));
+        assertTrue(hint.contains("moneyball"));
+        assertTrue(hint.contains("askingPriceMax"));
     }
 
     @Test

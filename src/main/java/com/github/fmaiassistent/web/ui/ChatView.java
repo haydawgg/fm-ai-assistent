@@ -599,7 +599,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (raw == null || raw.isBlank() || !chat.configured()) {
             return;
         }
-        String message = ChatSlashCommands.expand(raw.trim()).orElse(raw.trim());
+        String message = ChatSlashCommands.expand(raw.trim(), sessionClubName()).orElse(raw.trim());
         if (activeStream != null) {
             queuedMessages.add(message);
             input.clear();
@@ -689,6 +689,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE && event.trace() != null) {
                                 traces.add(event.trace());
                             }
+                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL) {
+                                splitter.reset();
+                                synchronized (response) {
+                                    response.setLength(0);
+                                }
+                            }
                             if (event.generationId() != null && !event.generationId().isBlank()) {
                                 generationId[0] = event.generationId();
                             }
@@ -727,6 +733,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             final boolean answered = hasAnswer;
                             access(ui, () -> {
                                 if (isTool) {
+                                    turn.discardProgressText();
                                     turn.addTool(eventText);
                                     return;
                                 }
@@ -1113,7 +1120,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         Object gameDate = players.metadata().get("game_date");
         String date = gameDate == null ? "" : String.valueOf(gameDate).strip();
         return new AssistantChatService.ChatGrounding(
-                settings.sessionClub(),
+                sessionClubName(),
                 settings.currency().label() + " (" + settings.currency().symbol() + ")",
                 ChatUiContext.view(),
                 ChatUiContext.filters(),
@@ -1368,7 +1375,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private List<String> computeSquadNames() {
-        String club = settings.sessionClub();
+        String club = sessionClubName();
         if (club == null || club.isBlank()) {
             return List.of();
         }
@@ -1379,13 +1386,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 .toList();
     }
 
+    private String sessionClubName() {
+        return SessionClub.resolved(settings, SessionClub.names(clubs));
+    }
+
     private void refreshCachedNames() {
         cachedSquadNames = computeSquadNames();
         cachedClubNames = clubs.findNames();
     }
 
     private void openPlayer(String name) {
-        PlayerDossier.openNamed(tools, name, settings.currency(), settings.sessionClub());
+        PlayerDossier.openNamed(tools, name, settings.currency(), sessionClubName());
     }
 
     private void openClub(String name) {
@@ -1727,6 +1738,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
         private void buffer(String markdown) {
             raw = markdown == null ? "" : markdown;
+        }
+
+        private void discardProgressText() {
+            raw = "";
+            body.setContent("");
         }
 
         private void paint() {

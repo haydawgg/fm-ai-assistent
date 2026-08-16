@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.Period;
 import java.util.Optional;
 
 public class GameDateFinder {
@@ -56,5 +57,56 @@ public class GameDateFinder {
 
     public static LocalDate dayYearToDate(int day, int year) {
         return LocalDate.of(year, 1, 1).plusDays(day - 1L);
+    }
+
+    public static int ageYears(LocalDate dateOfBirth, LocalDate on) {
+        return Period.between(dateOfBirth, on).getYears();
+    }
+
+    public static Integer effectiveAge(String storedAge, String dateOfBirth, String ageAsOf) {
+        Integer stored = parseLooseInt(storedAge);
+        if (stored != null) {
+            return stored;
+        }
+        LocalDate dob = parseIsoDate(dateOfBirth);
+        if (dob == null) {
+            return null;
+        }
+        LocalDate on = parseIsoDate(ageAsOf);
+        if (on == null) {
+            on = LocalDate.now();
+        }
+        return ageYears(dob, on);
+    }
+
+    public static Integer parseLooseInt(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        try {
+            return Integer.valueOf(trimmed);
+        } catch (NumberFormatException ex) {
+            try {
+                double parsed = Double.parseDouble(trimmed);
+                if (!Double.isFinite(parsed)) {
+                    return null;
+                }
+                return (int) parsed;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static LocalDate parseIsoDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 }

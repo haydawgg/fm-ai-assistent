@@ -140,7 +140,7 @@ public final class SquadAdvice {
                 score += 10;
                 reasons.add("loan_listed");
             }
-            Integer age = parseAge(player.getAge());
+            Integer age = FmAiAssistentTools.effectiveAge(player);
             if (age != null && age >= 32) {
                 score += 10;
                 reasons.add("veteran");
@@ -246,7 +246,7 @@ public final class SquadAdvice {
             rows.add(new ContractRow(
                     player.getName(),
                     Positions.bestCode(player),
-                    parseAge(player.getAge()),
+                    FmAiAssistentTools.effectiveAge(player),
                     nz(player.getCa()),
                     nz(player.getSalaryWeeklyRaw()),
                     player.getContractEndDate(),
@@ -263,10 +263,14 @@ public final class SquadAdvice {
 
     public static List<AcademyRow> academy(List<PlayerEntity> squad, int maxAge) {
         List<PlayerEntity> playable = squad.stream().filter(MarketValuation::hasPlayablePosition).toList();
-        int firstTeamCa = firstTeamAverageCa(playable);
+        return academy(squad, maxAge, firstTeamAverageCa(playable));
+    }
+
+    public static List<AcademyRow> academy(List<PlayerEntity> squad, int maxAge, int firstTeamCa) {
+        List<PlayerEntity> playable = squad.stream().filter(MarketValuation::hasPlayablePosition).toList();
         List<AcademyRow> rows = new ArrayList<>();
         for (PlayerEntity player : playable) {
-            Integer age = parseAge(player.getAge());
+            Integer age = FmAiAssistentTools.effectiveAge(player);
             if (age == null || age > maxAge) {
                 continue;
             }
@@ -436,7 +440,7 @@ public final class SquadAdvice {
         out.put("average_pa", average(playable, PlayerEntity::getPa));
         out.put("wage_bill_weekly", playable.stream().map(PlayerEntity::getSalaryWeeklyRaw).filter(Objects::nonNull)
                 .mapToLong(Integer::longValue).sum());
-        out.put("average_age", playable.stream().map(player -> parseAge(player.getAge())).filter(Objects::nonNull)
+        out.put("average_age", playable.stream().map(FmAiAssistentTools::effectiveAge).filter(Objects::nonNull)
                 .mapToInt(Integer::intValue).average().orElse(0));
         return out;
     }
@@ -450,17 +454,11 @@ public final class SquadAdvice {
     }
 
     private static Map<String, Long> depthByPosition(List<PlayerEntity> squad) {
-        Map<PlayerEntity, String> playerPrimary = new HashMap<>();
-        for (PlayerEntity player : squad) {
-            String best = Positions.bestCode(player);
-            if (best != null) {
-                playerPrimary.put(player, best);
-            }
-        }
         Map<String, Long> depth = new HashMap<>();
         for (String code : PositionCodes.CODES) {
-            depth.put(code, playerPrimary.entrySet().stream()
-                    .filter(e -> e.getValue().equals(code))
+            depth.put(code, squad.stream()
+                    .filter(player -> code.equals(Positions.bestCode(player)))
+                    .filter(player -> Positions.score(player, code) >= NATURAL_POSITION)
                     .count());
         }
         return depth;
@@ -468,6 +466,7 @@ public final class SquadAdvice {
 
     private static int rankInPosition(List<PlayerEntity> squad, PlayerEntity player, String position) {
         List<PlayerEntity> ranked = squad.stream()
+                .filter(candidate -> position.equals(Positions.bestCode(candidate)))
                 .filter(candidate -> Positions.score(candidate, position) >= NATURAL_POSITION)
                 .sorted(Comparator.comparingInt((PlayerEntity candidate) -> nz(candidate.getCa())).reversed())
                 .collect(Collectors.toList());

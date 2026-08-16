@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.mcp;
 
+import com.github.fmaiassistent.linux.GameDateFinder;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
@@ -32,6 +33,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 @Service
@@ -147,7 +149,12 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "If true, return full attributes. Defaults to compact summaries; use fm26_get_player_details for finalists.") Boolean details,
             @ToolParam(required = false, description = "Maximum players to return") Integer limit) {
         int safeLimit = safeLimit(limit);
-        PositionSpec positionSpec = resolvePosition(position);
+        PositionSpec positionSpec;
+        try {
+            positionSpec = resolvePosition(position);
+        } catch (UnsupportedPositionException ex) {
+            return positionError(position);
+        }
         int positionMinimum = positionSpec == null
                 ? 1
                 : Math.max(1, Math.min(20, minimumPositionScore == null ? DEFAULT_MIN_POSITION_SCORE : minimumPositionScore));
@@ -159,7 +166,7 @@ public class FmAiAssistentTools {
                         && (blank(playingNation) || equalsIgnoreCase(playingNation(player), playingNation))
                         && (blank(playingCompetition) || equalsIgnoreCase(playingCompetition(player), playingCompetition))
                         && (blank(club) || equalsIgnoreCase(player.getClub(), club) || equalsIgnoreCase(player.getPlayingClub(), club))
-                        && inRange(asInteger(player.getAge()), ageMin, ageMax)
+                        && inRange(effectiveAge(player), ageMin, ageMax)
                         && inRange(player.getCa(), caMin, caMax)
                         && inRange(player.getPa(), paMin, paMax)
                         && askingPriceWithinMax(player.getAskingPrice(), player.getClub(), askingPriceMax)
@@ -273,11 +280,41 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Transfer-agreed filter. Defaults to false because agreed players are unavailable.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Injury filter. false=fit only, true=injured only, omit=both.") Boolean injured,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
-        roleAttributeCache.remove();
-        RankedTransfers ranked = rankTransfers(
+        return transferShortlistInternal(
                 managingClub, position, roleName, phase, minimumPositionScore, maxAge, minCurrentAbility,
                 minPotentialAbility, maxAskingPrice, maxWeeklySalary, reputationMargin, minimumTimeAtCurrentClub,
-                transferListed, listedForLoan, transferAgreed, injured);
+                transferListed, listedForLoan, transferAgreed, injured, limit, true);
+    }
+
+    private Map<String, Object> transferShortlistInternal(
+            String managingClub,
+            String position,
+            String roleName,
+            String phase,
+            Integer minimumPositionScore,
+            Integer maxAge,
+            Integer minCurrentAbility,
+            Integer minPotentialAbility,
+            Long maxAskingPrice,
+            Integer maxWeeklySalary,
+            Integer reputationMargin,
+            String minimumTimeAtCurrentClub,
+            Boolean transferListed,
+            Boolean listedForLoan,
+            Boolean transferAgreed,
+            Boolean injured,
+            Integer limit,
+            boolean dropUnwilling) {
+        roleAttributeCache.remove();
+        RankedTransfers ranked;
+        try {
+            ranked = rankTransfers(
+                    managingClub, position, roleName, phase, minimumPositionScore, maxAge, minCurrentAbility,
+                    minPotentialAbility, maxAskingPrice, maxWeeklySalary, reputationMargin, minimumTimeAtCurrentClub,
+                    transferListed, listedForLoan, transferAgreed, injured, dropUnwilling);
+        } catch (UnsupportedPositionException ex) {
+            return positionError(position);
+        }
         int shortlistLimit = limit == null ? DEFAULT_SHORTLIST_LIMIT : Math.max(1, Math.min(limit, MAX_SHORTLIST_LIMIT));
         List<Map<String, Object>> candidates = new ArrayList<>();
         for (int index = 0; index < Math.min(shortlistLimit, ranked.candidates().size()); index++) {
@@ -349,10 +386,15 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
         roleAttributeCache.remove();
         List<PlayerEntity> allPlayers = allPlayers();
-        MoneyballParameters params = resolveMoneyballParameters(
-                allPlayers, managingClub, position, roleName, phase, minimumPositionScore,
-                minCurrentAbility, minPotentialAbility, maxAge, maxAskingPrice, maxWeeklySalary,
-                reputationMargin, minimumTimeAtCurrentClub, transferListed, listedForLoan, transferAgreed, injured);
+        MoneyballParameters params;
+        try {
+            params = resolveMoneyballParameters(
+                    allPlayers, managingClub, position, roleName, phase, minimumPositionScore,
+                    minCurrentAbility, minPotentialAbility, maxAge, maxAskingPrice, maxWeeklySalary,
+                    reputationMargin, minimumTimeAtCurrentClub, transferListed, listedForLoan, transferAgreed, injured);
+        } catch (UnsupportedPositionException ex) {
+            return positionError(position);
+        }
         int shortlistLimit = limit == null ? DEFAULT_SHORTLIST_LIMIT : Math.max(1, Math.min(limit, MAX_SHORTLIST_LIMIT));
 
         MarketValuation market = MarketValuation.build(allPlayers);
@@ -413,6 +455,10 @@ public class FmAiAssistentTools {
         out.put("competitions", competitions.countCompetitions());
         out.put("loading", ramLoad.loading());
             out.put("guidance", "If count is 0, call fm26_load_from_ram or click Load from RAM in the UI with FM26 running. tactic_formation is the live tactic when RAM load found it.");
+        Object gameDate = out.get("game_date");
+        if (gameDate == null || String.valueOf(gameDate).isBlank()) {
+            out.put("age_note", "In-game date was not decoded, so stored ages may be blank. U21/wonderkid filters now compute age from date of birth (vs today if needed). Reload RAM so the save date is read.");
+        }
         return out;
     }
 
@@ -480,7 +526,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_wonderkid_shortlist", description = "External young signings for a club. Default max age 21 (pass 19 for U19). No default min PA — omit minPotentialAbility unless the user asked for elite potential. Tenure at the source club is not required (youth move often). Same other recruitment filters as the transfer shortlist, including club budget as the price cap. For players you already employ, use fm26_academy. Money values are raw pounds.")
+    @Tool(name = "fm26_wonderkid_shortlist", description = "External young signings for a club. Default max age 21 (pass 19 for U19). No default min PA — omit minPotentialAbility unless the user asked for elite potential. Tenure at the source club is not required. Players with a known fee inside the budget stay on the list even if reputation says they are unlikely to join. Unknown-fee players at much bigger clubs are omitted because they are not proven affordable. Do not use moneyball for this. For players you already employ, use fm26_academy. Money values are raw pounds.")
     @Transactional(readOnly = true)
     public Map<String, Object> wonderkidShortlist(
             @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
@@ -491,10 +537,11 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Minimum potential ability. Omit unless the user asked for a PA floor; 150+ empties most U19 GK pools.") Integer minPotentialAbility,
             @ToolParam(required = false, description = "Maximum asking price in pounds") Long maxAskingPrice,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8.") Integer limit) {
-        return transferShortlist(
+        return transferShortlistInternal(
                 managingClub, position, roleName, phase, null,
                 maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge,
-                null, minPotentialAbility, maxAskingPrice, null, null, WONDERKID_MIN_TIME_AT_CLUB, null, null, null, null, limit);
+                null, minPotentialAbility, maxAskingPrice, null, null, WONDERKID_MIN_TIME_AT_CLUB,
+                null, null, null, null, limit, false);
     }
 
     @Tool(name = "fm26_academy", description = "In-house youth at the managing club (owned players, not loaned-in). Default max age 21, ranked by PA. Use this for 'what young GKs do I already have' instead of paging fm26_get_club_context.")
@@ -505,11 +552,15 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
             @ToolParam(required = false, description = "Maximum rows. Defaults to 20.") Integer limit) {
         ClubEntity club = requireClub(managingClub);
-        PositionSpec positionSpec = resolvePosition(position);
+        PositionSpec positionSpec;
+        try {
+            positionSpec = resolvePosition(position);
+        } catch (UnsupportedPositionException ex) {
+            return positionError(position);
+        }
         int cap = maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge;
         int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, MAX_LIMIT));
-        List<Map<String, Object>> rows = academyRows(managingClub, cap).stream()
-                .filter(row -> positionSpec == null || positionSpec.code().equals(row.position()))
+        List<Map<String, Object>> rows = academyRows(managingClub, cap, positionSpec).stream()
                 .limit(safeLimit)
                 .map(FmAiAssistentTools::academyMap)
                 .toList();
@@ -648,10 +699,22 @@ public class FmAiAssistentTools {
 
     @Transactional(readOnly = true)
     public List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge) {
+        return academyRows(managingClub, maxAge, null);
+    }
+
+    private List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge, PositionSpec position) {
         ClubEntity club = requireClub(managingClub);
-        int cap = maxAge == null ? 21 : maxAge;
-        List<PlayerEntity> youth = ownedSquad(squadPlayers(club.getName()), club.getName());
-        return SquadAdvice.academy(youth, cap);
+        int cap = maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge;
+        List<PlayerEntity> firstTeam = squadPlayers(club.getName()).stream()
+                .filter(MarketValuation::hasPlayablePosition)
+                .toList();
+        int firstTeamCa = SquadAdvice.firstTeamAverageCa(firstTeam);
+        List<PlayerEntity> youth = allPlayers().stream()
+                .filter(MarketValuation::hasPlayablePosition)
+                .filter(player -> position == null || positionScore(player, position) >= DEFAULT_MIN_POSITION_SCORE)
+                .filter(player -> inClubFamily(player.getClub(), club.getName()))
+                .toList();
+        return SquadAdvice.academy(youth, cap, firstTeamCa);
     }
 
     /**
@@ -669,7 +732,7 @@ public class FmAiAssistentTools {
             Integer maxWeeklySalary) {
         RankedTransfers ranked = rankTransfers(
                 managingClub, position, roleName, null, null, maxAge, minCurrentAbility, minPotentialAbility,
-                maxAskingPrice, maxWeeklySalary, null, null, null, null, null, null);
+                maxAskingPrice, maxWeeklySalary, null, null, null, null, null, null, true);
         List<TransferShortlistRow> rows = new ArrayList<>();
         for (int index = 0; index < ranked.candidates().size(); index++) {
             ScoredCandidate candidate = ranked.candidates().get(index);
@@ -678,7 +741,7 @@ public class FmAiAssistentTools {
                     index + 1,
                     candidate.decisionScore(),
                     player.getName(),
-                    asInteger(player.getAge()),
+                    effectiveAge(player),
                     player.getNationality(),
                     player.getClub(),
                     candidate.positionScore(),
@@ -914,7 +977,7 @@ public class FmAiAssistentTools {
                 allPlayers, clubsByName, params.club(), params.positionSpec(), params.positionMinimum(), params.roleProfile(),
                 params.maxAge(), params.qualityFloor(), params.minPa(), params.transferListed(), params.listedForLoan(),
                 params.transferAgreed(), params.injured(), params.priceCap(), params.maxWeeklySalary(),
-                params.reputationMargin(), params.minimumTime());
+                params.reputationMargin(), params.minimumTime(), true);
         List<DealCandidate> rated = new ArrayList<>();
         for (Candidate candidate : pool) {
             if (!candidate.priceKnown() && !candidate.freeAgent()) {
@@ -946,7 +1009,7 @@ public class FmAiAssistentTools {
         return new MoneyballRow(
                 rank,
                 player.getName(),
-                asInteger(player.getAge()),
+                effectiveAge(player),
                 player.getNationality(),
                 player.getClub(),
                 candidate.positionScore(),
@@ -980,12 +1043,13 @@ public class FmAiAssistentTools {
             long priceCap,
             Integer maxWeeklySalary,
             int reputationMargin,
-            Period minimumTime) {
+            Period minimumTime,
+            boolean dropUnwilling) {
         List<Candidate> pool = new ArrayList<>();
         for (PlayerEntity player : allPlayers) {
             if (belongsToClub(player, managingClub.getName())
                     || !sameGender(player.getGender(), managingClub.getGender())
-                    || !inRange(asInteger(player.getAge()), null, maxAge)
+                    || !inRange(effectiveAge(player), null, maxAge)
                     || !inRange(player.getCa(), minCa, null)
                     || !inRange(player.getPa(), minPa, null)
                     || !matchesBoolean(player.getTransferListed(), transferListed)
@@ -1012,7 +1076,7 @@ public class FmAiAssistentTools {
             }
             ClubEntity sourceClub = clubsByName.get(normalize(player.getClub()));
             Willingness willingness = willingness(player, managingClub, sourceClub, reputationMargin, minimumTime);
-            if (willingness == Willingness.LOW) {
+            if (dropUnwillingCandidate(dropUnwilling, willingness == Willingness.LOW, priceKnown, freeAgent)) {
                 continue;
             }
             pool.add(new Candidate(
@@ -1051,7 +1115,7 @@ public class FmAiAssistentTools {
         out.put("total_cost_3yr", deal.totalCost());
         out.put("value_gap", deal.marketCost() - deal.totalCost());
         out.put("name", player.getName());
-        out.put("age", asInteger(player.getAge()));
+        out.put("age", effectiveAge(player));
         out.put("nationality", player.getNationality());
         out.put("club", player.getClub());
         out.put("position_score", candidate.positionScore());
@@ -1286,7 +1350,32 @@ public class FmAiAssistentTools {
     }
 
     private static boolean belongsToClub(PlayerEntity player, String clubName) {
-        return equalsIgnoreCase(player.getClub(), clubName) || equalsIgnoreCase(player.getPlayingClub(), clubName);
+        return inClubFamily(player.getClub(), clubName) || inClubFamily(player.getPlayingClub(), clubName);
+    }
+
+    static boolean dropUnwillingCandidate(boolean dropUnwilling, boolean lowWillingness, boolean priceKnown, boolean freeAgent) {
+        return lowWillingness && (dropUnwilling || (!priceKnown && !freeAgent));
+    }
+
+    static boolean inClubFamily(String playerClub, String managingClub) {
+        String playerStem = clubFamilyStem(playerClub);
+        String managingStem = clubFamilyStem(managingClub);
+        return !playerStem.isEmpty() && playerStem.equals(managingStem);
+    }
+
+    static String clubFamilyStem(String name) {
+        String normalized = normalize(name);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        List<String> tokens = new ArrayList<>(List.of(normalized.split("\\s+")));
+        Set<String> suffixes = Set.of(
+                "u18", "u19", "u20", "u21", "u23", "ii", "iii", "2", "b",
+                "reserve", "reserves", "amateur", "amateurs", "youth");
+        while (tokens.size() > 1 && suffixes.contains(tokens.getLast())) {
+            tokens.removeLast();
+        }
+        return String.join(" ", tokens);
     }
 
     private static boolean sameGender(String playerGender, String clubGender) {
@@ -1297,8 +1386,12 @@ public class FmAiAssistentTools {
         if (blank(position)) {
             return null;
         }
-        String code = Positions.canonicalCode(position);
-        return new PositionSpec(code, Positions.column(code), Positions.positionGroup(code));
+        try {
+            String code = Positions.canonicalCode(position);
+            return new PositionSpec(code, Positions.column(code), Positions.positionGroup(code));
+        } catch (IllegalArgumentException ex) {
+            throw new UnsupportedPositionException(position, ex);
+        }
     }
 
     private RoleProfile resolveRoleProfile(PositionSpec position, String roleName, String phase) {
@@ -1469,7 +1562,11 @@ public class FmAiAssistentTools {
                 ? 0.35
                 : clamp(1.0 - value(player.getAskingPrice()) / (double) priceCap);
         double wage = wageFitScore(player.getSalaryWeeklyRaw(), wageCeiling);
-        double willingnessScore = willingness == Willingness.HIGH ? 1.0 : 0.6;
+        double willingnessScore = switch (willingness) {
+            case HIGH -> 1.0;
+            case MEDIUM -> 0.6;
+            case LOW -> 0.25;
+        };
 
         if (roleFit.score() != null) {
             return round1(position * 15 + ca * 20 + futureQuality * 10 + improvement * 15 + growth * 5 + age * 5
@@ -1495,7 +1592,8 @@ public class FmAiAssistentTools {
             Boolean transferListed,
             Boolean listedForLoan,
             Boolean transferAgreed,
-            Boolean injured) {
+            Boolean injured,
+            boolean dropUnwilling) {
         ClubEntity club = requireClub(managingClub);
         PositionSpec positionSpec = resolvePosition(position);
         if (!blank(roleName) && positionSpec == null) {
@@ -1525,7 +1623,8 @@ public class FmAiAssistentTools {
         List<Candidate> pool = buildCandidatePool(
                 allPlayers, clubsByName, club, positionSpec, positionMinimum, roleProfile,
                 maxAge, minCurrentAbility, minPotentialAbility, transferListed, listedForLoan,
-                effectiveTransferAgreed, injured, priceCap, maxWeeklySalary, safeReputationMargin, minimumTime);
+                effectiveTransferAgreed, injured, priceCap, maxWeeklySalary, safeReputationMargin, minimumTime,
+                dropUnwilling);
         List<ScoredCandidate> candidatePool = new ArrayList<>(pool.stream()
                 .map(candidate -> new ScoredCandidate(
                         candidate.player(),
@@ -1571,7 +1670,7 @@ public class FmAiAssistentTools {
         out.put("rank", rank);
         out.put("score", candidate.decisionScore());
         out.put("name", player.getName());
-        out.put("age", asInteger(player.getAge()));
+        out.put("age", effectiveAge(player));
         out.put("nationality", player.getNationality());
         out.put("club", player.getClub());
         out.put("position_score", candidate.positionScore());
@@ -1652,7 +1751,7 @@ public class FmAiAssistentTools {
                 .map(player -> {
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("name", player.getName());
-                    row.put("age", asInteger(player.getAge()));
+                    row.put("age", effectiveAge(player));
                     row.put("ca", player.getCa());
                     row.put("pa", player.getPa());
                     if (position != null) {
@@ -1690,7 +1789,7 @@ public class FmAiAssistentTools {
     }
 
     private static double developmentFactor(PlayerEntity player) {
-        int age = Optional.ofNullable(asInteger(player.getAge())).orElse(40);
+        int age = Optional.ofNullable(effectiveAge(player)).orElse(40);
         if (age <= 21) {
             return 1.0;
         }
@@ -1719,7 +1818,7 @@ public class FmAiAssistentTools {
     }
 
     private static double ageScore(PlayerEntity player) {
-        int age = Optional.ofNullable(asInteger(player.getAge())).orElse(40);
+        int age = Optional.ofNullable(effectiveAge(player)).orElse(40);
         if (age <= 20) {
             return 1.0;
         }
@@ -1742,7 +1841,7 @@ public class FmAiAssistentTools {
     }
 
     private static String ageCurve(PlayerEntity player) {
-        int age = Optional.ofNullable(asInteger(player.getAge())).orElse(40);
+        int age = Optional.ofNullable(effectiveAge(player)).orElse(40);
         if (age <= 23) {
             return "developing";
         }
@@ -1792,7 +1891,7 @@ public class FmAiAssistentTools {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", player.getId());
         out.put("name", player.getName());
-        out.put("age", player.getAge());
+        out.put("age", effectiveAge(player));
         out.put("gender", player.getGender());
         out.put("nationality", player.getNationality());
         out.put("club", player.getClub());
@@ -1861,7 +1960,7 @@ public class FmAiAssistentTools {
         out.put("max_ca", squad.stream().map(PlayerEntity::getCa).filter(Objects::nonNull).max(Integer::compareTo).orElse(0));
         out.put("max_pa", squad.stream().map(PlayerEntity::getPa).filter(Objects::nonNull).max(Integer::compareTo).orElse(0));
         out.put("under_24_high_potential_count", squad.stream()
-                .filter(player -> inRange(asInteger(player.getAge()), null, 23))
+                .filter(player -> inRange(effectiveAge(player), null, 23))
                 .filter(player -> value(player.getPa()) >= 150)
                 .count());
         SquadAdvice.WageHealth health = SquadAdvice.wageHealth(squad, club);
@@ -2079,14 +2178,30 @@ public class FmAiAssistentTools {
         return expected == null || Objects.equals(Boolean.TRUE.equals(value), expected);
     }
 
+    static Integer effectiveAge(PlayerEntity player) {
+        if (player == null) {
+            return null;
+        }
+        return GameDateFinder.effectiveAge(player.getAge(), player.getDateOfBirth(), player.getAgeAsOf());
+    }
+
     private static Integer asInteger(String value) {
         if (blank(value)) {
             return null;
         }
+        String trimmed = value.trim();
         try {
-            return Integer.valueOf(value);
+            return Integer.valueOf(trimmed);
         } catch (NumberFormatException ex) {
-            return null;
+            try {
+                double parsed = Double.parseDouble(trimmed);
+                if (!Double.isFinite(parsed)) {
+                    return null;
+                }
+                return (int) parsed;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
         }
     }
 
@@ -2156,7 +2271,10 @@ public class FmAiAssistentTools {
         if (maxAge instanceof Number age && age.intValue() < DEFAULT_WONDERKID_MAX_AGE) {
             hint.append("max_age=").append(maxAge).append(" is tight; try 21. ");
         }
-        hint.append("In-house youth: fm26_academy. World search without willingness: fm26_find_players with position and ageMax, no askingPriceMax.");
+        hint.append("If stored ages are blank (in-game date unknown), age is computed from date of birth; missing DOB still drops U21 filters. ");
+        hint.append("Do not use moneyball for U21s (it floors CA near first-team level and drops unknown fees). ");
+        hint.append("If this was fm26_find_players with askingPriceMax, unknown fees were excluded — omit the price cap. ");
+        hint.append("Then answer with in-house names from fm26_academy; do not keep searching.");
         return hint.toString();
     }
 
@@ -2179,6 +2297,19 @@ public class FmAiAssistentTools {
     }
 
     private record PositionSpec(String code, String column, String positionGroup) {
+    }
+
+    private static final class UnsupportedPositionException extends IllegalArgumentException {
+        private UnsupportedPositionException(String position, Throwable cause) {
+            super("unsupported position: " + position
+                    + ". Use GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST", cause);
+        }
+    }
+
+    private static Map<String, Object> positionError(String position) {
+        return Map.of(
+                "error", new UnsupportedPositionException(position, null).getMessage(),
+                "expected", "GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST");
     }
 
     private record RoleProfile(

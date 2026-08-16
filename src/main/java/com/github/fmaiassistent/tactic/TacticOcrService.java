@@ -140,20 +140,22 @@ class TacticOcrService implements TacticImageTextExtractor {
                 throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
             }
             ImageReader reader = readers.next();
-            reader.setInput(iis);
-            int width = reader.getWidth(0);
-            int height = reader.getHeight(0);
-            long pixels = (long) width * (long) height;
-            if (pixels > MAX_IMAGE_PIXELS) {
+            try {
+                reader.setInput(iis);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                long pixels = (long) width * (long) height;
+                if (pixels > MAX_IMAGE_PIXELS) {
+                    throw new IllegalStateException("Image exceeds pixel budget: " + pixels);
+                }
+                BufferedImage source = reader.read(0);
+                if (source == null) {
+                    throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
+                }
+                return source;
+            } finally {
                 reader.dispose();
-                throw new IllegalStateException("Image exceeds pixel budget: " + pixels);
             }
-            BufferedImage source = reader.read(0);
-            reader.dispose();
-            if (source == null) {
-                throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
-            }
-            return source;
         } catch (IOException exception) {
             throw new IllegalArgumentException("Could not read tactic image: " + image.getFileName(), exception);
         }

@@ -163,6 +163,14 @@ class AssistantChatServiceTest {
     }
 
     @Test
+    void systemPromptWarnsWhenGameDateIsUnknown() {
+        String prompt = AssistantChatService.systemPrompt(new AssistantChatService.ChatGrounding(
+                "Westerlo", "Pound (£)", "Chat", "", "", false, false, ""));
+        assertTrue(prompt.contains("in-game date is unknown"));
+        assertTrue(prompt.contains("date of birth"));
+    }
+
+    @Test
     void academyToolHasAStatusLabel() {
         assertEquals("Reading academy", AssistantChatService.labelForTool("fm26_academy"));
     }

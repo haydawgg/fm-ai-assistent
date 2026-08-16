@@ -41,6 +41,18 @@ class GameDateFinderTest {
     }
 
     @Test
+    void ageYearsUsesBirthdayBoundary() {
+        assertEquals(16, GameDateFinder.ageYears(LocalDate.of(2010, 2, 1), LocalDate.of(2026, 8, 16)));
+        assertEquals(15, GameDateFinder.ageYears(LocalDate.of(2010, 2, 1), LocalDate.of(2026, 1, 31)));
+    }
+
+    @Test
+    void estimatedDateRvaMatchesTheKnownBuild() {
+        assertEquals(BUILD_238BDD_CURRENT_DATE_RVA, FmOffsets.estimatedCurrentDateRva(0x238bdd));
+        assertEquals(BUILD_238BDD_CURRENT_DATE_RVA, FmOffsets.currentDateRva(0x238bdd));
+    }
+
+    @Test
     void maskedDayStripsFlagBitsSoPackedDatesValidate() {
         int packed = 0x7E00 | 8;
         assertEquals(8, GameDateFinder.maskedDay(packed));

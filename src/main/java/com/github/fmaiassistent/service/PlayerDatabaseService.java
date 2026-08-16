@@ -5,6 +5,7 @@ import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.CompetitionEntity;
 import com.github.fmaiassistent.domain.entity.LoadMetadataEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.linux.GameDateFinder;
 import com.github.fmaiassistent.exporter.PlayerExporter;
 import com.github.fmaiassistent.exporter.TacticExporter;
 import org.slf4j.Logger;
@@ -268,7 +269,9 @@ public class PlayerDatabaseService {
         boolean needsDateFilter = safeFilter.contractEndDateFrom() != null || safeFilter.contractEndDateTo() != null;
         if (needsAgeFilter || needsDateFilter) {
             out = out.stream().filter(player -> {
-                if (needsAgeFilter && !inRange(asInt(player.getAge()), safeFilter.ageMin(), safeFilter.ageMax())) {
+                if (needsAgeFilter && !inRange(GameDateFinder.effectiveAge(
+                        player.getAge(), player.getDateOfBirth(), player.getAgeAsOf()),
+                        safeFilter.ageMin(), safeFilter.ageMax())) {
                     return false;
                 }
                 return !needsDateFilter || dateInRange(player.getContractEndDate(), safeFilter.contractEndDateFrom(), safeFilter.contractEndDateTo());
@@ -316,7 +319,8 @@ public class PlayerDatabaseService {
                 && inRange(player.getSalaryWeeklyRaw() == null ? null : player.getSalaryWeeklyRaw().longValue(),
                         null, filter.salaryMax())
                 && equalsIgnoreCase(player.getNationality(), filter.nationality())
-                && inRange(asInt(player.getAge()), filter.ageMin(), filter.ageMax())
+                && inRange(GameDateFinder.effectiveAge(player.getAge(), player.getDateOfBirth(), player.getAgeAsOf()),
+                        filter.ageMin(), filter.ageMax())
                 && inRange(player.getHeightCm(), filter.heightMin(), filter.heightMax())
                 && inRange(player.getCurrentReputation(), filter.currentReputationMin(), filter.currentReputationMax())
                 && inRange(player.getHomeReputation(), filter.homeReputationMin(), filter.homeReputationMax())

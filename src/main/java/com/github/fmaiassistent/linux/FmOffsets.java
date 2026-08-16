@@ -171,11 +171,12 @@ public final class FmOffsets {
                 bestKnownScore = score;
                 bestKnownTable = candidate;
             }
-            if (score >= MIN_VALID_TABLE_SCORE) {
-                LOGGER.info("Using offset table at game_plugin+0x{} (score {})", Long.toHexString(rva), score);
-                DETECTED_TABLE_BASES.put(cacheKey, candidate);
-                return candidate;
-            }
+        }
+        if (bestKnownScore >= MIN_VALID_TABLE_SCORE) {
+            LOGGER.info("Using offset table at game_plugin+0x{} (score {})",
+                    Long.toHexString(bestKnownTable - gamePluginBase), bestKnownScore);
+            DETECTED_TABLE_BASES.put(cacheKey, bestKnownTable);
+            return bestKnownTable;
         }
 
         LOGGER.warn(
@@ -339,7 +340,24 @@ public final class FmOffsets {
     }
 
     static Long currentDateRva(int build) {
-        return BUILD_TO_CURRENT_DATE_RVA.get(build);
+        Long known = BUILD_TO_CURRENT_DATE_RVA.get(build);
+        if (known != null) {
+            return known;
+        }
+        return estimatedCurrentDateRva(build);
+    }
+
+    /**
+     * Other builds share the game_plugin table layout; reuse the known date RVA gap from 0x238bdd.
+     */
+    static Long estimatedCurrentDateRva(int build) {
+        Long table = BUILD_TO_TABLE_RVA.get(build);
+        Long referenceTable = BUILD_TO_TABLE_RVA.get(DEFAULT_BUILD);
+        Long referenceDate = BUILD_TO_CURRENT_DATE_RVA.get(DEFAULT_BUILD);
+        if (table == null || referenceTable == null || referenceDate == null) {
+            return null;
+        }
+        return table - (referenceTable - referenceDate);
     }
 
     /**

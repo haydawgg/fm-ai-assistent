@@ -28,6 +28,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     private static final int ERROR_PARTIAL_COPY = 299;
     private static final int ERROR_NO_MORE_FILES = 18;
     private static final int ERROR_SUCCESS = 0;
+    private static final int ERROR_INVALID_PARAMETER = 87;
     private static final int TH32CS_SNAPMODULE = 0x00000008;
     private static final int TH32CS_SNAPMODULE32 = 0x00000010;
     private static final int MEM_COMMIT = 0x1000;
@@ -153,9 +154,14 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
                     process, Pointer.createConstant(address), mbi, mbi.size());
             if (result == 0) {
                 int err = Native.getLastError();
+                if (err == ERROR_INVALID_PARAMETER || address > MAX_ADDRESS - 0x10000L) {
+                    LOGGER.fine("VirtualQueryEx reached the end of the address space at 0x"
+                            + Long.toHexString(address));
+                    break;
+                }
                 LOGGER.warning("VirtualQueryEx returned 0 at 0x" + Long.toHexString(address)
-                        + " (error " + err + "); skipping region");
-                address = address + 0x1000;
+                        + " (error " + err + "); skipping page");
+                address = alignPage(address + 1);
                 continue;
             }
             mbi.read();
@@ -311,6 +317,11 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         boolean executable = base == PAGE_EXECUTE || base == PAGE_EXECUTE_READ
                 || base == PAGE_EXECUTE_READWRITE || base == PAGE_EXECUTE_WRITECOPY;
         return (readable ? "r" : "-") + (writable ? "w" : "-") + (executable ? "x" : "-");
+    }
+
+    private static long alignPage(long value) {
+        long aligned = (value + 0xFFF) & ~0xFFFL;
+        return aligned <= value ? Long.MAX_VALUE : aligned;
     }
 
     private static IOException win32Error(String message) {

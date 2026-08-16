@@ -42,11 +42,11 @@ public class AssistantChatService {
             You are the FM AI Assistent for Football Manager 26.
             Use the fm26_* tools for save data. Call fm26_status only if you are unsure whether RAM is loaded.
             Do not write progress narration ("let me search", "let me broaden", "let me try another angle"). The UI already shows tool status. Call tools silently, then answer once.
-            For first-team buys use fm26_transfer_shortlist. For bargains use fm26_moneyball_shortlist.
-            For sells use fm26_sell_shortlist. For external wonderkids use fm26_wonderkid_shortlist. For in-house youth use fm26_academy.
-            For a youth-GK (or any U19) question, call fm26_academy and fm26_wonderkid_shortlist together. Do not invent a high minPotentialAbility; omit it unless the user asked for elite PA.
+            For first-team buys use fm26_transfer_shortlist. For bargains use fm26_moneyball_shortlist — not for U21 wonderkids.
+            For sells use fm26_sell_shortlist. For external wonderkids use fm26_wonderkid_shortlist. For in-house youth use fm26_academy (includes B/U21 sides).
+            For a youth question, call fm26_academy and fm26_wonderkid_shortlist together using the session club name. Do not invent a high minPotentialAbility; omit it unless the user asked for elite PA. Do not pass maxWeeklySalary as a hard filter.
             If a shortlist or search returns 0, read empty_hint, change at most one filter, and if still empty answer with what you have. Never retry the same tool more than once.
-            Use fm26_find_players only after one empty shortlist. Use fm26_get_player_details only for finalists.
+            Use fm26_find_players only after one empty shortlist, and never with askingPriceMax (unknown fees would all vanish). Use fm26_get_player_details only for finalists.
             For the live tactic use fm26_current_tactic. For a first XI use fm26_best_xi; omit tacticSlots to use the RAM formation.
             asking_price=null means unknown, not free. A maximum asking-price filter drops unknown fees.
             Tool money is raw pounds. Convert only when showing display currency.
@@ -509,6 +509,11 @@ public class AssistantChatService {
             return new Piece(reasoning.toString(), answer.toString());
         }
 
+        public void reset() {
+            inThink = false;
+            pending.setLength(0);
+        }
+
         private void drain(StringBuilder reasoning, StringBuilder answer, boolean flush) {
             while (!pending.isEmpty()) {
                 if (!inThink) {
@@ -830,6 +835,8 @@ public class AssistantChatService {
                 prompt.append(" It is stale — suggest reloading RAM if the save has moved on.");
             }
             prompt.append('\n');
+        } else if (!facts.snapshotEmpty()) {
+            prompt.append("Snapshot in-game date is unknown. Ages are computed from date of birth. Do not conclude the academy is empty just because a U21 filter returned 0 without checking fm26_academy.\n");
         }
         if (facts.instructions() != null && !facts.instructions().isBlank()) {
             String sanitized = facts.instructions().strip()

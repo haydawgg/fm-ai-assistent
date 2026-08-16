@@ -143,17 +143,20 @@ public class ClubExporter {
     private static Finance readFinance(ProcessMemoryReader reader, long club) throws IOException {
         var extraOpt = reader.qwordOrNull(club + CLUB_FINANCE_BLOCK_REL);
         if (extraOpt.isEmpty()) {
-            return new Finance(0L, 0L, 0L);
+            LOGGER.warn("Club 0x{} has no finance block; balance and budgets recorded as unknown", Long.toHexString(club));
+            return new Finance(null, null, null);
         }
         long extra = extraOpt.get();
         if (!CLUB_FINANCE_MARKERS.contains(reader.readU16(extra))) {
-            return new Finance(0L, 0L, 0L);
+            LOGGER.warn("Club 0x{} finance block marker mismatch; balance and budgets recorded as unknown",
+                    Long.toHexString(club));
+            return new Finance(null, null, null);
         }
-        long balanceRaw = reader.readI32(extra + CLUB_BALANCE_REL);
+        long balanceRaw = reader.readU32(extra + CLUB_BALANCE_REL);
         long balance = roundToNearest(balanceRaw, balanceRoundingStep(balanceRaw));
-        long transferBudgetRaw = reader.readI32(extra + CLUB_TRANSFER_BUDGET_REL);
+        long transferBudgetRaw = reader.readU32(extra + CLUB_TRANSFER_BUDGET_REL);
         long transferBudget = roundToNearest(transferBudgetRaw, transferRoundingStep(transferBudgetRaw));
-        long payrollRaw = reader.readI32(extra + CLUB_PAYROLL_BUDGET_REL);
+        long payrollRaw = reader.readU32(extra + CLUB_PAYROLL_BUDGET_REL);
         long payrollBudget = roundToNearest(payrollRaw, payrollRoundingStep(payrollRaw));
         return new Finance(balance, transferBudget, payrollBudget);
     }
@@ -216,6 +219,6 @@ public class ClubExporter {
     public record ExportResult(List<Map<String, Object>> rows) {
     }
 
-    private record Finance(long balance, long transferBudget, long payrollBudget) {
+    private record Finance(Long balance, Long transferBudget, Long payrollBudget) {
     }
 }

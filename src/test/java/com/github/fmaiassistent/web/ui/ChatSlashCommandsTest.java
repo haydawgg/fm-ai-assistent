@@ -10,6 +10,7 @@ class ChatSlashCommandsTest {
     void expandsKnownCommands() {
         assertEquals("Build my best XI from the live formation", ChatSlashCommands.expand("/xi").orElseThrow());
         assertEquals("Find affordable wonderkids for my club", ChatSlashCommands.expand("/wonderkids").orElseThrow());
+        assertEquals("Find affordable wonderkids for Westerlo", ChatSlashCommands.expand("/wonderkids", "Westerlo").orElseThrow());
         assertTrue(ChatSlashCommands.expand("hello").isEmpty());
     }
 
@@ -18,5 +19,8 @@ class ChatSlashCommandsTest {
         assertEquals(
                 "For my club, find affordable left back signings using the save data.",
                 ChatSlashCommands.expand("/buy left back").orElseThrow());
+        assertEquals(
+                "For Westerlo, find affordable left back signings using the save data.",
+                ChatSlashCommands.expand("/buy left back", "Westerlo").orElseThrow());
     }
 }

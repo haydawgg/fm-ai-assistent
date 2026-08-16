@@ -36,6 +36,38 @@ public final class MoneyDisplay {
                 .longValue();
     }
 
+    /**
+     * A pounds bound that keeps every row the UI shows at or below {@code maxDisplay}. Because
+     * {@link #format} rounds converted amounts to display steps (250/1k/25k/1m), a player whose
+     * formatted fee equals the typed maximum can have a raw asking price slightly above the naive
+     * {@link #toBasePounds} round-trip. This adds the half display step and rounds the division up,
+     * then filters with {@code asking_price <= bound} so such boundary players stay included.
+     */
+    public static long inclusiveMaxToBasePounds(long maxDisplayCurrency, MoneyCurrency currency) {
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
+        if (selected == MoneyCurrency.POUND || selected.rateFromPounds().compareTo(BigDecimal.ZERO) == 0) {
+            return maxDisplayCurrency;
+        }
+        long inclusive = maxDisplayCurrency + displayStep(maxDisplayCurrency) / 2;
+        return BigDecimal.valueOf(inclusive)
+                .divide(selected.rateFromPounds(), 0, RoundingMode.CEILING)
+                .longValue();
+    }
+
+    private static long displayStep(long amount) {
+        long abs = Math.abs(amount);
+        if (abs < 25_000L) {
+            return 250L;
+        }
+        if (abs < 100_000L) {
+            return 1_000L;
+        }
+        if (abs < 1_000_000L) {
+            return 25_000L;
+        }
+        return 1_000_000L;
+    }
+
     /** Rounds a converted amount to a display-friendly step (250 / 1k / 25k / 1m ...). */
     public static long roundDisplayedAmount(long amount) {
         long abs = Math.abs(amount);

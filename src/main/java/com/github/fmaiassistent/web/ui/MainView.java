@@ -38,7 +38,6 @@ import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
-import java.text.NumberFormat;
 import java.util.*;
 import java.util.function.Function;
 import org.slf4j.Logger;
@@ -1823,13 +1822,7 @@ public class MainView extends VerticalLayout {
         if (pounds == null) {
             return "";
         }
-        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
-        long roundedPounds = roundDisplayedWeeklySalary(pounds);
-        long converted = MoneyDisplay.convert(roundedPounds, selected);
-        if (selected != MoneyCurrency.POUND) {
-            converted = roundDisplayedWeeklySalaryCurrency(converted);
-        }
-        return selected.symbol() + NumberFormat.getIntegerInstance(Locale.US).format(converted);
+        return MoneyDisplay.format(pounds, currency);
     }
 
     private String moneyDisplay(Object value) {
@@ -2261,31 +2254,6 @@ public class MainView extends VerticalLayout {
             step = 1_000L;
         }
         return Math.round(pounds / (double) step) * step;
-    }
-
-    private static long roundDisplayedWeeklySalaryCurrency(long amount) {
-        long abs = Math.abs(amount);
-        long step;
-        if (abs < 500L) {
-            step = 50L;
-        } else if (abs < 1_000L) {
-            step = 25L;
-        } else if (abs < 10_000L) {
-            step = 100L;
-        } else if (abs < 50_000L) {
-            step = 1_000L;
-        } else {
-            step = 5_000L;
-        }
-        return roundToNearest(amount, step);
-    }
-
-
-    private static long roundToNearest(long value, long step) {
-        if (value == 0 || step <= 0) {
-            return value;
-        }
-        return Math.round(value / (double) step) * step;
     }
 
     private static int compareClubColumn(ClubEntity left, ClubEntity right, String column) {

@@ -19,6 +19,10 @@ final class ChatSlashCommands {
             new Command("/tactic", "Explain the live tactic", "Explain the live tactic and where the squad fits it"));
 
     static Optional<String> expand(String raw) {
+        return expand(raw, "");
+    }
+
+    static Optional<String> expand(String raw, String club) {
         if (raw == null) {
             return Optional.empty();
         }
@@ -29,12 +33,18 @@ final class ChatSlashCommands {
         int space = text.indexOf(' ');
         String name = (space < 0 ? text : text.substring(0, space)).toLowerCase(Locale.ROOT);
         String rest = space < 0 ? "" : text.substring(space + 1).strip();
+        String clubName = club == null ? "" : club.strip();
+        String forClub = clubName.isBlank() ? "my club" : clubName;
         if ("/buy".equals(name) && !rest.isBlank()) {
-            return Optional.of("For my club, find affordable " + rest + " signings using the save data.");
+            return Optional.of("For " + forClub + ", find affordable " + rest + " signings using the save data.");
         }
         for (Command command : COMMANDS) {
             if (command.name().equals(name)) {
-                return Optional.of(command.prompt());
+                String prompt = command.prompt().replace("my club", forClub);
+                if (!clubName.isBlank() && !prompt.toLowerCase(Locale.ROOT).contains(clubName.toLowerCase(Locale.ROOT))) {
+                    prompt = prompt + " for " + clubName;
+                }
+                return Optional.of(prompt);
             }
         }
         return Optional.empty();

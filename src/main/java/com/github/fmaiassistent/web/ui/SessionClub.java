@@ -15,12 +15,20 @@ final class SessionClub {
     }
 
     static String canonicalize(String saved, List<String> names) {
-        if (saved == null || saved.isBlank()) {
+        if (saved == null || saved.isBlank() || names == null || names.isEmpty()) {
             return "";
         }
+        String trimmed = saved.strip();
+        for (String name : names) {
+            if (name != null && name.equalsIgnoreCase(trimmed)) {
+                return name;
+            }
+        }
+        String needle = trimmed.toLowerCase();
         return names.stream()
-                .filter(name -> name.equalsIgnoreCase(saved))
-                .findFirst()
+                .filter(name -> name != null && name.toLowerCase().contains(needle))
+                .min(java.util.Comparator.comparingInt(String::length)
+                        .thenComparing(String.CASE_INSENSITIVE_ORDER))
                 .orElse("");
     }
 

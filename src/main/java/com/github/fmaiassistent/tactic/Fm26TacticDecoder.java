@@ -122,6 +122,9 @@ final class Fm26TacticDecoder {
         List<RoleRecord> records = new ArrayList<>();
         int offset = firstRole;
         while (matchesAt(bytes, offset, ROLE_MARKER)) {
+            if (offset + 15 > bytes.length) {
+                throw new IllegalArgumentException("The embedded tactic role data is truncated");
+            }
             int positionMask = littleEndianInt(bytes, offset + 3);
             int optionCount = littleEndianInt(bytes, offset + 11);
             if (optionCount < 0 || optionCount > 128) {

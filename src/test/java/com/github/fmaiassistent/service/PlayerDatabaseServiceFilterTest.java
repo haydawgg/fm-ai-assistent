@@ -34,6 +34,24 @@ class PlayerDatabaseServiceFilterTest {
         assertFalse(PlayerDatabaseService.matchesPlayerFilter(player, filter));
     }
 
+    @Test
+    void blankStoredAgeStillMatchesU21WhenDobIsKnown() {
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", "Kid");
+        row.put("ca", 80);
+        row.put("Striker", 15);
+        row.put("age", "");
+        row.put("date_of_birth", "2010-02-01");
+        row.put("age_as_of", "2026-08-16");
+        PlayerEntity player = PlayerEntity.fromExportRow(row);
+        PlayerFilterCriteria filter = new PlayerFilterCriteria(
+                "Kid", "", "", "", "", null, 21, null, null, "",
+                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                Map.of(), Map.of());
+        assertTrue(PlayerDatabaseService.matchesPlayerFilter(player, filter));
+    }
+
     private static PlayerEntity player(String name, int ca, Integer wage) {
         Map<String, Object> row = new HashMap<>();
         row.put("name", name);
