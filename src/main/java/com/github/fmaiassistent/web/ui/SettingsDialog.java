@@ -238,6 +238,9 @@ final class SettingsDialog {
             up.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             down.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             remove.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            up.getElement().setAttribute("aria-label", "Move fallback model up");
+            down.getElement().setAttribute("aria-label", "Move fallback model down");
+            remove.getElement().setAttribute("aria-label", "Remove fallback model");
             HorizontalLayout row = new HorizontalLayout(label, up, down, remove);
             row.setWidthFull();
             row.setFlexGrow(1, label);

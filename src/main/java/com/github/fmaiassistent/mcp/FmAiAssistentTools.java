@@ -179,7 +179,14 @@ public class FmAiAssistentTools {
                         && matchesBoolean(player.getInjured(), injured)
                         && MarketValuation.hasPlayablePosition(player)
                         && (positionSpec == null || positionScore(player, positionSpec) >= positionMinimum);
-        List<Map<String, Object>> rows = allPlayers().stream()
+        PlayerFilterCriteria databaseFilter = new PlayerFilterCriteria(
+                name, gender, playingNation, playingCompetition, club,
+                ageMin, ageMax, null, null, nationality,
+                null, null, null, null, worldReputationMin, worldReputationMax,
+                caMin, caMax, paMin, paMax,
+                null, null, null, null, salaryWeeklyMax == null ? null : salaryWeeklyMax.longValue(),
+                Map.of(), Map.of());
+        List<Map<String, Object>> rows = players.findPlayerEntities(databaseFilter).stream()
                 .filter(filter)
                 .sorted(Comparator
                         .comparing((PlayerEntity player) -> value(player.getPa())).reversed()
@@ -454,6 +461,10 @@ public class FmAiAssistentTools {
         out.put("clubs", clubs.countClubs());
         out.put("competitions", competitions.countCompetitions());
         out.put("loading", ramLoad.loading());
+        RamLoadCoordinator.LoadStatus loadStatus = ramLoad.status();
+        if (loadStatus.jobId() != null) {
+            out.put("load_job", loadStatusMap(loadStatus));
+        }
             out.put("guidance", "If count is 0, call fm26_load_from_ram or click Load from RAM in the UI with FM26 running. tactic_formation is the live tactic when RAM load found it.");
         Object gameDate = out.get("game_date");
         if (gameDate == null || String.valueOf(gameDate).isBlank()) {
@@ -465,22 +476,47 @@ public class FmAiAssistentTools {
     @Tool(name = "fm26_load_from_ram", description = "Load the current FM26 save from RAM into the local database. FM26 must be running with a save loaded. Slow; do not call repeatedly.")
     public Map<String, Object> loadFromRam() {
         try {
-            DatabaseLoadAllService.LoadAllResult result = ramLoad.loadFromRam();
+            String jobId = ramLoad.startLoad();
             Map<String, Object> out = new LinkedHashMap<>();
-            out.put("pid", result.pid());
-            out.put("game_date", result.gameDate());
-            out.put("players", result.players());
-            out.put("clubs", result.clubs());
-            out.put("competitions", result.competitions());
+            out.put("status", "started");
+            out.put("job_id", jobId);
+            out.put("message", "RAM load started. Call fm26_status for progress and the completed snapshot counts.");
             return out;
         } catch (RamLoadCoordinator.LoadInProgressException ex) {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("status", "already_in_progress");
             out.put("message", "A RAM load is already in progress. Call fm26_status to check progress.");
             return out;
-        } catch (IOException | RuntimeException ex) {
+        } catch (RuntimeException ex) {
             throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
         }
+    }
+
+    private static Map<String, Object> loadStatusMap(RamLoadCoordinator.LoadStatus status) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("job_id", status.jobId());
+        out.put("state", status.state());
+        if (status.progress() != null) {
+            out.put("phase", status.progress().phase().name().toLowerCase(Locale.ROOT));
+            out.put("done", status.progress().done());
+            out.put("total", status.progress().total());
+            out.put("kept", status.progress().kept());
+            out.put("detail", status.progress().detail());
+            out.put("fraction", status.progress().overallFraction());
+        }
+        if (status.result() != null) {
+            DatabaseLoadAllService.LoadAllResult result = status.result();
+            out.put("pid", result.pid());
+            out.put("game_date", result.gameDate());
+            out.put("players", result.players());
+            out.put("clubs", result.clubs());
+            out.put("competitions", result.competitions());
+            out.put("skip_summary", result.skipSummary());
+        }
+        if (status.error() != null) {
+            out.put("error", status.error());
+        }
+        return out;
     }
 
     @Tool(name = "fm26_find_competitions", description = "Find FM26 competitions by name, nation, gender and reputation.")
@@ -2174,8 +2210,8 @@ public class FmAiAssistentTools {
         return normalized.replaceAll("[^a-z0-9]", "");
     }
 
-    private static boolean matchesBoolean(Boolean value, Boolean expected) {
-        return expected == null || Objects.equals(Boolean.TRUE.equals(value), expected);
+    static boolean matchesBoolean(Boolean value, Boolean expected) {
+        return expected == null || (value != null && value.equals(expected));
     }
 
     static Integer effectiveAge(PlayerEntity player) {

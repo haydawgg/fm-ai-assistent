@@ -78,7 +78,9 @@ final class PlayerDossier {
                 field("Contract end", blank(player.getContractEndDate()) ? "—" : player.getContractEndDate()),
                 field("Joined", blank(player.getJoinedClubDate()) ? "—" : player.getJoinedClubDate()))));
         body.add(section("Injury", List.of(
-                field("Status", Boolean.TRUE.equals(player.getInjured()) ? injured(player) : "Fit"),
+                field("Status", player.getInjured() == null
+                        ? "Unknown"
+                        : Boolean.TRUE.equals(player.getInjured()) ? injured(player) : "Fit"),
                 field("Expected return", blank(player.getInjuryExpectedReturn()) ? "—" : player.getInjuryExpectedReturn()))));
         body.add(attributes(player));
         dialog.add(body);

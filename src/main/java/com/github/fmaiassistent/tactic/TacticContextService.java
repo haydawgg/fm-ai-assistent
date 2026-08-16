@@ -60,16 +60,26 @@ public class TacticContextService implements AiPromptContext {
             throw new IllegalArgumentException("Enter a tactic file or folder location");
         }
         Path requested = Path.of(location.strip()).toAbsolutePath().normalize();
-        Path allowedRoot = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
-        if (!requested.startsWith(allowedRoot)) {
+        Path allowedRoot;
+        Path realRequested;
+        try {
+            allowedRoot = Path.of(System.getProperty("user.home")).toRealPath();
+            if (!Files.exists(requested)) {
+                throw new IllegalArgumentException("Tactic path does not exist: " + requested);
+            }
+            realRequested = requested.toRealPath();
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Could not resolve tactic path: " + requested, exception);
+        }
+        if (!realRequested.startsWith(allowedRoot)) {
             throw new IllegalArgumentException("Tactic import path must be within your home directory: " + allowedRoot);
         }
-        if (!Files.exists(requested)) {
-            throw new IllegalArgumentException("Tactic path does not exist: " + requested);
+        if (Files.isSymbolicLink(requested)) {
+            throw new IllegalArgumentException("Tactic import path must not be a symbolic link: " + requested);
         }
-        List<Path> paths = Files.isDirectory(requested)
-                ? discoverDirectory(requested)
-                : selectedFile(requested);
+        List<Path> paths = Files.isDirectory(realRequested)
+                ? discoverDirectory(realRequested)
+                : selectedFile(realRequested);
         if (paths.isEmpty()) {
             throw new IllegalArgumentException("No supported tactic files were found at " + requested);
         }
@@ -89,7 +99,7 @@ public class TacticContextService implements AiPromptContext {
                 throw new IllegalArgumentException("Could not read " + path, exception);
             }
         }
-        return build(requested.toString(), files);
+        return build(realRequested.toString(), files);
     }
 
     public TacticContext loadUploads(Map<String, byte[]> uploads) {

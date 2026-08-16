@@ -234,11 +234,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 });
                 """, getElement());
         if (!pendingPrompt.isBlank() && chat.configured()) {
-            String prompt = pendingPrompt;
-            pendingPrompt = "";
-            event.getUI().getPage().getHistory().replaceState(null, "chat");
-            input.setValue(prompt);
-            send();
+            submitPendingPrompt(event.getUI());
         } else if (input.getValue() == null || input.getValue().isBlank()) {
             String draft = ChatUiContext.draft();
             if (!draft.isBlank()) {
@@ -309,6 +305,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         });
 
         tone.setLabel("");
+        tone.setAriaLabel("Chat tone");
         tone.setItems(ChatTone.values());
         tone.setItemLabelGenerator(ChatTone::label);
         tone.setValue(settings.chatTone());
@@ -331,10 +328,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                         OpenRouterModelPicker.apply(model, modelLabels, catalog.cachedModels(), settings.openRouterModel(), settings.pinnedModels());
                     } finally {
                         applyingModel = false;
-                    }
-                    updateConfigurationState();
-                    refreshStarters();
-                }));
+                     }
+                     updateConfigurationState();
+                     refreshStarters();
+                     submitPendingPrompt(UI.getCurrent());
+                 }));
 
         HorizontalLayout identity = new HorizontalLayout(title, snapshot, sessionCost);
         identity.setAlignItems(FlexComponent.Alignment.CENTER);
@@ -407,9 +405,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                     } finally {
                         applyingModel = false;
                     }
-                    updateConfigurationState();
-                    refreshStarters();
-                }));
+                     updateConfigurationState();
+                     refreshStarters();
+                     submitPendingPrompt(UI.getCurrent());
+                 }));
         openSettings.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         unconfigured.add(title, copy, openSettings);
     }
@@ -500,13 +499,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         drop.addAllFinishedListener(event -> {
             Map<String, byte[]> files = new LinkedHashMap<>(pendingDrop);
             pendingDrop.clear();
-            try {
-                tacticContexts.loadUploads(files);
-                Notification.show("Tactic context updated", 1600, Notification.Position.BOTTOM_CENTER);
-            } catch (RuntimeException ex) {
-                Notification.show(ex.getMessage() == null ? "Tactic context update failed" : ex.getMessage(),
-                        4000, Notification.Position.MIDDLE);
-            }
+            importChatTacticFiles(files, "Tactic context updated");
         });
 
         HorizontalLayout actions = new HorizontalLayout(send, stop);
@@ -555,6 +548,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         if (activeStream != null) {
             hint.append(" · sending queues until this reply finishes");
+            if (!queuedMessages.isEmpty()) {
+                hint.append(" (" + queuedMessages.size() + " queued)");
+            }
         }
         composerHint.setText(hint.toString());
     }
@@ -664,7 +660,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         } else {
             triedModels.add(modelId);
         }
-        AssistantTurn turn = new AssistantTurn(modelId);
+        AssistantTurn turn = new AssistantTurn(modelId, message, lastUserOrdinal);
         activeTurn = turn;
         transcript.add(turn.root);
         scrollToLatest();
@@ -974,30 +970,26 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void retryLast() {
-        if (lastUserText.isBlank() || activeStream != null) {
-            return;
-        }
-        if (dailyCapBlocked(lastUserText)) {
-            return;
-        }
-        streamUserMessage(lastUserText, false);
+        retry(lastUserText);
     }
 
-    private void regenerateFrom(String userText) {
+    private void retry(String userText) {
         if (userText == null || userText.isBlank() || activeStream != null) {
             return;
         }
-        if (conversationId != null && !history.isEmpty()) {
-            int lastUser = history.size() - 1;
-            while (lastUser >= 0 && !history.get(lastUser).user()) {
-                lastUser--;
-            }
-            if (lastUser >= 0) {
-                int cut = lastUserOrdinal >= 0 ? lastUserOrdinal + 1 : lastUser + 1;
-                sessions.deleteFrom(conversationId, cut);
-                history.subList(lastUser + 1, history.size()).clear();
-                reloadTranscript();
-            }
+        if (dailyCapBlocked(userText)) {
+            return;
+        }
+        streamUserMessage(userText, false);
+    }
+
+    private void regenerateFrom(String userText, int userOrdinal) {
+        if (userText == null || userText.isBlank() || activeStream != null) {
+            return;
+        }
+        if (conversationId != null && userOrdinal >= 0) {
+            sessions.deleteFrom(conversationId, userOrdinal + 1);
+            reloadTranscript();
         }
         streamUserMessage(userText, false);
     }
@@ -1020,16 +1012,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             activeStream = null;
         }
         if (turn != null && turn.close()) {
+            String stoppedText = turn.hasContent() ? turn.rawText() : "Stopped.";
             if (!turn.hasContent()) {
                 turn.showContent();
                 turn.setMarkdown("Stopped.");
             } else {
                 turn.paint();
-                rememberAssistant(turn.rawText());
-                persist("assistant", turn.rawText(), currentModel, extras(currentModel,
-                        List.of(),
-                        new AssistantChatService.UsageSnapshot(null, null), System.nanoTime(), 0, turn.reasoningText(), turn.generationId()));
             }
+            rememberAssistant(stoppedText);
+            persist("assistant", stoppedText, currentModel, extras(currentModel,
+                    List.of(),
+                    new AssistantChatService.UsageSnapshot(null, null), System.nanoTime(), 0, turn.reasoningText(), turn.generationId()));
             turn.finishStreaming();
         }
         finishStream(drainQueue);
@@ -1112,7 +1105,21 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                     .append(turn.text() == null ? "" : turn.text())
                     .append("\n\n");
         }
-        copyText(markdown.toString());
+        UI ui = getUI().orElse(null);
+        if (ui == null) {
+            return;
+        }
+        ui.getPage().executeJs("""
+                const blob = new Blob([$0], {type: 'text/markdown;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'fm-ai-chat.md';
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                """, markdown.toString());
+        Notification.show("Markdown downloaded", 1400, Notification.Position.BOTTOM_CENTER)
+                .addClassName("app-toast");
     }
 
     private AssistantChatService.ChatGrounding grounding() {
@@ -1215,7 +1222,26 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 && (input.getValue() == null || input.getValue().isBlank())) {
             input.setValue(queued);
         }
+        if (!queuedMessages.isEmpty()) {
+            Notification.show(
+                    queuedMessages.size() + " queued message(s) were returned to the composer for review.",
+                    3500,
+                    Notification.Position.BOTTOM_CENTER);
+        }
         queuedMessages.clear();
+    }
+
+    private void submitPendingPrompt(UI ui) {
+        if (pendingPrompt.isBlank() || !chat.configured()) {
+            return;
+        }
+        String prompt = pendingPrompt;
+        pendingPrompt = "";
+        if (ui != null) {
+            ui.getPage().getHistory().replaceState(null, "chat");
+        }
+        input.setValue(prompt);
+        send();
     }
 
     private void reloadTranscript() {
@@ -1230,15 +1256,19 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             return;
         }
         List<ChatMessageEntity> rows = sessions.messages(conversationId);
+        String associatedUserText = "";
+        int associatedUserOrdinal = -1;
         for (ChatMessageEntity row : rows) {
             if ("user".equals(row.getRole())) {
                 lastUserText = row.getBody();
                 lastUserOrdinal = row.getOrdinal();
+                associatedUserText = row.getBody();
+                associatedUserOrdinal = row.getOrdinal();
                 history.add(new AssistantChatService.ChatTurn(true, row.getBody()));
                 transcript.add(userCard(row.getBody(), row.getOrdinal()));
             } else if ("assistant".equals(row.getRole())) {
                 history.add(new AssistantChatService.ChatTurn(false, row.getBody()));
-                AssistantTurn turn = new AssistantTurn(row.getModel());
+                AssistantTurn turn = new AssistantTurn(row.getModel(), associatedUserText, associatedUserOrdinal);
                 turn.showContent();
                 turn.setMarkdown(row.getBody());
                 turn.finishStreaming();
@@ -1257,8 +1287,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 turn.bindFeedback(row);
                 transcript.add(turn.root);
             } else if ("error".equals(row.getRole())) {
-                AssistantTurn turn = new AssistantTurn(row.getModel());
-                turn.setError(row.getBody(), lastUserText, this::retryLast);
+                AssistantTurn turn = new AssistantTurn(row.getModel(), associatedUserText, associatedUserOrdinal);
+                String retryText = associatedUserText;
+                turn.setError(row.getBody(), retryText, () -> retry(retryText));
                 transcript.add(turn.root);
             }
         }
@@ -1484,15 +1515,36 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                         .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
                 return;
             }
-            try {
-                tacticContexts.loadUploads(Map.of(fileName, bytes));
-                Notification.show("Pasted screenshot added as tactic context", 1800, Notification.Position.BOTTOM_CENTER)
-                        .addClassName("app-toast");
-            } catch (RuntimeException ex) {
-                Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
-                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
-            }
+            importChatTacticFiles(Map.of(fileName, bytes), "Pasted screenshot added as tactic context");
         }));
+    }
+
+    private void importChatTacticFiles(Map<String, byte[]> files, String successMessage) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        UI ui = getUI().orElse(null);
+        if (ui == null) {
+            return;
+        }
+        tacticPanel.setImportBusy(true);
+        Thread.ofVirtual().name("chat-tactic-context-import").start(() -> {
+            try {
+                tacticContexts.loadUploads(files);
+                access(ui, () -> {
+                    tacticPanel.setImportBusy(false);
+                    tacticPanel.refreshCurrent();
+                    Notification.show(successMessage, 1800, Notification.Position.BOTTOM_CENTER)
+                            .addClassName("app-toast");
+                });
+            } catch (RuntimeException ex) {
+                access(ui, () -> {
+                    tacticPanel.setImportBusy(false);
+                    Notification.show(ex.getMessage() == null ? "Tactic context update failed" : ex.getMessage(),
+                            4000, Notification.Position.MIDDLE);
+                });
+            }
+        });
     }
 
     private void refreshPinnedButton() {
@@ -1573,13 +1625,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         private final Button thumbsDown = new Button(VaadinIcon.THUMBS_DOWN.create());
         private final Button retry = new Button("Retry");
         private final Set<String> tools = new LinkedHashSet<>();
+        private final String userText;
+        private final int userOrdinal;
         private String raw = "";
         private String reasoningRaw = "";
         private String generationId = "";
         private boolean contentVisible;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private AssistantTurn(String modelId) {
+        private AssistantTurn(String modelId, String userText, int userOrdinal) {
+            this.userText = userText == null ? "" : userText;
+            this.userOrdinal = userOrdinal;
             root.addClassName("chat-message");
             root.addClassName("chat-message-assistant");
             String model = modelId == null || modelId.isBlank() ? settings.openRouterModel() : modelId;
@@ -1598,7 +1654,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             thumbsDown.getElement().setAttribute("aria-label", "Not helpful");
             thumbsUp.setVisible(false);
             thumbsDown.setVisible(false);
-            Button regenerate = iconButton(VaadinIcon.REFRESH, "Regenerate", () -> regenerateFrom(lastUserText));
+            Button regenerate = iconButton(VaadinIcon.REFRESH, "Regenerate", () -> regenerateFrom(userText, userOrdinal));
             retry.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             retry.setVisible(false);
             HorizontalLayout heading = new HorizontalLayout(meta, copy, thumbsUp, thumbsDown, regenerate, retry);

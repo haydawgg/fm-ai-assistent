@@ -1,5 +1,7 @@
 # FM AI Assistent — Codebase Analysis Report
 
+> Historical report. The codebase has changed since this report was generated; validate findings against the current source before acting on them.
+
 Analysis date: 2026-08-15
 Scope: full `src/main`, `src/test`, `pom.xml`, build scripts, frontend config.
 Method: six parallel deep-read passes over MCP tools, RAM reader, tactic parsing, web/UI, persistence/chat, and config/build.

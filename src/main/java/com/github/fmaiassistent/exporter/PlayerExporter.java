@@ -626,22 +626,22 @@ public class PlayerExporter {
             String playingClub,
             LocalDate gameDate) throws IOException {
         var registrationOpt = reader.qwordOrNull(record + 0xA8);
-        int transferStatus = registrationOpt
+        Integer transferStatus = registrationOpt
                 .map(registration -> {
                     try {
                         return reader.readU8(registration + TRANSFER_STATUS_REL);
                     } catch (IOException ex) {
-                        return 0;
+                        return null;
                     }
                 })
-                .orElse(0);
+                .orElse(null);
         FutureTransfer futureTransfer = registrationOpt
                 .map(registration -> futureTransfer(reader, registration, club, playingClub, gameDate))
-                .orElse(new FutureTransfer(false, "", "", ""));
+                .orElse(new FutureTransfer(null, "", "", ""));
         InjuryStatus injury = injuryStatus(reader, record);
         return new PlayerStatus(
-                (transferStatus & 0x01) != 0,
-                (transferStatus & 0x02) != 0,
+                transferStatus == null ? null : (transferStatus & 0x01) != 0,
+                transferStatus == null ? null : (transferStatus & 0x02) != 0,
                 futureTransfer.transferAgreed(),
                 futureTransfer.club(),
                 futureTransfer.date(),
@@ -651,8 +651,14 @@ public class PlayerExporter {
     }
 
     private static InjuryStatus injuryStatus(ProcessMemoryReader reader, long record) throws IOException {
-        long injuryReference = reader.readU64(record + INJURY_REFERENCE_REL);
-        long injuryReferenceFlag = reader.readU32(record + INJURY_REFERENCE_FLAG_REL);
+        final long injuryReference;
+        final long injuryReferenceFlag;
+        try {
+            injuryReference = reader.readU64(record + INJURY_REFERENCE_REL);
+            injuryReferenceFlag = reader.readU32(record + INJURY_REFERENCE_FLAG_REL);
+        } catch (IOException | RuntimeException ex) {
+            return new InjuryStatus(null, "", "", 0, 0);
+        }
         var vectorStart = reader.qwordOrNull(injuryReference);
         boolean injured = injuryReference != 0
                 && injuryReferenceFlag == 1
@@ -681,7 +687,7 @@ public class PlayerExporter {
             }
             return new InjuryStatus(true, description, startDate, lightTrainingTotalDays, fullTrainingTotalDays);
         } catch (IOException | RuntimeException ex) {
-            return new InjuryStatus(false, "", "", 0, 0);
+            return new InjuryStatus(null, "", "", 0, 0);
         }
     }
 
@@ -711,7 +717,7 @@ public class PlayerExporter {
                 return new FutureTransfer(false, "", "", "");
             }
             LocalDate date = GameDateFinder.dayYearToDate(pair.day(), pair.year());
-            boolean agreed = gameDate != null && date.isAfter(gameDate);
+            Boolean agreed = gameDate == null ? null : date.isAfter(gameDate);
             String contractEndDate = "";
             DatePair contractEndPair = readDatePair(reader, registration + FUTURE_TRANSFER_CONTRACT_END_DATE_REL);
             if (GameDateFinder.validDayYear(contractEndPair.day(), contractEndPair.year())) {
@@ -719,7 +725,7 @@ public class PlayerExporter {
             }
             return new FutureTransfer(agreed, futureClub, date.toString(), contractEndDate);
         } catch (IOException | RuntimeException ex) {
-            return new FutureTransfer(false, "", "", "");
+            return new FutureTransfer(null, "", "", "");
         }
     }
 
@@ -795,7 +801,9 @@ public class PlayerExporter {
                 continue;
             }
             if (futureTransferDate.isBlank()) {
-                row.put("transfer_agreed", false);
+                if (row.get("transfer_agreed") != null) {
+                    row.put("transfer_agreed", false);
+                }
                 row.put("future_transfer_club", "");
                 row.put("future_transfer_contract_end_date", "");
             } else {
@@ -819,7 +827,7 @@ public class PlayerExporter {
     }
 
     private static void applyInjuryRemaining(Map<String, Object> row, LocalDate gameDate) {
-        if (!Boolean.parseBoolean(String.valueOf(row.getOrDefault("injured", false)))) {
+        if (!Boolean.TRUE.equals(row.get("injured"))) {
             row.put("injury_light_training_days_remaining", "");
             row.put("injury_full_training_days_remaining", "");
             row.put("injury_min_days_remaining", "");
@@ -973,17 +981,17 @@ public class PlayerExporter {
     }
 
     private record PlayerStatus(
-            boolean transferListed,
-            boolean listedForLoan,
-            boolean transferAgreed,
+            Boolean transferListed,
+            Boolean listedForLoan,
+            Boolean transferAgreed,
             String futureTransferClub,
             String futureTransferDate,
             String futureTransferContractEndDate,
-            boolean injured,
+            Boolean injured,
             InjuryStatus injury) {
     }
 
-    private record InjuryStatus(boolean injured, String description, String startDate, int lightTrainingTotalDays, int fullTrainingTotalDays) {
+    private record InjuryStatus(Boolean injured, String description, String startDate, int lightTrainingTotalDays, int fullTrainingTotalDays) {
     }
 
     private static int u8At(byte[] data, int baseRel, int fieldRel) {
@@ -1028,7 +1036,7 @@ public class PlayerExporter {
         return reader.readU16(address);
     }
 
-    private record FutureTransfer(boolean transferAgreed, String club, String date, String contractEndDate) {
+    private record FutureTransfer(Boolean transferAgreed, String club, String date, String contractEndDate) {
     }
 
     private record PlayerMemoryLayout(

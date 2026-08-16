@@ -156,6 +156,14 @@ final class TacticContextPanel extends Details {
         refresh(contexts.current());
     }
 
+    void refreshCurrent() {
+        refresh();
+    }
+
+    void setImportBusy(boolean busy) {
+        setBusy(busy);
+    }
+
     private void refresh(TacticContext context) {
         if (!context.active()) {
             setSummaryText("Tactic context · none");

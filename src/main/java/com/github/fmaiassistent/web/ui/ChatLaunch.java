@@ -40,15 +40,6 @@ final class ChatLaunch {
                 + " using the save data: role, contract, injuries and whether they are a buy, sell, or keep.";
     }
 
-    static String argueFor(String playerName, String club) {
-        String who = playerName == null ? "this player" : playerName;
-        if (club == null || club.isBlank()) {
-            return "Argue for signing " + who + " using the save data. Be honest about unknown asking prices.";
-        }
-        return "For " + club + ", argue for signing " + who
-                + ". Use the save data. Be honest about unknown asking prices and injuries.";
-    }
-
     static String explainDeal(String playerName, String club) {
         return "For " + club + ", explain this Moneyball row for " + playerName
                 + ": signing rating, deal tier, fee plus 3-year wages, and whether the deal is cheap.";

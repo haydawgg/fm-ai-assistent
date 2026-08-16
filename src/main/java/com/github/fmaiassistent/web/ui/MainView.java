@@ -1072,7 +1072,9 @@ public class MainView extends VerticalLayout {
                         new DetailField("Joined Club Date", player.getJoinedClubDate()),
                         new DetailField("Contract End Date", player.getContractEndDate()))),
                 detailSection("Injury", List.of(
-                        new DetailField("Injured", Boolean.TRUE.equals(player.getInjured()) ? "Yes" : "No"),
+                        new DetailField("Injured", player.getInjured() == null
+                                ? "Unknown"
+                                : Boolean.TRUE.equals(player.getInjured()) ? "Yes" : "No"),
                         new DetailField("Injury", player.getInjury()),
                         new DetailField("Expected return", player.getInjuryExpectedReturn()),
                         new DetailField("Days remaining", player.getInjuryMinDaysRemaining()))),
@@ -2442,15 +2444,6 @@ public class MainView extends VerticalLayout {
         return true;
     }
 
-    private static List<String> distinctColumnValues(List<ClubEntity> rows, String column) {
-        return rows.stream()
-                .map(row -> display(clubColumnValue(row, column)))
-                .filter(value -> !value.isBlank())
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
-    }
-
     private static Object clubColumnValue(ClubEntity club, String column) {
         return switch (column) {
             case "NAME" -> club.getName();
@@ -2498,10 +2491,6 @@ public class MainView extends VerticalLayout {
             }
         });
         return out;
-    }
-
-    private static String positionLabel(String fieldName, PositionLevel level) {
-        return displayName(fieldName) + " - " + level.label;
     }
 
     private static String filterPositionLabel(String shortName, PositionLevel level) {

@@ -13,6 +13,7 @@ if not exist "%JAVA_HOME%\bin\java.exe" (
 )
 set "MVN=mvn.cmd"
 where mvn.cmd >nul 2>&1
+if not errorlevel 1 goto :maven_found
 if errorlevel 1 (
   set "MVN=%USERPROFILE%\.local\apache-maven-3.9.16\bin\mvn.cmd"
   if not exist "%MVN%" (
@@ -21,6 +22,8 @@ if errorlevel 1 (
     )
   )
 )
+
+:maven_found
 
 echo Starting FM AI Assistent...
 echo JAVA_HOME=%JAVA_HOME%

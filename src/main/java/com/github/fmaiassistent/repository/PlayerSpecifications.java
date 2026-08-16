@@ -19,8 +19,12 @@ public final class PlayerSpecifications {
             List<Predicate> predicates = new ArrayList<>();
             String name = filter.name();
             if (name != null && !name.isBlank()) {
+                String escaped = name.trim().toLowerCase(Locale.ROOT)
+                        .replace("\\", "\\\\")
+                        .replace("%", "\\%")
+                        .replace("_", "\\_");
                 predicates.add(cb.like(cb.lower(root.get("name")),
-                        "%" + name.trim().toLowerCase(Locale.ROOT) + "%"));
+                        "%" + escaped + "%", '\\'));
             }
             if (filter.club() != null && !filter.club().isBlank()) {
                 String clubLower = filter.club().trim().toLowerCase(Locale.ROOT);

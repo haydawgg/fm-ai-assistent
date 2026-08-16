@@ -37,7 +37,7 @@ public class ChatSessionService {
         if (query == null || query.isBlank()) {
             return list();
         }
-        return sessions.search(query.strip());
+        return sessions.search(escapeLike(query.strip()));
     }
 
     @Transactional(readOnly = true)
@@ -194,6 +194,12 @@ public class ChatSessionService {
         }
         String compact = firstUserMessage.strip().replaceAll("\\s+", " ");
         return compact.length() <= 48 ? compact : compact.substring(0, 45) + "…";
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     public record MessageExtras(

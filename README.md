@@ -11,10 +11,12 @@ The app also includes a frontend where you can search and filter the data yourse
 - Moneyball (`/moneyball`) — value signings
 - Squad trim (`/squad-trim`) — sell / loan / keep
 - First XI (`/first-xi`) — XI from the live RAM formation or a pasted tactic
+- Contracts (`/contracts`) — contract expiry, wage and squad-health review
+- Academy (`/academy`) — in-house youth and development candidates
 - Compare (`/compare-squads`) — two clubs, best player per position
 - Chat (`/chat`) — in-app OpenRouter chat using the same `fm26_*` tools
 
-You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring.
+You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring. Status fields that fail to read are shown as unknown rather than false.
 
 Display currency is chosen in Settings. RAM snapshots persist in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`.
 
@@ -112,6 +114,8 @@ Squad: `fm26_sell_shortlist`, `fm26_compare_squads`, `fm26_compare_players`, `fm
 Lookup: `fm26_status`, `fm26_load_from_ram`, `fm26_find_clubs`, `fm26_find_players`, `fm26_find_competitions`, `fm26_get_club_context`, `fm26_get_player_details`, `fm26_get_role_attributes`.
 Research: `fm26_ram_table_counts` (live offset-table slot counts; not a manager workflow).
 
+`fm26_load_from_ram` starts an asynchronous load and returns a `job_id`. Call `fm26_status` to monitor the phase, progress and final counts. The web UI still displays live progress while loading.
+
 Money values are raw pounds. `asking_price=null` means unknown, not free.
 
 For a first XI, call `fm26_current_tactic` then `fm26_best_xi` with `managingClub`. Omit `tacticSlots` to use the RAM formation; pass `position,inPossessionRole,outOfPossessionRole` lines (not `DMC:`) when you want role fit.
@@ -147,6 +151,7 @@ Restart Claude Desktop after changing the config. The web server binds to `127.0
 - In/out-of-possession roles are not in RAM. Use Chat `.fmf` import or paste roles on First XI.
 - Preferred-move traits are filled only when RAM name vectors match.
 - Staff and retired people without playable positions are excluded from transfer and moneyball pools.
+- In-app chat sends the selected save context and conversation to OpenRouter. Use MCP-only mode if you do not want to configure an OpenRouter key.
 
 ## AI Examples
 

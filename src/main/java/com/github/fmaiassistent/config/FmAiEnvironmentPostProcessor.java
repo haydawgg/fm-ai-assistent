@@ -16,6 +16,15 @@ import java.util.Map;
 public class FmAiEnvironmentPostProcessor implements EnvironmentPostProcessor {
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
+        String address = environment.getProperty("server.address", "127.0.0.1").strip().toLowerCase(java.util.Locale.ROOT);
+        boolean loopback = address.equals("127.0.0.1") || address.equals("localhost") || address.equals("::1");
+        boolean explicitlyAllowed = environment.getProperty(
+                "app.network.allow-unauthenticated", Boolean.class, false);
+        if (!loopback && !explicitlyAllowed) {
+            throw new IllegalStateException(
+                    "Refusing to bind the unauthenticated FM AI Assistent UI/MCP server to "
+                            + address + ". Set app.network.allow-unauthenticated=true only on a protected network.");
+        }
         Map<String, Object> properties = new LinkedHashMap<>();
         if (!environment.containsProperty("spring.datasource.url")) {
             Path dbFile = AppSettingsService.dataDirectory().resolve("fm-ai-assistent-db");
