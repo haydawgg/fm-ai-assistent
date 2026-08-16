@@ -157,6 +157,14 @@ class AssistantChatServiceTest {
         assertTrue(prompt.contains("stale"));
         assertTrue(prompt.contains("Answer in Dutch."));
         assertTrue(prompt.contains("raw pounds"));
+        assertTrue(prompt.contains("empty_hint"));
+        assertTrue(prompt.contains("fm26_academy"));
+        assertTrue(prompt.contains("Do not write progress narration"));
+    }
+
+    @Test
+    void academyToolHasAStatusLabel() {
+        assertEquals("Reading academy", AssistantChatService.labelForTool("fm26_academy"));
     }
 
     @Test

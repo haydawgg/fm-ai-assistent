@@ -3,6 +3,7 @@ package com.github.fmaiassistent.mcp;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import org.junit.jupiter.api.Test;
 
+import java.time.Period;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,6 +88,30 @@ class FmAiAssistentToolsFilterTest {
         org.junit.jupiter.api.Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> Positions.canonicalCode("XYZ"));
+    }
+
+    @Test
+    void emptyRecruitmentHintPointsAtAcademyAndTenure() {
+        Map<String, Object> tight = new HashMap<>();
+        tight.put("minimum_time_at_current_club", "P1Y");
+        tight.put("min_pa", 160);
+        tight.put("max_age", 19);
+        String hint = FmAiAssistentTools.emptyRecruitmentHint(tight);
+        assertTrue(hint.contains("fm26_academy"));
+        assertTrue(hint.contains("P0D"));
+        assertTrue(hint.contains("min_pa=160"));
+        assertTrue(hint.contains("max_age=19"));
+        assertTrue(hint.contains("Do not repeat"));
+    }
+
+    @Test
+    void wonderkidTenureKeepsYouthWhoJoinedThisSeason() {
+        PlayerEntity youth = recentlyJoinedYouth("2025-08-01", "2026-01-01");
+        assertEquals("P0D", FmAiAssistentTools.WONDERKID_MIN_TIME_AT_CLUB);
+        assertTrue(FmAiAssistentTools.recentlyJoinedCurrentClub(youth, Period.ofYears(1)),
+                "baseline: 1-year tenure still treats a mid-season join as recent");
+        assertTrue(!FmAiAssistentTools.recentlyJoinedCurrentClub(youth, Period.parse(FmAiAssistentTools.WONDERKID_MIN_TIME_AT_CLUB)),
+                "wonderkid P0D must not treat a mid-season join as recent");
     }
 
     @Test
@@ -178,6 +203,21 @@ class FmAiAssistentToolsFilterTest {
         assertTrue(FmAiAssistentTools.samePlayer(one, one));
         assertTrue(FmAiAssistentTools.samePlayer(one, clone));
         assertTrue(!FmAiAssistentTools.samePlayer(one, player("Away", "Ajax", "Ajax")));
+    }
+
+    private static PlayerEntity recentlyJoinedYouth(String joinedClubDate, String gameDate) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", "Pedro Pereira");
+        row.put("club", "TND");
+        row.put("playing_club", "TND");
+        row.put("age", 16);
+        row.put("ca", 90);
+        row.put("pa", 166);
+        row.put("Goalkeeper", 18);
+        row.put("joined_club_date", joinedClubDate);
+        row.put("age_as_of", gameDate);
+        row.put("transfer_listed", false);
+        return PlayerEntity.fromExportRow(row);
     }
 
     private static PlayerEntity named(String name, int ca) {

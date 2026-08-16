@@ -152,6 +152,16 @@ class SquadAdviceTest {
     }
 
     @Test
+    void academyKeepsU21GkWhenMaxAgeAllows() {
+        PlayerEntity gk = player("Gino", 68, 16, 193, "Goalkeeper", 18);
+        PlayerEntity adult = player("Jachfe", 121, 28, 5_000, "Goalkeeper", 18);
+        List<SquadAdvice.AcademyRow> rows = SquadAdvice.academy(List.of(gk, adult), 19);
+        assertEquals(1, rows.size());
+        assertEquals("Gino", rows.get(0).name());
+        assertEquals("GK", rows.get(0).position());
+    }
+
+    @Test
     void academyKeepsU21AndComparesToFirstTeam() {
         PlayerEntity kid = player("Kid", 90, 18, 1_000, "Striker", 16);
         PlayerEntity starter = player("Starter", 140, 24, 8_000, "Striker", 18);

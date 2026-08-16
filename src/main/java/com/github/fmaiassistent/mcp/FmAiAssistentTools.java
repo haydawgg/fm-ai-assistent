@@ -45,6 +45,8 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_MONEYBALL_QUALITY_GAP = 15;
     private static final int DEFAULT_MONEYBALL_MAX_AGE = 40;
     private static final int DEFAULT_WONDERKID_MAX_AGE = 21;
+    /** Youth often joined recently; a 1-year tenure filter empties U19 pools. */
+    static final String WONDERKID_MIN_TIME_AT_CLUB = "P0D";
     static final List<String> FIELDS_NOT_IN_RAM = List.of("morale", "form", "appearances", "goals", "assists");
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
     private static final List<String> RAM_DECODED_TABLES = List.of("PeopleOffset", "TeamOffset", "CompetitionOffset");
@@ -179,7 +181,11 @@ public class FmAiAssistentTools {
                 .limit(safeLimit)
                 .map(fullDetails ? this::playerFullMap : this::playerSummaryMap)
                 .toList();
-        return result("players", rows, safeLimit);
+        Map<String, Object> out = result("players", rows, safeLimit);
+        if (rows.isEmpty()) {
+            out.put("empty_hint", "No rows. Change at most one filter then answer. askingPriceMax drops unknown fees; omit it for youth. Do not keep searching.");
+        }
+        return out;
     }
 
     @Tool(name = "fm26_get_player_details", description = "Get full player details including attributes, positions, CA/PA, reputation, contract and club data.")
@@ -317,6 +323,7 @@ public class FmAiAssistentTools {
         out.put("returned", candidates.size());
         out.put("candidates", candidates);
         out.put("guidance", "Ranked estimates, not guaranteed transfers. asking_price=null means unknown, not free. Call fm26_get_player_details only for finalists needing full attributes.");
+        attachEmptyRecruitmentHint(out, ranked.candidates().size());
         return out;
     }
 
@@ -394,6 +401,7 @@ public class FmAiAssistentTools {
         out.put("signing_rating_legend", "signing_rating (0-100) = quality_score x value_factor, capped at 100. quality_score blends CA (50%) and age-adjusted PA (50%). value_factor is 1.0 at market price, up to 1.5 for below-market deals and down to 0.3 for overpriced ones.");
         out.put("deal_tier_legend", "deal_tier compares total cost (fee + 3 years of wages) with the market median for comparable players: excellent = cost below 60% of market, good = 60-80%, average = 80-120%, overpriced = above 120%. deal_score is market_cost divided by total_cost, so above 1 means below market.");
         out.put("guidance", "Ranked estimates, not guaranteed transfers. Candidates are sorted by signing_rating; deal_tier labels only the value component. asking_price=null means unknown, not free; only players with a known fee or no club are rated. Call fm26_get_player_details only for finalists and fm26_transfer_shortlist when role fit matters more than value.");
+        attachEmptyRecruitmentHint(out, rated.candidatePoolSize());
         return out;
     }
 
@@ -472,7 +480,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_wonderkid_shortlist", description = "Young signings for a club with a default max age of 21. Accepted filters: max age, position, role, phase, managing club, minimum potential ability and maximum asking price. Pass minPotentialAbility to target high-PA prospects. Money values are raw pounds.")
+    @Tool(name = "fm26_wonderkid_shortlist", description = "External young signings for a club. Default max age 21 (pass 19 for U19). No default min PA — omit minPotentialAbility unless the user asked for elite potential. Tenure at the source club is not required (youth move often). Same other recruitment filters as the transfer shortlist, including club budget as the price cap. For players you already employ, use fm26_academy. Money values are raw pounds.")
     @Transactional(readOnly = true)
     public Map<String, Object> wonderkidShortlist(
             @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
@@ -480,13 +488,42 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Optional FM26 role name") String roleName,
             @ToolParam(required = false, description = "Role phase: In Possession or Out of Possession") String phase,
             @ToolParam(required = false, description = "Maximum age. Defaults to 21.") Integer maxAge,
-            @ToolParam(required = false, description = "Minimum potential ability") Integer minPotentialAbility,
+            @ToolParam(required = false, description = "Minimum potential ability. Omit unless the user asked for a PA floor; 150+ empties most U19 GK pools.") Integer minPotentialAbility,
             @ToolParam(required = false, description = "Maximum asking price in pounds") Long maxAskingPrice,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8.") Integer limit) {
         return transferShortlist(
                 managingClub, position, roleName, phase, null,
                 maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge,
-                null, minPotentialAbility, maxAskingPrice, null, null, null, null, null, null, null, limit);
+                null, minPotentialAbility, maxAskingPrice, null, null, WONDERKID_MIN_TIME_AT_CLUB, null, null, null, null, limit);
+    }
+
+    @Tool(name = "fm26_academy", description = "In-house youth at the managing club (owned players, not loaned-in). Default max age 21, ranked by PA. Use this for 'what young GKs do I already have' instead of paging fm26_get_club_context.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> academy(
+            @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
+            @ToolParam(required = false, description = "Maximum age. Defaults to 21.") Integer maxAge,
+            @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
+            @ToolParam(required = false, description = "Maximum rows. Defaults to 20.") Integer limit) {
+        ClubEntity club = requireClub(managingClub);
+        PositionSpec positionSpec = resolvePosition(position);
+        int cap = maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge;
+        int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, MAX_LIMIT));
+        List<Map<String, Object>> rows = academyRows(managingClub, cap).stream()
+                .filter(row -> positionSpec == null || positionSpec.code().equals(row.position()))
+                .limit(safeLimit)
+                .map(FmAiAssistentTools::academyMap)
+                .toList();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("club", recruitmentClubMap(club));
+        out.put("max_age", cap);
+        putIfNotNull(out, "position", positionSpec == null ? null : positionSpec.code());
+        out.put("returned", rows.size());
+        out.put("players", rows);
+        out.put("guidance", "Owned youth only, ranked by PA. This is intake, not a world search. For external wonderkids use fm26_wonderkid_shortlist.");
+        if (rows.isEmpty()) {
+            out.put("empty_hint", "No owned players at that age/position. Answer with that, or call fm26_wonderkid_shortlist for external options.");
+        }
+        return out;
     }
 
     @Tool(name = "fm26_compare_squads", description = "Compare two clubs' squads: CA/PA, wage bill, age, and best player per position.")
@@ -1900,7 +1937,7 @@ public class FmAiAssistentTools {
         return playerAttributeKey(attributeName).toUpperCase(Locale.ROOT);
     }
 
-    private static boolean recentlyJoinedCurrentClub(PlayerEntity player, Period minimumTimeAtCurrentClub) {
+    static boolean recentlyJoinedCurrentClub(PlayerEntity player, Period minimumTimeAtCurrentClub) {
         LocalDate joined = parseDate(player.getJoinedClubDate());
         LocalDate gameDate = parseDate(player.getAgeAsOf());
         if (joined == null || gameDate == null) {
@@ -2070,6 +2107,57 @@ public class FmAiAssistentTools {
 
     private static long value(Long value) {
         return value == null ? 0L : value;
+    }
+
+    private static Map<String, Object> academyMap(SquadAdvice.AcademyRow row) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("name", row.name());
+        out.put("position", row.position());
+        out.put("age", row.age());
+        out.put("ca", row.ca());
+        out.put("pa", row.pa());
+        out.put("upside", row.upside());
+        out.put("ca_vs_first_team", row.vsFirstTeam());
+        out.put("natural_positions", row.dualPositions());
+        out.put("salary_weekly", row.salaryWeekly());
+        out.put("contract_end", row.contractEnd());
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void attachEmptyRecruitmentHint(Map<String, Object> out, int poolCount) {
+        Object returned = out.get("returned");
+        int returnedCount = returned instanceof Number number ? number.intValue() : 0;
+        if (poolCount > 0 && returnedCount > 0) {
+            return;
+        }
+        Map<String, Object> criteria = out.get("criteria") instanceof Map<?, ?> map
+                ? (Map<String, Object>) map
+                : Map.of();
+        String hint = emptyRecruitmentHint(criteria);
+        out.put("empty_hint", hint);
+    }
+
+    static String emptyRecruitmentHint(Map<String, Object> criteria) {
+        StringBuilder hint = new StringBuilder(
+                "No candidates matched. Do not repeat the same search. Broaden at most once, then answer. ");
+        hint.append("Silent filters still applied: club transfer budget as price cap, position score 15, ");
+        hint.append("reputation/willingness, transfer_agreed=false. ");
+        Object tenure = criteria == null ? null : criteria.get("minimum_time_at_current_club");
+        if (tenure != null && !"P0D".equals(String.valueOf(tenure))) {
+            hint.append("Tenure is ").append(tenure)
+                    .append(" — recently joined youth count as unwilling; pass minimumTimeAtCurrentClub=P0D. ");
+        }
+        Object minPa = criteria == null ? null : criteria.get("min_pa");
+        if (minPa != null) {
+            hint.append("min_pa=").append(minPa).append(" is often too high for U19; omit it. ");
+        }
+        Object maxAge = criteria == null ? null : criteria.get("max_age");
+        if (maxAge instanceof Number age && age.intValue() < DEFAULT_WONDERKID_MAX_AGE) {
+            hint.append("max_age=").append(maxAge).append(" is tight; try 21. ");
+        }
+        hint.append("In-house youth: fm26_academy. World search without willingness: fm26_find_players with position and ageMax, no askingPriceMax.");
+        return hint.toString();
     }
 
     private static void putIfNotNull(Map<String, Object> target, String key, Object value) {
