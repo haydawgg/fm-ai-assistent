@@ -222,9 +222,13 @@ public class ClubDatabaseService {
         Specification<ClubEntity> specification = (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
             if (nameContains != null && !nameContains.isBlank()) {
+                String escaped = nameContains.trim().toLowerCase(Locale.ROOT)
+                        .replace("\\", "\\\\")
+                        .replace("%", "\\%")
+                        .replace("_", "\\_");
                 predicates.add(builder.like(
                         builder.lower(root.get("name")),
-                        "%" + nameContains.trim().toLowerCase(Locale.ROOT) + "%"));
+                        "%" + escaped + "%", '\\'));
             }
             equalIgnoreCase(predicates, builder, root.get("nation"), nation);
             equalIgnoreCase(predicates, builder, root.get("competition"), competition);

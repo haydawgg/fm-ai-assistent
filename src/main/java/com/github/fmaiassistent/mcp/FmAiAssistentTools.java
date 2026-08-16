@@ -47,6 +47,9 @@ public class FmAiAssistentTools {
     private static final int DEFAULT_WONDERKID_MAX_AGE = 21;
     static final List<String> FIELDS_NOT_IN_RAM = List.of("morale", "form", "appearances", "goals", "assists");
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
+    private static final List<String> RAM_DECODED_TABLES = List.of("PeopleOffset", "TeamOffset", "CompetitionOffset");
+    private static final List<String> RAM_NOT_DECODED_TABLES = List.of("NationOffset", "StadiumOffset", "AgreementOffset", "ClubOffset",
+            "CityOffset", "ContinentOffset", "RegionOffset", "CurrencyOffset");
 
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
@@ -55,6 +58,7 @@ public class FmAiAssistentTools {
     private final JdbcTemplate jdbc;
     private final RamLoadCoordinator ramLoad;
     private final DatabaseLoadAllService loadAll;
+    private final ThreadLocal<List<RoleAttributeRow>> roleAttributeCache = new ThreadLocal<>();
 
     public FmAiAssistentTools(
             PlayerDatabaseService players,
@@ -211,6 +215,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Position group exact filter, for example Striker, Goalkeeper, Centre-Back, Central Midfielder") String positionGroup,
             @ToolParam(required = false, description = "Role name contains filter, for example Advanced Forward, Ball-Playing Centre-Back, Goalkeeper") String roleName,
             @ToolParam(required = false, description = "Maximum roles to return") Integer limit) {
+        roleAttributeCache.remove();
         int safeLimit = safeLimit(limit);
         List<RoleAttributeRow> rows = roleAttributeRows();
 
@@ -262,6 +267,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Transfer-agreed filter. Defaults to false because agreed players are unavailable.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Injury filter. false=fit only, true=injured only, omit=both.") Boolean injured,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
+        roleAttributeCache.remove();
         RankedTransfers ranked = rankTransfers(
                 managingClub, position, roleName, phase, minimumPositionScore, maxAge, minCurrentAbility,
                 minPotentialAbility, maxAskingPrice, maxWeeklySalary, reputationMargin, minimumTimeAtCurrentClub,
@@ -284,7 +290,7 @@ public class FmAiAssistentTools {
         putIfNotNull(criteria, "role", blank(roleName) ? null : roleName);
         putIfNotNull(criteria, "phase", blank(phase) ? null : phase);
         putIfNotNull(criteria, "max_age", maxAge);
-        putIfNotNull(criteria, "min_ca", minCurrentAbility);
+        putIfNotNull(criteria, "min_ca", minCurrentAbility == null ? null : minCurrentAbility);
         putIfNotNull(criteria, "min_pa", minPotentialAbility);
         putIfNotNull(criteria, "max_asking_price", priceCapKnown(ranked.priceCap()) ? ranked.priceCap() : null);
         if (!priceCapKnown(ranked.priceCap())) {
@@ -321,6 +327,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST. Full names also work.") String position,
             @ToolParam(required = false, description = "Optional FM26 role name for attribute fit, for example Ball-Playing Centre-Back.") String roleName,
             @ToolParam(required = false, description = "Role phase: In Possession or Out of Possession.") String phase,
+            @ToolParam(required = false, description = "Minimum position ability 1-20. Defaults to 15 when position is supplied; ignored otherwise.") Integer minimumPositionScore,
             @ToolParam(required = false, description = "Minimum current ability. Defaults to the squad first-team average CA minus 15 when the squad is known.") Integer minCurrentAbility,
             @ToolParam(required = false, description = "Minimum potential ability.") Integer minPotentialAbility,
             @ToolParam(required = false, description = "Maximum player age. Defaults to 40 when omitted.") Integer maxAge,
@@ -333,9 +340,10 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Transfer-agreed filter. Defaults to false because agreed players are unavailable.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Injury filter. false=fit only, true=injured only, omit=both.") Boolean injured,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
+        roleAttributeCache.remove();
         List<PlayerEntity> allPlayers = allPlayers();
         MoneyballParameters params = resolveMoneyballParameters(
-                allPlayers, managingClub, position, roleName, phase,
+                allPlayers, managingClub, position, roleName, phase, minimumPositionScore,
                 minCurrentAbility, minPotentialAbility, maxAge, maxAskingPrice, maxWeeklySalary,
                 reputationMargin, minimumTimeAtCurrentClub, transferListed, listedForLoan, transferAgreed, injured);
         int shortlistLimit = limit == null ? DEFAULT_SHORTLIST_LIMIT : Math.max(1, Math.min(limit, MAX_SHORTLIST_LIMIT));
@@ -411,6 +419,11 @@ public class FmAiAssistentTools {
             out.put("clubs", result.clubs());
             out.put("competitions", result.competitions());
             return out;
+        } catch (RamLoadCoordinator.LoadInProgressException ex) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("status", "already_in_progress");
+            out.put("message", "A RAM load is already in progress. Call fm26_status to check progress.");
+            return out;
         } catch (IOException | RuntimeException ex) {
             throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
         }
@@ -434,9 +447,8 @@ public class FmAiAssistentTools {
             Map<String, Long> counts = loadAll.ramSlotCounts();
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("slots", counts);
-            out.put("decoded_today", List.of("PeopleOffset", "TeamOffset", "CompetitionOffset"));
-            out.put("not_decoded", List.of("NationOffset", "StadiumOffset", "AgreementOffset", "ClubOffset",
-                    "CityOffset", "ContinentOffset", "RegionOffset", "CurrencyOffset"));
+            out.put("decoded_today", RAM_DECODED_TABLES);
+            out.put("not_decoded", RAM_NOT_DECODED_TABLES);
             out.put("guidance", "Counts only. Traits are read when preferred-move name vectors match. Morale, form and match stats stay empty until those offsets are validated.");
             return out;
         } catch (IOException | RuntimeException ex) {
@@ -460,7 +472,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_wonderkid_shortlist", description = "Young signings, same recruitment filters as fm26_transfer_shortlist with a default max age of 21. Pass minPotentialAbility to target high-PA prospects. Money values are raw pounds.")
+    @Tool(name = "fm26_wonderkid_shortlist", description = "Young signings for a club with a default max age of 21. Accepted filters: max age, position, role, phase, managing club, minimum potential ability and maximum asking price. Pass minPotentialAbility to target high-PA prospects. Money values are raw pounds.")
     @Transactional(readOnly = true)
     public Map<String, Object> wonderkidShortlist(
             @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
@@ -511,9 +523,12 @@ public class FmAiAssistentTools {
     public Map<String, Object> currentTactic() {
         Map<String, Object> meta = players.metadata();
         Map<String, Object> out = new LinkedHashMap<>();
-        String formation = String.valueOf(meta.getOrDefault("tactic_formation", ""));
-        String slots = String.valueOf(meta.getOrDefault("tactic_slots", ""));
-        String selected = String.valueOf(meta.getOrDefault("tactic_selected", ""));
+        Object formationStored = meta.get("tactic_formation");
+        String formation = formationStored == null ? "" : String.valueOf(formationStored);
+        Object slotsStored = meta.get("tactic_slots");
+        String slots = slotsStored == null ? "" : String.valueOf(slotsStored);
+        Object selectedStored = meta.get("tactic_selected");
+        String selected = selectedStored == null ? "" : String.valueOf(selectedStored);
         out.put("formation", formation.isBlank() ? null : formation);
         out.put("slots", slots.isBlank() ? List.of() : List.of(slots.split("\\R")));
         out.put("selected_xi", selected.isBlank() ? List.of() : List.of(selected.split("\\R")));
@@ -528,6 +543,7 @@ public class FmAiAssistentTools {
     public Map<String, Object> bestXi(
             @ToolParam(description = "Managing club name") String managingClub,
             @ToolParam(required = false, description = "Eleven tactic slots, one per line: GK,Ball Playing GK,Sweeper Keeper. Omit to use the live RAM formation.") String tacticSlots) {
+        roleAttributeCache.remove();
         ClubEntity club = requireClub(managingClub);
         String slotsText = tacticSlots;
         String source = "pasted";
@@ -549,7 +565,7 @@ public class FmAiAssistentTools {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("club", recruitmentClubMap(club));
         out.put("tactic_source", source);
-        out.put("formation", players.metadata().get("tactic_formation"));
+        out.put("formation", "pasted".equals(source) ? null : players.metadata().get("tactic_formation"));
         out.put("xi", picks.stream().map(this::xiMap).toList());
         List<String> holes = picks.stream().filter(SquadAdvice.XiPick::hole).map(SquadAdvice.XiPick::position).toList();
         out.put("holes", holes);
@@ -789,7 +805,7 @@ public class FmAiAssistentTools {
             Integer maxWeeklySalary) {
         List<PlayerEntity> allPlayers = allPlayers();
         MoneyballParameters params = resolveMoneyballParameters(
-                allPlayers, managingClub, position, null, null,
+                allPlayers, managingClub, position, null, null, null,
                 minCurrentAbility, minPotentialAbility, maxAge, maxAskingPrice, maxWeeklySalary,
                 null, null, null, null, null, null);
         MarketValuation market = MarketValuation.build(allPlayers);
@@ -808,6 +824,7 @@ public class FmAiAssistentTools {
             String position,
             String roleName,
             String phase,
+            Integer minimumPositionScore,
             Integer minCurrentAbility,
             Integer minPotentialAbility,
             Integer maxAge,
@@ -825,7 +842,9 @@ public class FmAiAssistentTools {
             throw new IllegalArgumentException("position is required when roleName is supplied");
         }
         RoleProfile roleProfile = resolveRoleProfile(positionSpec, roleName, phase);
-        int positionMinimum = positionSpec == null ? 1 : DEFAULT_MIN_POSITION_SCORE;
+        int positionMinimum = positionSpec == null
+                ? 1
+                : Math.max(1, Math.min(20, minimumPositionScore == null ? DEFAULT_MIN_POSITION_SCORE : minimumPositionScore));
 
         List<PlayerEntity> squad = currentSquad(allPlayers, club.getName());
         List<PlayerEntity> positionSquad = positionSpec == null ? squad
@@ -1063,7 +1082,9 @@ public class FmAiAssistentTools {
         return rows.stream()
                 .filter(MarketValuation::hasPlayablePosition)
                 .max(Comparator.comparingInt(player -> value(player.getCa())))
-                .orElseThrow(() -> new IllegalArgumentException("player not found: " + name));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        !exact.isEmpty() ? "player found but has no playable position: " + name
+                                : "player not found: " + name));
     }
 
     static boolean samePlayer(PlayerEntity left, PlayerEntity right) {
@@ -1072,6 +1093,11 @@ public class FmAiAssistentTools {
         }
         if (left.getId() != null && right.getId() != null) {
             return left.getId().equals(right.getId());
+        }
+        String leftRecord = normalize(String.valueOf(left.getRecordAddress()));
+        String rightRecord = normalize(String.valueOf(right.getRecordAddress()));
+        if (!leftRecord.isEmpty() && !rightRecord.isEmpty() && !leftRecord.equals(rightRecord)) {
+            return false;
         }
         return normalize(left.getName()).equals(normalize(right.getName()))
                 && normalize(left.getClub()).equals(normalize(right.getClub()));
@@ -1282,7 +1308,11 @@ public class FmAiAssistentTools {
     }
 
     private List<RoleAttributeRow> roleAttributeRows() {
-        return jdbc.query("""
+        List<RoleAttributeRow> cached = roleAttributeCache.get();
+        if (cached != null) {
+            return cached;
+        }
+        List<RoleAttributeRow> rows = jdbc.query("""
                         SELECT r.game, r.position_group, r.role_name, r.phase,
                                ra.attribute_priority, a.attribute_name, ra.sort_order
                         FROM fm_role r
@@ -1292,14 +1322,16 @@ public class FmAiAssistentTools {
                                  CASE ra.attribute_priority WHEN 'primary' THEN 0 ELSE 1 END,
                                  ra.sort_order, a.attribute_name
                         """,
-                (rs, rowNum) -> new RoleAttributeRow(
-                        rs.getString("game"),
-                        rs.getString("position_group"),
-                        rs.getString("role_name"),
-                        rs.getString("phase"),
-                        rs.getString("attribute_priority"),
-                        rs.getString("attribute_name"),
-                        rs.getInt("sort_order")));
+                 (rs, rowNum) -> new RoleAttributeRow(
+                         rs.getString("game"),
+                         rs.getString("position_group"),
+                         rs.getString("role_name"),
+                         rs.getString("phase"),
+                         rs.getString("attribute_priority"),
+                         rs.getString("attribute_name"),
+                         rs.getInt("sort_order")));
+        roleAttributeCache.set(rows);
+        return rows;
     }
 
     private static int positionScore(PlayerEntity player, PositionSpec position) {
@@ -1601,7 +1633,7 @@ public class FmAiAssistentTools {
                 .map(PlayerEntity::getCa)
                 .filter(Objects::nonNull)
                 .sorted(Comparator.reverseOrder())
-                .limit(5)
+                .limit(11)
                 .mapToInt(Integer::intValue)
                 .average()
                 .orElse(0));
@@ -1772,15 +1804,15 @@ public class FmAiAssistentTools {
 
     private Map<String, Object> clubMap(ClubEntity club) {
         Map<String, Object> out = new LinkedHashMap<>(club.toApiMap());
-        out.put("ID", club.getId());
-        out.put("NAME", club.getName());
-        out.put("GENDER", club.getGender());
-        out.put("COMPETITION", club.getCompetition());
-        out.put("NATION", club.getNation());
-        out.put("REPUTATION", club.getReputation());
-        out.put("BALANCE", club.getBalance());
-        out.put("TRANSFER_BUDGET", club.getTransferBudget());
-        out.put("PAYROLL_BUDGET", club.getPayrollBudget());
+        out.put("id", club.getId());
+        out.put("name", club.getName());
+        out.put("gender", club.getGender());
+        out.put("competition", club.getCompetition());
+        out.put("nation", club.getNation());
+        out.put("reputation", club.getReputation());
+        out.put("balance", club.getBalance());
+        out.put("transfer_budget", club.getTransferBudget());
+        out.put("payroll_budget", club.getPayrollBudget());
         return out;
     }
 

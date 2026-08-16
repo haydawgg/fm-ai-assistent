@@ -10,7 +10,7 @@ class PlayerExporterSalaryTest {
     void missingContractRegistrationIsUnknownWageNotZero() {
         PlayerExporter.Salary unknown = PlayerExporter.salaryFromWeeklyRaw(null);
         assertNull(unknown.weeklyRaw());
-        assertEquals(0L, unknown.annualRounded());
+        assertNull(unknown.annualRounded());
     }
 
     @Test

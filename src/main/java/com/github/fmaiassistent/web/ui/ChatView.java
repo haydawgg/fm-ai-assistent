@@ -58,15 +58,23 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Route(value = "chat", layout = AppShell.class)
 @PageTitle("Chat")
@@ -78,6 +86,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("d MMM");
     private static final long STREAM_PAINT_NANOS = 32_000_000L;
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final List<String> STARTERS = List.of(
             "Build my best XI from the live formation",
             "Find affordable wonderkids for my club",
@@ -126,13 +135,15 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
     private String pendingPrompt = "";
     private String lastUserText = "";
-    private String queuedMessage = "";
+    private final Deque<String> queuedMessages = new ArrayDeque<>();
     private final LinkedHashSet<String> triedModels = new LinkedHashSet<>();
     private String pendingFallbackModel = "";
     private String currentModel = "";
     private int lastUserOrdinal = -1;
     private double sessionCostUsd;
     private Integer pendingReplaceFrom;
+    private List<String> cachedSquadNames = List.of();
+    private List<String> cachedClubNames = List.of();
 
     public ChatView(
             AssistantChatService chat,
@@ -202,6 +213,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     @Override
     protected void onAttach(AttachEvent event) {
         super.onAttach(event);
+        refreshCachedNames();
         openOrRestoreSession();
         refreshSnapshot();
         updateConfigurationState();
@@ -473,7 +485,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             input.focus();
         });
 
-        Map<String, byte[]> pendingDrop = new LinkedHashMap<>();
+        Map<String, byte[]> pendingDrop = new ConcurrentHashMap<>();
         Upload drop = new Upload(UploadHandler.inMemory((metadata, bytes) -> {
             String name = metadata.fileName() == null ? "uploaded-tactic" : metadata.fileName();
             pendingDrop.put(name, bytes);
@@ -481,6 +493,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         drop.setDropAllowed(true);
         drop.setAutoUpload(true);
         drop.setMaxFiles(4);
+        drop.setMaxFileSize(20 * 1024 * 1024);
         drop.setAcceptedFileTypes(".fmf", ".png", ".jpg", ".jpeg");
         drop.setUploadButton(new Button("Drop .fmf", VaadinIcon.UPLOAD.create()));
         drop.addClassName("chat-drop");
@@ -588,11 +601,16 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         String message = ChatSlashCommands.expand(raw.trim()).orElse(raw.trim());
         if (activeStream != null) {
-            queuedMessage = message;
+            queuedMessages.add(message);
             input.clear();
             ChatUiContext.setDraft("");
-            Notification.show("Queued — sending when this reply finishes", 1800, Notification.Position.BOTTOM_CENTER)
+            int waiting = queuedMessages.size();
+            String note = waiting > 1
+                    ? "Queued — " + waiting + " messages waiting"
+                    : "Queued — sending when this reply finishes";
+            Notification.show(note, 1800, Notification.Position.BOTTOM_CENTER)
                     .addClassName("app-toast");
+            updateComposerHint();
             return;
         }
         Double estimate = catalog.estimateUsd(
@@ -654,7 +672,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         updateComposerHint();
 
         UI ui = getUI().orElse(null);
-        StringBuilder response = new StringBuilder();
+        StringBuffer response = new StringBuffer();
+        StringBuffer reasoningBuffer = new StringBuffer();
         AtomicBoolean first = new AtomicBoolean(true);
         AtomicLong lastPaint = new AtomicLong(0);
         AtomicLong started = new AtomicLong(System.nanoTime());
@@ -666,15 +685,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         activeStream = chat.streamEvents(prior, message, conversationId, grounding(), modelOverride)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
-                        event -> access(ui, () -> {
-                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL) {
-                                turn.addTool(event.text());
-                                return;
-                            }
+                        event -> {
                             if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE && event.trace() != null) {
                                 traces.add(event.trace());
-                                turn.addTrace(event.trace());
-                                return;
                             }
                             if (event.generationId() != null && !event.generationId().isBlank()) {
                                 generationId[0] = event.generationId();
@@ -682,35 +695,65 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             if (event.usage() != null && (event.usage().promptTokens() != null || event.usage().completionTokens() != null)) {
                                 usage[0] = event.usage();
                             }
+                            String reasoningUpdate = null;
+                            boolean hasAnswer = false;
                             if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.REASONING) {
-                                turn.addReasoning(event.text());
-                                return;
+                                reasoningUpdate = event.text();
+                            } else if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOKEN && event.text() != null && !event.text().isEmpty()) {
+                                AssistantChatService.ThinkSplitter.Piece piece = splitter.push(event.text());
+                                if (!piece.reasoning().isBlank()) {
+                                    reasoningUpdate = piece.reasoning();
+                                }
+                                if (!piece.answer().isEmpty()) {
+                                    hasAnswer = true;
+                                    if (firstToken.get() == 0) {
+                                        firstToken.set(System.nanoTime());
+                                    }
+                                    synchronized (response) {
+                                        response.append(piece.answer());
+                                    }
+                                }
                             }
-                            if (event.kind() != AssistantChatService.ChatStreamEvent.Kind.TOKEN || event.text() == null || event.text().isEmpty()) {
-                                return;
+                            if (reasoningUpdate != null && !reasoningUpdate.isBlank()) {
+                                synchronized (reasoningBuffer) {
+                                    reasoningBuffer.append(reasoningUpdate);
+                                }
                             }
-                            AssistantChatService.ThinkSplitter.Piece piece = splitter.push(event.text());
-                            if (!piece.reasoning().isBlank()) {
-                                turn.addReasoning(piece.reasoning());
-                            }
-                            if (piece.answer().isEmpty()) {
-                                return;
-                            }
-                            if (firstToken.get() == 0) {
-                                firstToken.set(System.nanoTime());
-                            }
-                            response.append(piece.answer());
-                            turn.buffer(response.toString());
-                            if (first.compareAndSet(true, false)) {
-                                turn.showContent();
-                            }
-                            long now = System.nanoTime();
-                            if (now - lastPaint.get() >= STREAM_PAINT_NANOS) {
-                                lastPaint.set(now);
-                                turn.paint();
-                                scrollToLatest();
-                            }
-                        }),
+                            final String fr = reasoningUpdate;
+                            final String eventText = event.text();
+                            final AssistantChatService.ToolTrace eventTrace = event.trace();
+                            final boolean isTool = event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL;
+                            final boolean isToolTrace = event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE;
+                            final boolean answered = hasAnswer;
+                            access(ui, () -> {
+                                if (isTool) {
+                                    turn.addTool(eventText);
+                                    return;
+                                }
+                                if (isToolTrace && eventTrace != null) {
+                                    turn.addTrace(eventTrace);
+                                    return;
+                                }
+                                if (fr != null) {
+                                    turn.addReasoning(fr);
+                                }
+                                if (!answered) {
+                                    return;
+                                }
+                                synchronized (response) {
+                                    turn.buffer(response.toString());
+                                }
+                                if (first.compareAndSet(true, false)) {
+                                    turn.showContent();
+                                }
+                                long now = System.nanoTime();
+                                if (now - lastPaint.get() >= STREAM_PAINT_NANOS) {
+                                    lastPaint.set(now);
+                                    turn.paint();
+                                    scrollToLatest();
+                                }
+                            });
+                        },
                         error -> access(ui, () -> {
                             if (!dailyCapBlocked(lastUserText) && tryFallback()) {
                                 if (turn.close()) {
@@ -727,42 +770,55 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                                 turn.showContent();
                             }
                             turn.setError("I couldn't complete that request. " + safeMessage(error), lastUserText, this::retryLast);
-                            persist("error", turn.rawText(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), turn.reasoningText(), generationId[0]));
+                            persist("error", turn.rawText(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), reasoningBuffer.toString(), generationId[0]));
                             turn.finishStreaming();
                             finishStream();
                         }),
-                        () -> access(ui, () -> {
-                            if (!turn.close()) {
-                                return;
-                            }
-                            if (first.get()) {
-                                turn.showContent();
-                            }
+                        () -> {
                             AssistantChatService.ThinkSplitter.Piece tail = splitter.flush();
                             if (!tail.reasoning().isBlank()) {
-                                turn.addReasoning(tail.reasoning());
+                                synchronized (reasoningBuffer) {
+                                    reasoningBuffer.append(tail.reasoning());
+                                }
                             }
                             if (!tail.answer().isEmpty()) {
-                                response.append(tail.answer());
+                                synchronized (response) {
+                                    response.append(tail.answer());
+                                }
                             }
                             long duration = (System.nanoTime() - started.get()) / 1_000_000L;
                             Integer ttft = firstToken.get() == 0 ? null : (int) ((firstToken.get() - started.get()) / 1_000_000L);
-                            turn.setMarkdown(response.toString());
-                            turn.setStats(usage[0], catalog.estimateUsd(modelId, usage[0].promptTokens(), usage[0].completionTokens()), ttft, duration);
-                            turn.setMentions(ChatEntityLinker.mentions(response.toString(), squadNames(), clubs.findNames()), this::openPlayer, this::openClub);
-                            turn.setCitations(traces);
-                            turn.setFollowUps(this::sendPrompt);
-                            rememberAssistant(response.toString());
-                            ChatMessageEntity saved = persist("assistant", response.toString(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), turn.reasoningText(), generationId[0]));
+                            String responseText = response.toString();
+                            String reasoningText = reasoningBuffer.toString();
+                            ChatMessageEntity saved = persist("assistant", responseText, modelId,
+                                    extras(modelId, traces, usage[0], started.get(), firstToken.get(), reasoningText, generationId[0]));
                             addSessionCost(modelId, usage[0]);
-                            turn.finishStreaming();
-                            turn.bindFeedback(saved);
-                            pingIfTabHidden(response.toString());
-                            enrichFromOpenRouter(ui, turn, saved, generationId[0], ttft, duration);
-                            finishStream();
-                            refreshSessions();
-                            scrollToLatest();
-                        }));
+                            final String tailReasoning = tail.reasoning();
+                            access(ui, () -> {
+                                if (!turn.close()) {
+                                    return;
+                                }
+                                if (first.get()) {
+                                    turn.showContent();
+                                }
+                                if (!tailReasoning.isBlank()) {
+                                    turn.addReasoning(tailReasoning);
+                                }
+                                turn.setMarkdown(responseText);
+                                turn.setStats(usage[0], catalog.estimateUsd(modelId, usage[0].promptTokens(), usage[0].completionTokens()), ttft, duration);
+                                turn.setMentions(ChatEntityLinker.mentions(responseText, squadNames(), cachedClubNames), this::openPlayer, this::openClub);
+                                turn.setCitations(traces);
+                                turn.setFollowUps(this::sendPrompt);
+                                rememberAssistant(responseText);
+                                turn.finishStreaming();
+                                turn.bindFeedback(saved);
+                                pingIfTabHidden(responseText);
+                                enrichFromOpenRouter(ui, turn, saved, generationId[0], ttft, duration);
+                                finishStream();
+                                refreshSessions();
+                                scrollToLatest();
+                            });
+                        });
     }
 
     private List<AssistantChatService.ChatTurn> historyForModel() {
@@ -840,26 +896,21 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (traces == null || traces.isEmpty()) {
             return null;
         }
-        StringBuilder out = new StringBuilder("[");
-        for (int index = 0; index < traces.size(); index++) {
-            AssistantChatService.ToolTrace trace = traces.get(index);
-            if (index > 0) {
-                out.append(',');
-            }
-            out.append("{\"name\":").append(json(trace.name()))
-                    .append(",\"label\":").append(json(trace.label()))
-                    .append(",\"input\":").append(json(trace.input()))
-                    .append(",\"output\":").append(json(trace.output()))
-                    .append(",\"elapsedMs\":").append(trace.elapsedMs())
-                    .append('}');
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (AssistantChatService.ToolTrace trace : traces) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("name", trace.name());
+            item.put("label", trace.label());
+            item.put("input", trace.input());
+            item.put("output", trace.output());
+            item.put("elapsedMs", trace.elapsedMs());
+            items.add(item);
         }
-        return out.append(']').toString();
-    }
-
-    private static String json(String value) {
-        String text = value == null ? "" : value;
-        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "") + "\"";
+        try {
+            return JSON.writeValueAsString(items);
+        } catch (JacksonException ex) {
+            return null;
+        }
     }
 
     private ChatMessageEntity persist(String role, String body, String model, ChatSessionService.MessageExtras extras) {
@@ -986,11 +1037,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         activeTurn = null;
         updateConfigurationState();
         updateComposerHint();
-        if (!drainQueue || !isAttached() || queuedMessage == null || queuedMessage.isBlank() || !chat.configured()) {
+        if (!drainQueue || !isAttached() || queuedMessages.isEmpty() || !chat.configured()) {
             return;
         }
-        String next = queuedMessage;
-        queuedMessage = "";
+        String next = queuedMessages.poll();
         Double estimate = catalog.estimateUsd(
                 settings.openRouterModel(),
                 catalog.estimatePromptTokens(next, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
@@ -1119,7 +1169,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         lastUserText = "";
         lastUserOrdinal = -1;
         pendingReplaceFrom = null;
-        queuedMessage = "";
+        queuedMessages.clear();
         triedModels.clear();
         pendingFallbackModel = "";
         transcript.removeAll();
@@ -1153,11 +1203,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void restoreQueuedText() {
-        if (queuedMessage != null && !queuedMessage.isBlank()
+        String queued = queuedMessages.poll();
+        if (queued != null && !queued.isBlank()
                 && (input.getValue() == null || input.getValue().isBlank())) {
-            input.setValue(queuedMessage);
+            input.setValue(queued);
         }
-        queuedMessage = "";
+        queuedMessages.clear();
     }
 
     private void reloadTranscript() {
@@ -1192,7 +1243,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                         row.getCostUsd(),
                         row.getTtftMs(),
                         row.getDurationMs() == null ? 0 : row.getDurationMs());
-                turn.setMentions(ChatEntityLinker.mentions(row.getBody(), squadNames(), clubs.findNames()), this::openPlayer, this::openClub);
+                turn.setMentions(ChatEntityLinker.mentions(row.getBody(), squadNames(), cachedClubNames), this::openPlayer, this::openClub);
                 turn.setCitationsFromJson(row.getToolsJson());
                 turn.setStoredReasoning(row.getReasoning());
                 turn.addStoredTraces(row.getToolsJson());
@@ -1313,6 +1364,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private List<String> squadNames() {
+        return cachedSquadNames;
+    }
+
+    private List<String> computeSquadNames() {
         String club = settings.sessionClub();
         if (club == null || club.isBlank()) {
             return List.of();
@@ -1322,6 +1377,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 .filter(name -> name != null && !name.isBlank())
                 .distinct()
                 .toList();
+    }
+
+    private void refreshCachedNames() {
+        cachedSquadNames = computeSquadNames();
+        cachedClubNames = clubs.findNames();
     }
 
     private void openPlayer(String name) {
@@ -1392,16 +1452,36 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (dataUrl == null || !dataUrl.contains(",")) {
             return;
         }
-        try {
-            byte[] bytes = Base64.getDecoder().decode(dataUrl.substring(dataUrl.indexOf(',') + 1));
-            String fileName = name == null || name.isBlank() ? "pasted.png" : name;
-            tacticContexts.loadUploads(Map.of(fileName, bytes));
-            Notification.show("Pasted screenshot added as tactic context", 1800, Notification.Position.BOTTOM_CENTER)
-                    .addClassName("app-toast");
-        } catch (RuntimeException ex) {
-            Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+        int maxChars = 10 * 1024 * 1024;
+        if (dataUrl.length() > maxChars) {
+            Notification.show("Pasted image too large (max 10 MB)", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+            return;
         }
+        String fileName = name == null || name.isBlank() ? "pasted.png" : name;
+        String base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+        UI ui = getUI().orElse(null);
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return (byte[]) Base64.getDecoder().decode(base64);
+            } catch (RuntimeException ex) {
+                return null;
+            }
+        }).thenAccept(bytes -> access(ui, () -> {
+            if (bytes == null) {
+                Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+                return;
+            }
+            try {
+                tacticContexts.loadUploads(Map.of(fileName, bytes));
+                Notification.show("Pasted screenshot added as tactic context", 1800, Notification.Position.BOTTOM_CENTER)
+                        .addClassName("app-toast");
+            } catch (RuntimeException ex) {
+                Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+            }
+        }));
     }
 
     private void refreshPinnedButton() {
@@ -1813,7 +1893,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
         private void setMentions(List<String> names, java.util.function.Consumer<String> onPlayer, java.util.function.Consumer<String> onClub) {
             chips.removeAll();
-            Set<String> clubsNames = new LinkedHashSet<>(clubs.findNames());
+            Set<String> clubsNames = new LinkedHashSet<>(cachedClubNames);
             for (String name : names) {
                 Button chip = new Button(name);
                 chip.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
@@ -1843,23 +1923,18 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             if (toolsJson == null || toolsJson.isBlank()) {
                 return;
             }
-            int from = 0;
-            String key = "\"label\":";
-            while (true) {
-                int index = toolsJson.indexOf(key, from);
-                if (index < 0) {
+            try {
+                JsonNode root = JSON.readTree(toolsJson);
+                if (root == null || !root.isArray()) {
                     return;
                 }
-                int start = toolsJson.indexOf('"', index + key.length());
-                if (start < 0) {
-                    return;
+                for (JsonNode node : root) {
+                    JsonNode label = node.get("label");
+                    if (label != null && !label.isNull()) {
+                        addCitationChip(label.asText());
+                    }
                 }
-                int end = toolsJson.indexOf('"', start + 1);
-                if (end < 0) {
-                    return;
-                }
-                addCitationChip(toolsJson.substring(start + 1, end).replace("\\\"", "\""));
-                from = end + 1;
+            } catch (JacksonException ignored) {
             }
         }
 

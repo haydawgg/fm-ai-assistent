@@ -1,6 +1,6 @@
 package com.github.fmaiassistent.service;
 
-import com.github.fmaiassistent.config.JCacheConfiguration;
+import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.exporter.ClubExporter;
 import com.github.fmaiassistent.exporter.CompetitionExporter;
@@ -46,13 +46,13 @@ public class SnapshotPersistService {
     }
 
     @Caching(evict = {
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYERS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.NATIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.CLUB_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
     })
     @Transactional
     public DatabaseLoadAllService.LoadAllResult persist(
@@ -69,13 +69,13 @@ public class SnapshotPersistService {
     }
 
     @Caching(evict = {
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYERS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.NATIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.CLUB_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = JCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
     })
     @Transactional
     public DatabaseLoadAllService.LoadAllResult persist(

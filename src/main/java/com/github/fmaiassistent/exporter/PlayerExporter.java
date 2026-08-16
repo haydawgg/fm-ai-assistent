@@ -344,7 +344,7 @@ public class PlayerExporter {
                     contractedClub = playingClub;
                 }
                 Map<String, Object> row = decodeRow(
-                        reader, (int) index, record, contractedClub, playingClub, null,
+                        reader, (int) index, slotAddress, record, contractedClub, playingClub, null,
                         classified.layout(), classified.name());
                 contractedClubAddress.ifPresent(value -> row.put("_club_address", value));
                 playingClubAddress.ifPresent(value -> row.put("_playing_club_address", value));
@@ -387,6 +387,19 @@ public class PlayerExporter {
     Map<String, Object> decodeRow(
             ProcessMemoryReader reader,
             int index,
+            long record,
+            String club,
+            String playingClub,
+            LocalDate gameDate,
+            PlayerMemoryLayout layout,
+            String name) throws IOException {
+        return decodeRow(reader, index, 0L, record, club, playingClub, gameDate, layout, name);
+    }
+
+    Map<String, Object> decodeRow(
+            ProcessMemoryReader reader,
+            int index,
+            long slotAddress,
             long record,
             String club,
             String playingClub,
@@ -478,6 +491,12 @@ public class PlayerExporter {
                 row.put(field.name(), hidden[i] & 0xff);
             } else {
                 row.put(field.name(), reader.readU8(record + field.offset()));
+            }
+        }
+        if (slotAddress != 0L) {
+            var currentRecord = reader.qwordOrNull(slotAddress);
+            if (currentRecord.isEmpty() || currentRecord.get() != record) {
+                throw new IOException("record pointer moved mid-read");
             }
         }
         return row;
@@ -644,7 +663,7 @@ public class PlayerExporter {
         try {
             long item = reader.qwordOrNull(vectorStart.get()).orElse(0L);
             if (item == 0) {
-                return new InjuryStatus(true, "", "", 0, 0);
+                return new InjuryStatus(false, "", "", 0, 0);
             }
             String description = reader.qwordOrNull(item + 0x08)
                     .flatMap(type -> FmMemoryStrings.objectStringAt(reader, type, 0x20))
@@ -662,7 +681,7 @@ public class PlayerExporter {
             }
             return new InjuryStatus(true, description, startDate, lightTrainingTotalDays, fullTrainingTotalDays);
         } catch (IOException | RuntimeException ex) {
-            return new InjuryStatus(true, "", "", 0, 0);
+            return new InjuryStatus(false, "", "", 0, 0);
         }
     }
 
@@ -730,7 +749,7 @@ public class PlayerExporter {
 
     static Salary salaryFromWeeklyRaw(Long weeklyRaw) {
         if (weeklyRaw == null) {
-            return new Salary(null, 0);
+            return new Salary(null, null);
         }
         long annualRaw = weeklyRaw * 52;
         return new Salary(weeklyRaw, Math.round(annualRaw / 1000.0) * 1000);
@@ -771,7 +790,11 @@ public class PlayerExporter {
                 }
             }
             String futureTransferDate = String.valueOf(row.getOrDefault("future_transfer_date", ""));
-            if (gameDate == null || futureTransferDate.isBlank()) {
+            if (gameDate == null) {
+                applyInjuryRemaining(row, gameDate);
+                continue;
+            }
+            if (futureTransferDate.isBlank()) {
                 row.put("transfer_agreed", false);
                 row.put("future_transfer_club", "");
                 row.put("future_transfer_contract_end_date", "");
@@ -946,7 +969,7 @@ public class PlayerExporter {
     private record DatePair(int day, int year) {
     }
 
-    static record Salary(Long weeklyRaw, long annualRounded) {
+    static record Salary(Long weeklyRaw, Long annualRounded) {
     }
 
     private record PlayerStatus(
@@ -983,6 +1006,8 @@ public class PlayerExporter {
         try {
             return reader.readBytes(address, size);
         } catch (IOException | RuntimeException ex) {
+            LOGGER.debug("readBytes failed at 0x{} (size {}): {}",
+                    Long.toHexString(address), size, ex.toString());
             return new byte[0];
         }
     }

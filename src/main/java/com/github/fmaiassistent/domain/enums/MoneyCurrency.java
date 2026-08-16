@@ -4,8 +4,10 @@ import java.math.BigDecimal;
 
 public enum MoneyCurrency {
     POUND("pound", "Pound", "£", BigDecimal.ONE),
-    DOLLAR("dollar", "Dollar", "$", BigDecimal.valueOf(1.33)),
-    EURO("euro", "Euro", "€", BigDecimal.valueOf(1.16));
+    DOLLAR("dollar", "Dollar", "$",
+            BigDecimal.valueOf(Double.parseDouble(System.getProperty("fm.currency.dollar", "1.33")))),
+    EURO("euro", "Euro", "€",
+            BigDecimal.valueOf(Double.parseDouble(System.getProperty("fm.currency.euro", "1.16"))));
 
     private final String propertyValue;
     private final String label;

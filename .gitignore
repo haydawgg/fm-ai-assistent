@@ -10,13 +10,15 @@ ram_dumps/
 rebuild/
 target/
 node_modules/
-package.json
-package-lock.json
-tsconfig.json
-types.d.ts
 src/main/frontend/generated/
 src/main/frontend/index.html
 
-/genie26_setup_26.3.1_b1530.exe
+.genie26_setup_*.exe
 /node_modules/
 /vite.generated.ts
+/hs_err_pid*.log
+/replay_pid*.log
+/fm-ai-assistent.properties
+/fm-ai-assistent-db*
+*.mv.db
+*.trace.db

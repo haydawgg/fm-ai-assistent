@@ -47,8 +47,21 @@ public final class LoadProgressReporter {
                 && now - previousNanos < NANOS_INTERVAL) {
             return;
         }
-        lastDone.set(progress.done());
-        lastNanos.set(now);
-        listener.accept(progress);
+        long oldValue;
+        do {
+            oldValue = lastDone.get();
+            if (force
+                    || oldValue == Long.MIN_VALUE
+                    || progress.done() - oldValue >= SLOT_INTERVAL
+                    || now - lastNanos.get() >= NANOS_INTERVAL) {
+                if (lastDone.compareAndSet(oldValue, progress.done())) {
+                    lastNanos.set(now);
+                    listener.accept(progress);
+                    return;
+                }
+            } else {
+                return;
+            }
+        } while (true);
     }
 }

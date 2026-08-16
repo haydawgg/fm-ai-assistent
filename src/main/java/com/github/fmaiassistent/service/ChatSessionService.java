@@ -4,6 +4,7 @@ import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.repository.ChatMessageRepository;
 import com.github.fmaiassistent.repository.ChatSessionRepository;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,23 +34,10 @@ public class ChatSessionService {
 
     @Transactional(readOnly = true)
     public List<ChatSessionEntity> search(String query) {
-        List<ChatSessionEntity> all = list();
         if (query == null || query.isBlank()) {
-            return all;
+            return list();
         }
-        String needle = query.strip().toLowerCase();
-        return all.stream()
-                .filter(session -> matches(session, needle))
-                .toList();
-    }
-
-    private boolean matches(ChatSessionEntity session, String needle) {
-        if (session.getTitle() != null && session.getTitle().toLowerCase().contains(needle)) {
-            return true;
-        }
-        return messages.findBySessionIdOrderByOrdinalAsc(session.getId()).stream()
-                .map(ChatMessageEntity::getBody)
-                .anyMatch(body -> body != null && body.toLowerCase().contains(needle));
+        return sessions.search(query.strip());
     }
 
     @Transactional(readOnly = true)
@@ -72,7 +60,7 @@ public class ChatSessionService {
 
     @Transactional
     public ChatMessageEntity append(String sessionId, String role, String body, String model, MessageExtras extras) {
-        ChatSessionEntity session = sessions.findById(sessionId)
+        ChatSessionEntity session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("chat session not found"));
         int ordinal = messages.maxOrdinalBySessionId(sessionId) + 1;
         ChatMessageEntity row = new ChatMessageEntity(sessionId, ordinal, role, body, model);
@@ -90,7 +78,9 @@ public class ChatSessionService {
         if (!session.isTitleLocked() && "user".equals(role) && DEFAULT_TITLE.equals(session.getTitle())) {
             session.setTitle(autoTitle(body));
         }
-        session.setModel(model);
+        if (!"user".equals(role)) {
+            session.setModel(model);
+        }
         session.setUpdatedAt(OffsetDateTime.now());
         sessions.save(session);
         return row;
@@ -122,12 +112,21 @@ public class ChatSessionService {
         });
     }
 
+    @Scheduled(fixedDelay = 86400000)
+    @Transactional
+    public void pruneOldSessions() {
+        OffsetDateTime cutoff = OffsetDateTime.now().minusDays(90);
+        sessions.findAllByOrderByUpdatedAtDesc().stream()
+                .filter(s -> s.getUpdatedAt() != null && s.getUpdatedAt().isBefore(cutoff))
+                .forEach(s -> delete(s.getId()));
+    }
+
     @Transactional(readOnly = true)
     public double spendUsdSince(OffsetDateTime from) {
         if (from == null) {
             return 0;
         }
-        return messages.sumCostUsdSince(from);
+        return Math.round(messages.sumCostUsdSince(from) * 1e6) / 1e6;
     }
 
     @Transactional

@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -261,17 +262,17 @@ public class PlayerDatabaseService {
         PlayerFilterCriteria safeFilter = filter == null ? PlayerFilterCriteria.empty() : filter;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
-        List<PlayerEntity> out;
-        if (safeFilter.club() != null && !safeFilter.club().isBlank()) {
-            out = players.findAllWithClubsByClubName(safeFilter.club().trim());
-            if (!safeFilter.isClubOnly()) {
-                out = out.stream().filter(player -> matchesPlayerFilter(player, safeFilter)).toList();
-            }
-        } else {
-            out = players.findAllWithClubs()
-                    .stream()
-                    .filter(player -> matchesPlayerFilter(player, safeFilter))
-                    .toList();
+        Specification<PlayerEntity> spec = PlayerSpecifications.fromFilter(safeFilter);
+        List<PlayerEntity> out = players.findAll(spec);
+        boolean needsAgeFilter = safeFilter.ageMin() != null || safeFilter.ageMax() != null;
+        boolean needsDateFilter = safeFilter.contractEndDateFrom() != null || safeFilter.contractEndDateTo() != null;
+        if (needsAgeFilter || needsDateFilter) {
+            out = out.stream().filter(player -> {
+                if (needsAgeFilter && !inRange(asInt(player.getAge()), safeFilter.ageMin(), safeFilter.ageMax())) {
+                    return false;
+                }
+                return !needsDateFilter || dateInRange(player.getContractEndDate(), safeFilter.contractEndDateFrom(), safeFilter.contractEndDateTo());
+            }).toList();
         }
         stopWatch.stop();
         LOGGER.info("Time to get filtered player entities: {}", stopWatch.getTotalTime(TimeUnit.MILLISECONDS));
@@ -291,6 +292,11 @@ public class PlayerDatabaseService {
     @Transactional(readOnly = true)
     public List<String> findClubs() {
         return clubRepository.findDistinctNameByOrderByNameAsc();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> findNationalities() {
+        return players.findDistinctNationalities();
     }
 
     @Transactional(readOnly = true)

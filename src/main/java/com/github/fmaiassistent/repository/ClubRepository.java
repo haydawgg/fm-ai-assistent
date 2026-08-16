@@ -1,6 +1,6 @@
 package com.github.fmaiassistent.repository;
 
-import com.github.fmaiassistent.config.JCacheConfiguration;
+import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpecificationExecutor<ClubEntity> {
 
-    @Cacheable(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
     @Query("""
                 select distinct c.name
                 from ClubEntity c
@@ -20,7 +20,7 @@ public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpec
             """)
     List<String> findDistinctNameByOrderByNameAsc();
 
-    @Cacheable(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
     @Query("""
                 select distinct c.competition
                 from ClubEntity c
@@ -29,7 +29,7 @@ public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpec
             """)
     List<String> findDistinctCompetitionByOrderByCompetitionAsc();
 
-    @Cacheable(cacheNames = JCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
     @Query("""
                 select distinct c.nation
                 from ClubEntity c

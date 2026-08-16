@@ -2,6 +2,7 @@ package com.github.fmaiassistent.tactic;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,14 +44,19 @@ final class Fm26TacticDecoder {
             2, "Less Often",
             3, "Standard",
             4, "More Often");
-    private static final Map<Long, String> DUTIES = Map.of(
-            0x200000L, "Defend",
-            0x400000L, "Support",
-            0x800000L, "Attack",
-            0x2000000L, "Stopper",
-            0x4000000L, "Cover",
-            0x400000000L, "Float");
+    private static final Map<Long, String> DUTIES = dutyMap();
     private static final long DUTY_MASK = DUTIES.keySet().stream().reduce(0L, (left, right) -> left | right);
+
+    private static Map<Long, String> dutyMap() {
+        Map<Long, String> duties = new LinkedHashMap<>();
+        duties.put(0x200000L, "Defend");
+        duties.put(0x400000L, "Support");
+        duties.put(0x800000L, "Attack");
+        duties.put(0x2000000L, "Stopper");
+        duties.put(0x4000000L, "Cover");
+        duties.put(0x400000000L, "Float");
+        return Collections.unmodifiableMap(duties);
+    }
     private static final Map<Long, String> IN_POSSESSION_ROLES = inPossessionRoles();
     private static final Map<Long, String> OUT_OF_POSSESSION_ROLES = outOfPossessionRoles();
 
@@ -129,9 +135,12 @@ final class Fm26TacticDecoder {
             records.add(new RoleRecord(positionMask, selection));
 
             offset = Math.toIntExact(selectedOffset + 12);
-            if (!matchesAt(bytes, offset, ROLE_MARKER)
-                    && offset < bytes.length && matchesAt(bytes, offset + 1, ROLE_MARKER)) {
-                offset++;
+            if (!matchesAt(bytes, offset, ROLE_MARKER)) {
+                int nextRole = indexOf(bytes, ROLE_MARKER, offset);
+                if (nextRole < 0 || nextRole - offset > 64) {
+                    break;
+                }
+                offset = nextRole;
             }
         }
         return List.copyOf(records);
@@ -302,13 +311,8 @@ final class Fm26TacticDecoder {
     }
 
     private static boolean readable(byte[] bytes, int offset, int length) {
-        for (int index = offset; index < offset + length; index++) {
-            int value = Byte.toUnsignedInt(bytes[index]);
-            if (value < 0x20 || value == 0x7f) {
-                return false;
-            }
-        }
-        return true;
+        String s = new String(bytes, offset, length, StandardCharsets.UTF_8);
+        return !s.isEmpty() && s.chars().allMatch(c -> c >= 0x20 && c != 0x7f);
     }
 
     private static int littleEndianInt(byte[] bytes, int offset) {

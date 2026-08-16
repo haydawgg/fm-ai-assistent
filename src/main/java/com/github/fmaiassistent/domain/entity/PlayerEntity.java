@@ -805,12 +805,13 @@ public class PlayerEntity {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof PlayerEntity that)) return false;
-        return id != null && Objects.equals(id, that.id);
+        if (id == null || that.id == null) return false;
+        return Objects.equals(id, that.id);
     }
 
     @Override
     public int hashCode() {
-        return id != null ? Objects.hash(id) : 0;
+        return PlayerEntity.class.hashCode();
     }
 
     private void setExportField(String exportField, Object value) {

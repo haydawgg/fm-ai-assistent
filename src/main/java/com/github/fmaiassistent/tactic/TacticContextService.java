@@ -1,6 +1,8 @@
 package com.github.fmaiassistent.tactic;
 
 import com.github.fmaiassistent.ai.AiPromptContext;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -16,8 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -35,7 +37,10 @@ public class TacticContextService implements AiPromptContext {
     private final AtomicLong versions = new AtomicLong();
     private final AtomicReference<TacticContext> current =
             new AtomicReference<>(TacticContext.empty(0));
-    private final ConcurrentMap<String, Long> deliveredVersions = new ConcurrentHashMap<>();
+    private final Cache<String, Long> deliveredVersions = Caffeine.newBuilder()
+            .maximumSize(200)
+            .expireAfterAccess(2, TimeUnit.HOURS)
+            .build();
 
     TacticContextService(
             FmfTacticParser fmfParser,
@@ -55,6 +60,10 @@ public class TacticContextService implements AiPromptContext {
             throw new IllegalArgumentException("Enter a tactic file or folder location");
         }
         Path requested = Path.of(location.strip()).toAbsolutePath().normalize();
+        Path allowedRoot = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
+        if (!requested.startsWith(allowedRoot)) {
+            throw new IllegalArgumentException("Tactic import path must be within your home directory: " + allowedRoot);
+        }
         if (!Files.exists(requested)) {
             throw new IllegalArgumentException("Tactic path does not exist: " + requested);
         }
@@ -65,9 +74,15 @@ public class TacticContextService implements AiPromptContext {
             throw new IllegalArgumentException("No supported tactic files were found at " + requested);
         }
         LinkedHashMap<String, SourceFile> files = new LinkedHashMap<>();
+        long totalBytes = 0L;
         for (Path path : paths) {
             try {
-                validateSize(path, Files.size(path));
+                long size = Files.size(path);
+                validateSize(path, size);
+                totalBytes += size;
+                if (totalBytes > MAX_UPLOAD_TOTAL_BYTES) {
+                    throw new IllegalStateException("Folder import exceeds total byte cap");
+                }
                 String key = sourceKey(requested, path);
                 files.put(key, new SourceFile(key, path, null));
             } catch (IOException exception) {
@@ -87,7 +102,11 @@ public class TacticContextService implements AiPromptContext {
         }
         LinkedHashMap<String, SourceFile> files = new LinkedHashMap<>();
         uploads.forEach((name, data) -> {
-            String safeName = Path.of(name).getFileName().toString();
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("Unsupported tactic file: <empty>");
+            }
+            Path namePath = Path.of(name).getFileName();
+            String safeName = namePath == null ? name : namePath.toString();
             validateSize(Path.of(safeName), data == null ? 0 : data.length);
             if (!supported(safeName)) {
                 throw new IllegalArgumentException("Unsupported tactic file: " + safeName);
@@ -103,13 +122,13 @@ public class TacticContextService implements AiPromptContext {
     public TacticContext clear() {
         TacticContext empty = TacticContext.empty(versions.incrementAndGet());
         current.set(empty);
-        deliveredVersions.clear();
+        deliveredVersions.invalidateAll();
         return empty;
     }
 
     public void forgetConversation(String conversationKey) {
         if (conversationKey != null && !conversationKey.isBlank()) {
-            deliveredVersions.remove(conversationKey);
+            deliveredVersions.invalidate(conversationKey);
         }
     }
 
@@ -119,7 +138,8 @@ public class TacticContextService implements AiPromptContext {
         if (!context.active()) {
             return userMessage;
         }
-        Long previousVersion = deliveredVersions.put(conversationKey, context.version());
+        Long previousVersion = deliveredVersions.getIfPresent(conversationKey);
+        deliveredVersions.put(conversationKey, context.version());
         if (previousVersion != null && previousVersion == context.version()) {
             return userMessage;
         }
@@ -142,6 +162,7 @@ public class TacticContextService implements AiPromptContext {
         List<Section> sections = new ArrayList<>();
         String title = null;
         boolean hasTacticalDetail = false;
+        boolean fmfFailed = false;
 
         for (SourceFile file : files.values()) {
             String extension = extension(file.name());
@@ -178,8 +199,15 @@ public class TacticContextService implements AiPromptContext {
                     }
                 }
             } catch (RuntimeException exception) {
+                if (".fmf".equals(extension)) {
+                    fmfFailed = true;
+                }
                 warnings.add(file.name() + ": " + safeMessage(exception));
             }
+        }
+
+        if (fmfFailed) {
+            warnings.add(0, "⚠ .fmf decode failed — tactic context may be incomplete");
         }
 
         if (sections.isEmpty()) {
@@ -238,15 +266,8 @@ public class TacticContextService implements AiPromptContext {
 
     private List<Path> discoverDirectory(Path directory) {
         try (var paths = Files.walk(directory, 4)) {
-            List<Path> candidates = paths.filter(Files::isRegularFile)
+            List<Path> candidates = paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                     .filter(path -> supported(path.getFileName().toString()))
-                    .filter(path -> {
-                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-                        String extension = extension(name);
-                        return !IMAGE_EXTENSIONS.contains(extension)
-                                || name.contains("tactic")
-                                || name.contains("possession");
-                    })
                     .toList();
             return capDiscoveredFiles(candidates);
         } catch (IOException exception) {

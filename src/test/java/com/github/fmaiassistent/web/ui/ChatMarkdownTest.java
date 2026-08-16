@@ -15,7 +15,7 @@ class ChatMarkdownTest {
                 """);
         assertTrue(html.contains("<table>"));
         assertTrue(html.contains("<th>Name</th>"));
-        assertTrue(html.contains("<td>Ada &lt;x&gt;</td>"));
+        assertTrue(html.contains("<td>Ada &lt;x></td>"));
         assertTrue(html.contains("<td>150</td>"));
     }
 

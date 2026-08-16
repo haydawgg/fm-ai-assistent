@@ -27,7 +27,7 @@ public class ChatMessageEntity {
     private String role;
 
     @Lob
-    @Column(name = "body")
+    @Column(name = "body", length = 100000)
     private String body;
 
     @Column(length = 256)
@@ -37,7 +37,7 @@ public class ChatMessageEntity {
     private OffsetDateTime createdAt;
 
     @Lob
-    @Column(name = "tools_json")
+    @Column(name = "tools_json", length = 100000)
     private String toolsJson;
 
     @Column(name = "prompt_tokens")
@@ -59,7 +59,7 @@ public class ChatMessageEntity {
     private String feedback;
 
     @Lob
-    @Column(name = "reasoning")
+    @Column(name = "reasoning", length = 100000)
     private String reasoning;
 
     @Column(name = "generation_id", length = 128)

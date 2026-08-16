@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -264,9 +265,8 @@ public class OpenRouterModelCatalog {
             return new FeedbackResult(false, 0, "Missing generation id.");
         }
         String kind = category == null || category.isBlank() ? "incorrect_response" : category.strip();
-        String json = "{\"generation_id\":\"" + generationId.strip().replace("\"", "")
-                + "\",\"category\":\"" + kind.replace("\"", "") + "\"}";
         try {
+            String json = objectMapper.writeValueAsString(Map.of("generation_id", generationId.strip(), "category", kind));
             HttpJson response = exchange(URI.create(BASE_URL + "/generation/feedback"), "POST", apiKey.strip(), json);
             if (response.status() == 401 || response.status() == 403) {
                 return new FeedbackResult(false, response.status(), "OpenRouter rejected this key type for ratings.");

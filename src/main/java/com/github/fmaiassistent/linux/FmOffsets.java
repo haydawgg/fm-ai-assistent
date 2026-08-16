@@ -1,5 +1,7 @@
 package com.github.fmaiassistent.linux;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.fmaiassistent.memory.ProcessMemoryReader;
 
 import java.io.IOException;
@@ -11,7 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,7 +62,10 @@ public final class FmOffsets {
     // Nation, Stadium, Agreement, Club, City, Continent, Region and Currency are counted
     // only (see fm26_ram_table_counts) until field layouts are validated on a live save.
     private static final Map<String, Long> SLOTS = new LinkedHashMap<>();
-    private static final Map<String, Long> DETECTED_TABLE_BASES = new ConcurrentHashMap<>();
+    private static final Cache<String, Long> DETECTED_TABLE_BASES = Caffeine.newBuilder()
+            .maximumSize(4)
+            .expireAfterAccess(1, TimeUnit.HOURS)
+            .build();
 
     static {
         SLOTS.put("CityOffset", 0x0F0L);
@@ -90,6 +95,12 @@ public final class FmOffsets {
     }
 
     private static int comparePluginMappings(MemoryRegion left, MemoryRegion right) {
+        boolean leftImageBase = left.offset() == 0 && left.executable();
+        boolean rightImageBase = right.offset() == 0 && right.executable();
+        int byImageBase = Boolean.compare(!leftImageBase, !rightImageBase);
+        if (byImageBase != 0) {
+            return byImageBase;
+        }
         int byOffset = Boolean.compare(left.offset() != 0, right.offset() != 0);
         if (byOffset != 0) {
             return byOffset;
@@ -118,12 +129,28 @@ public final class FmOffsets {
         long tableBase = findOffsetTableBase(reader, build, base);
         long slotPtr = reader.readU64(tableBase + slot);
         long offsetValue = reader.readU64(slotPtr + 0x80);
-        return new Bounds(reader.readU64(offsetValue), reader.readU64(offsetValue + 8));
+        long start = reader.readU64(offsetValue);
+        long end = reader.readU64(offsetValue + 8);
+        if (end < start) {
+            throw new IllegalStateException("Invalid table bounds for slot " + slotName
+                    + ": end (0x" + Long.toHexString(end) + ") < start (0x" + Long.toHexString(start) + ")");
+        }
+        long span = end - start;
+        if (span % 8 != 0) {
+            throw new IllegalStateException("Invalid table bounds for slot " + slotName
+                    + ": span (0x" + Long.toHexString(span) + ") is not a multiple of 8");
+        }
+        long count = span / 8;
+        if (count < 0 || count > 2_000_000) {
+            throw new IllegalStateException("Invalid table count for slot " + slotName
+                    + ": count (" + count + ") out of range [0, 2000000]");
+        }
+        return new Bounds(start, end);
     }
 
     private static long findOffsetTableBase(ProcessMemoryReader reader, int build, long gamePluginBase) throws IOException {
         String cacheKey = reader.pid() + ":0x" + Long.toHexString(gamePluginBase);
-        Long cached = DETECTED_TABLE_BASES.get(cacheKey);
+        Long cached = DETECTED_TABLE_BASES.getIfPresent(cacheKey);
         if (cached != null && tableScore(reader, cached) >= MIN_VALID_TABLE_SCORE) {
             return cached;
         }
@@ -188,11 +215,29 @@ public final class FmOffsets {
         long bestTable = 0;
         int bestScore = 0;
         long maxSlot = SLOTS.values().stream().mapToLong(Long::longValue).max().orElseThrow();
+        int chunkSize = 1_048_576;
         for (MemoryRegion region : pluginRegions) {
-            byte[] data;
+            int totalSize;
             try {
-                data = reader.readBytes(region.start(), Math.toIntExact(region.size()));
-            } catch (IOException | ArithmeticException ex) {
+                totalSize = Math.toIntExact(region.size());
+            } catch (ArithmeticException ex) {
+                continue;
+            }
+            byte[] data = new byte[totalSize];
+            boolean anyChunkOk = false;
+            for (int chunkStart = 0; chunkStart < totalSize; chunkStart += chunkSize) {
+                int chunkLen = Math.min(chunkSize, totalSize - chunkStart);
+                try {
+                    byte[] chunk = reader.readBytes(region.start() + chunkStart, chunkLen);
+                    System.arraycopy(chunk, 0, data, chunkStart, chunkLen);
+                    anyChunkOk = true;
+                } catch (IOException | RuntimeException ex) {
+                    for (int i = chunkStart; i < chunkStart + chunkLen; i++) {
+                        data[i] = 0;
+                    }
+                }
+            }
+            if (!anyChunkOk) {
                 continue;
             }
             ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);

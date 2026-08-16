@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 final class ChatEntityLinker {
     private ChatEntityLinker() {
@@ -26,11 +27,12 @@ final class ChatEntityLinker {
             return;
         }
         for (String name : names) {
-            if (name == null || name.strip().length() < 4) {
+            if (name == null || name.strip().length() < 5) {
                 continue;
             }
             String needle = name.strip();
-            if (haystack.contains(needle.toLowerCase(Locale.ROOT)) && !containsIgnoreCase(hits, needle)) {
+            Pattern pattern = Pattern.compile(".*\\b" + Pattern.quote(needle) + "\\b.*", Pattern.CASE_INSENSITIVE);
+            if (pattern.matcher(haystack).matches() && !containsIgnoreCase(hits, needle)) {
                 hits.add(needle);
             }
         }

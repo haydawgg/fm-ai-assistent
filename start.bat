@@ -11,7 +11,16 @@ if not exist "%JAVA_HOME%\bin\java.exe" (
     set "JAVA_HOME=C:\Program Files\Java\jdk-25"
   )
 )
-set "MVN=%USERPROFILE%\.local\apache-maven-3.9.16\bin\mvn.cmd"
+set "MVN=mvn.cmd"
+where mvn.cmd >nul 2>&1
+if errorlevel 1 (
+  set "MVN=%USERPROFILE%\.local\apache-maven-3.9.16\bin\mvn.cmd"
+  if not exist "%MVN%" (
+    for /d %%D in ("%USERPROFILE%\.local\apache-maven-*") do (
+      if exist "%%D\bin\mvn.cmd" set "MVN=%%D\bin\mvn.cmd"
+    )
+  )
+)
 
 echo Starting FM AI Assistent...
 echo JAVA_HOME=%JAVA_HOME%
@@ -28,19 +37,18 @@ if not exist "%JAVA_HOME%\bin\java.exe" (
 )
 
 if not exist "%MVN%" (
-  echo Maven was not found at:
-  echo   %MVN%
-  echo Install Maven 3.9+ and update this script, or add mvn.cmd to PATH.
-  where mvn.cmd >nul 2>&1
-  if errorlevel 1 goto :fail
-  set "MVN=mvn.cmd"
+  echo Maven was not found.
+  echo Install Maven 3.9+ and add mvn.cmd to PATH, or place it under
+  echo   %USERPROFILE%\.local\apache-maven-<version>\bin\
+  goto :fail
 )
 
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8080 .*LISTENING"') do (
-  echo Port 8080 is already in use by PID %%P. Stopping it so this start can continue.
-  taskkill /PID %%P /F >nul 2>&1
+netstat -ano | findstr /R /C:":8080 .*LISTENING" >nul 2>&1
+if not errorlevel 1 (
+  echo Port 8080 is already in use. Stop the process using it, or change
+  echo server.port in application.properties, then try again.
+  goto :fail
 )
-timeout /t 2 /nobreak >nul
 
 call "%MVN%" -DskipTests -Dspring-boot.run.jvmArguments="-Xms256m -Xmx2g --enable-native-access=ALL-UNNAMED" spring-boot:run
 if errorlevel 1 goto :fail

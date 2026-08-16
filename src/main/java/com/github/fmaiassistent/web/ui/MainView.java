@@ -110,6 +110,10 @@ public class MainView extends VerticalLayout {
     private boolean awaitingCompareSelection;
     private boolean syncingQuickFilters;
     private boolean syncingSavedViews;
+    private boolean playersColumnsBuilt;
+    private boolean playersColumnsAllMode;
+    private boolean clubsColumnsBuilt;
+    private boolean competitionsColumnsBuilt;
     private List<PlayerEntity> visiblePlayers = List.of();
 
     public MainView(
@@ -454,15 +458,18 @@ public class MainView extends VerticalLayout {
     }
 
     private void setClubGrid(List<GridColumn> columns, List<ClubEntity> rows) {
-        clubsGrid.removeAllColumns();
-        for (GridColumn column : columns) {
-            clubsGrid.addColumn(club -> displayColumn(column.key(), clubColumnValue(club, column.key())))
-                    .setKey(column.key())
-                    .setHeader(column.header())
-                    .setAutoWidth(true)
-                    .setResizable(true)
-                    .setComparator((left, right) -> compareClubColumn(left, right, column.key()))
-                    .setSortable(true);
+        if (!clubsColumnsBuilt) {
+            clubsGrid.removeAllColumns();
+            for (GridColumn column : columns) {
+                clubsGrid.addColumn(club -> displayColumn(column.key(), clubColumnValue(club, column.key())))
+                        .setKey(column.key())
+                        .setHeader(column.header())
+                        .setAutoWidth(true)
+                        .setResizable(true)
+                        .setComparator((left, right) -> compareClubColumn(left, right, column.key()))
+                        .setSortable(true);
+            }
+            clubsColumnsBuilt = true;
         }
         clubsGrid.setItems(rows);
         showWorkspace(
@@ -476,15 +483,18 @@ public class MainView extends VerticalLayout {
     }
 
     private void setCompetitionGrid(List<GridColumn> columns, List<CompetitionEntity> rows) {
-        competitionsGrid.removeAllColumns();
-        for (GridColumn column : columns) {
-            competitionsGrid.addColumn(competition -> displayColumn(column.key(), competitionColumnValue(competition, column.key())))
-                    .setKey(column.key())
-                    .setHeader(column.header())
-                    .setAutoWidth(true)
-                    .setResizable(true)
-                    .setComparator((left, right) -> compareCompetitionColumn(left, right, column.key()))
-                    .setSortable(true);
+        if (!competitionsColumnsBuilt) {
+            competitionsGrid.removeAllColumns();
+            for (GridColumn column : columns) {
+                competitionsGrid.addColumn(competition -> displayColumn(column.key(), competitionColumnValue(competition, column.key())))
+                        .setKey(column.key())
+                        .setHeader(column.header())
+                        .setAutoWidth(true)
+                        .setResizable(true)
+                        .setComparator((left, right) -> compareCompetitionColumn(left, right, column.key()))
+                        .setSortable(true);
+            }
+            competitionsColumnsBuilt = true;
         }
         competitionsGrid.setItems(rows);
         showWorkspace(
@@ -498,30 +508,35 @@ public class MainView extends VerticalLayout {
     }
 
     private void setPlayerGrid(List<PlayerColumn> columns, List<PlayerEntity> rows) {
-        playersGrid.removeAllColumns();
-        playersGrid.setPartNameGenerator(this::playerRowPartName);
-        for (PlayerColumn column : columns) {
-            Grid.Column<PlayerEntity> gridColumn;
-            if ("NAME".equals(column.key())) {
-                gridColumn = playersGrid.addColumn(new ComponentRenderer<>(this::playerNameCell))
-                        .setFlexGrow(1)
-                        .setWidth("220px");
-            } else if ("CA".equals(column.key()) || "PA".equals(column.key())) {
-                gridColumn = playersGrid.addColumn(new ComponentRenderer<>(player -> abilityCell(column.value(player))))
-                        .setAutoWidth(true);
-            } else {
-                gridColumn = playersGrid.addColumn(player -> displayColumn(column.key(), column.value(player)))
-                        .setAutoWidth(true);
+        boolean mode = showAllPlayerColumns;
+        if (!playersColumnsBuilt || playersColumnsAllMode != mode) {
+            playersGrid.removeAllColumns();
+            playersGrid.setPartNameGenerator(this::playerRowPartName);
+            for (PlayerColumn column : columns) {
+                Grid.Column<PlayerEntity> gridColumn;
+                if ("NAME".equals(column.key())) {
+                    gridColumn = playersGrid.addColumn(new ComponentRenderer<>(this::playerNameCell))
+                            .setFlexGrow(1)
+                            .setWidth("220px");
+                } else if ("CA".equals(column.key()) || "PA".equals(column.key())) {
+                    gridColumn = playersGrid.addColumn(new ComponentRenderer<>(player -> abilityCell(column.value(player))))
+                            .setAutoWidth(true);
+                } else {
+                    gridColumn = playersGrid.addColumn(player -> displayColumn(column.key(), column.value(player)))
+                            .setAutoWidth(true);
+                }
+                gridColumn
+                        .setKey(column.key())
+                        .setHeader(column.header())
+                        .setResizable(true)
+                        .setComparator((left, right) -> comparePlayerColumn(left, right, column))
+                        .setSortable(true);
+                if ("NAME".equals(column.key())) {
+                    gridColumn.setFrozen(true);
+                }
             }
-            gridColumn
-                    .setKey(column.key())
-                    .setHeader(column.header())
-                    .setResizable(true)
-                    .setComparator((left, right) -> comparePlayerColumn(left, right, column))
-                    .setSortable(true);
-            if ("NAME".equals(column.key())) {
-                gridColumn.setFrozen(true);
-            }
+            playersColumnsBuilt = true;
+            playersColumnsAllMode = mode;
         }
         playersGrid.setItems(rows);
         visiblePlayers = List.copyOf(rows);
@@ -1203,7 +1218,7 @@ public class MainView extends VerticalLayout {
         ComboBox<String> playingNation = comboBox("Playing nation", players.findPlayingNations(), playerFilter.playingNation());
         ComboBox<String> playingCompetition = comboBox("Playing competition", players.findPlayingCompetitions(), playerFilter.playingCompetition());
         ComboBox<String> club = comboBox("Club", players.findClubs(), playerFilter.club());
-        ComboBox<String> nationality = comboBox("Nationality", competitions.findNations(), playerFilter.nationality());
+        ComboBox<String> nationality = comboBox("Nationality", players.findNationalities(), playerFilter.nationality());
         nationality.setValue(nullSafeValue(playerFilter.nationality()));
 
         IntegerField ageMin = intField("Age min", playerFilter.ageMin(), 1, 80);
@@ -1774,11 +1789,22 @@ public class MainView extends VerticalLayout {
     }
 
     private Long fromDisplayPounds(Long pounds) {
-        return pounds == null ? null : MoneyDisplay.convert(pounds, currency);
+        if (pounds == null) {
+            return null;
+        }
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
+        return Math.round(pounds * selected.rateFromPounds().doubleValue());
     }
 
     private Long toFilterPounds(Long displayed) {
-        return displayed == null ? null : MoneyDisplay.toBasePounds(displayed, currency);
+        if (displayed == null) {
+            return null;
+        }
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
+        if (selected == MoneyCurrency.POUND) {
+            return displayed;
+        }
+        return Math.round(displayed / selected.rateFromPounds().doubleValue());
     }
 
     private static String display(Object value) {

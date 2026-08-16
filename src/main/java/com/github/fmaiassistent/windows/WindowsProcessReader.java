@@ -17,13 +17,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.logging.Logger;
 
 public final class WindowsProcessReader implements ProcessMemoryReader {
+    private static final Logger LOGGER = Logger.getLogger(WindowsProcessReader.class.getName());
     private static final int PROCESS_QUERY_INFORMATION = 0x0400;
     private static final int PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
     private static final int PROCESS_VM_READ = 0x0010;
     private static final int LIST_MODULES_ALL = 0x03;
     private static final int ERROR_PARTIAL_COPY = 299;
+    private static final int ERROR_NO_MORE_FILES = 18;
+    private static final int ERROR_SUCCESS = 0;
     private static final int TH32CS_SNAPMODULE = 0x00000008;
     private static final int TH32CS_SNAPMODULE32 = 0x00000010;
     private static final int MEM_COMMIT = 0x1000;
@@ -55,6 +59,29 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         if (process == null) {
             throw win32Error("OpenProcess(" + pid + ") failed. Run this app as the same Windows user as Football Manager");
         }
+        try {
+            Memory probeBuffer = new Memory(1);
+            try {
+                LongByReference probeRead = new LongByReference();
+                boolean probeOk = Kernel32.INSTANCE.ReadProcessMemory(
+                        process, Pointer.createConstant(0L), probeBuffer, 1, probeRead);
+                if (!probeOk && Native.getLastError() == 5) {
+                    boolean closed = Kernel32.INSTANCE.CloseHandle(process);
+                    if (!closed) {
+                        LOGGER.warning("CloseHandle failed after probe denied (error " + Native.getLastError() + ")");
+                    }
+                    throw new IllegalStateException("Process opened but VM_READ not granted — try running as administrator");
+                }
+            } finally {
+                probeBuffer.close();
+            }
+        } catch (RuntimeException ex) {
+            boolean closed = Kernel32.INSTANCE.CloseHandle(process);
+            if (!closed) {
+                LOGGER.warning("CloseHandle failed after probe exception (error " + Native.getLastError() + ")");
+            }
+            throw ex;
+        }
     }
 
     @Override
@@ -75,7 +102,13 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
                     String command = info.command().orElse("");
                     String commandLine = info.commandLine().orElse(command);
                     String name = command.isBlank() ? "" : java.nio.file.Path.of(command).getFileName().toString();
-                    return new ProcessInfo((int) Math.min(handle.pid(), Integer.MAX_VALUE), name, commandLine);
+                    int pidValue;
+                    try {
+                        pidValue = Math.toIntExact(handle.pid());
+                    } catch (ArithmeticException overflow) {
+                        throw new IllegalStateException("PID exceeds int range: " + handle.pid(), overflow);
+                    }
+                    return new ProcessInfo(pidValue, name, commandLine);
                 })
                 .filter(process -> (process.name() + " " + process.cmdline()).toLowerCase(Locale.ROOT).contains(needle))
                 .sorted(Comparator.comparingInt(ProcessInfo::pid))
@@ -113,10 +146,17 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         long address = 0;
         while (address < MAX_ADDRESS) {
             MemoryBasicInformation mbi = new MemoryBasicInformation();
+            if (mbi.size() != 48) {
+                throw new IllegalStateException("MEMORY_BASIC_INFORMATION size mismatch: expected 48 bytes");
+            }
             long result = Kernel32.INSTANCE.VirtualQueryEx(
                     process, Pointer.createConstant(address), mbi, mbi.size());
             if (result == 0) {
-                break;
+                int err = Native.getLastError();
+                LOGGER.warning("VirtualQueryEx returned 0 at 0x" + Long.toHexString(address)
+                        + " (error " + err + "); skipping region");
+                address = address + 0x1000;
+                continue;
             }
             mbi.read();
             long start = Pointer.nativeValue(mbi.BaseAddress);
@@ -197,13 +237,20 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
                 entry.dwSize = entry.size();
                 entry.write();
                 found = Kernel32.INSTANCE.Module32NextW(snapshot, entry);
-                if (!found && Native.getLastError() == ERROR_PARTIAL_COPY) {
+                if (!found) {
+                    int err = Native.getLastError();
+                    if (err == ERROR_NO_MORE_FILES || err == ERROR_SUCCESS) {
+                        break;
+                    }
                     throw win32Error("Module32NextW failed for PID " + pid);
                 }
             }
             return modules;
         } finally {
-            Kernel32.INSTANCE.CloseHandle(snapshot);
+            boolean closed = Kernel32.INSTANCE.CloseHandle(snapshot);
+            if (!closed) {
+                LOGGER.warning("CloseHandle failed for module snapshot (error " + Native.getLastError() + ")");
+            }
         }
     }
 
@@ -253,7 +300,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     }
 
     private static String permissions(int protect) {
-        if ((protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+        if ((protect & PAGE_GUARD) != 0 || (protect & 0xFF) == PAGE_NOACCESS) {
             return "---";
         }
         int base = protect & 0xff;
@@ -272,7 +319,10 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     @Override
     public void close() {
-        Kernel32.INSTANCE.CloseHandle(process);
+        boolean closed = Kernel32.INSTANCE.CloseHandle(process);
+        if (!closed) {
+            LOGGER.warning("CloseHandle failed for process handle (error " + Native.getLastError() + ")");
+        }
     }
 
     private record ModuleRange(long start, long end, String path) {

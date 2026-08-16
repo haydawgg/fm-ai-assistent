@@ -13,6 +13,9 @@ public final class ProcessReaders {
     }
 
     public static ProcessMemoryReader open(int pid) throws IOException {
+        if (!isKnownFmPid(pid)) {
+            throw new IllegalArgumentException("PID " + pid + " is not a known FM26 (fm.exe) process");
+        }
         if (isWindows()) {
             return new WindowsProcessReader(pid);
         }
@@ -20,6 +23,13 @@ public final class ProcessReaders {
             return new LinuxProcessReader(pid);
         }
         throw new UnsupportedOperationException("Unsupported operating system: " + System.getProperty("os.name"));
+    }
+
+    private static boolean isKnownFmPid(int pid) throws IOException {
+        if (isWindows() || isLinux()) {
+            return findProcesses("fm.exe").stream().anyMatch(info -> info.pid() == pid);
+        }
+        return false;
     }
 
     public static List<ProcessInfo> findProcesses(String query) throws IOException {

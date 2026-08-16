@@ -4,7 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
+
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -24,8 +28,41 @@ class TacticOcrService implements TacticImageTextExtractor {
 
     private final TacticContextProperties properties;
 
+    private boolean ocrAvailable;
+
     TacticOcrService(TacticContextProperties properties) {
         this.properties = properties;
+    }
+
+    @PostConstruct
+    void probeOcr() {
+        ocrAvailable = false;
+        try {
+            Process process = new ProcessBuilder(properties.ocrExecutable(), "--version").start();
+            CompletableFuture<String> stderr = read(process.getErrorStream());
+            CompletableFuture<String> stdout = read(process.getInputStream());
+            if (!process.waitFor(properties.ocrTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                awaitExit(process);
+                stdout.cancel(true);
+                stderr.cancel(true);
+                log.warn("Tactic OCR startup probe timed out for {}", properties.ocrExecutable());
+                return;
+            }
+            if (process.exitValue() == 0) {
+                ocrAvailable = true;
+            } else {
+                log.warn("Tactic OCR startup probe failed (exit {}): {}", process.exitValue(), stderr.join().strip());
+            }
+        } catch (Exception exception) {
+            log.warn("Tactic OCR is unavailable — tesseract not found at startup ({}: {})",
+                    exception.getClass().getSimpleName(),
+                    exception.getMessage() == null ? "" : exception.getMessage());
+        }
+    }
+
+    public boolean isOcrAvailable() {
+        return ocrAvailable;
     }
 
     @Override
@@ -49,6 +86,9 @@ class TacticOcrService implements TacticImageTextExtractor {
     }
 
     private String runTesseract(Path image, ImageKind kind) {
+        if (!ocrAvailable) {
+            throw new IllegalStateException("Tactic OCR is unavailable — tesseract not found at startup");
+        }
         List<String> command = List.of(
                 properties.ocrExecutable(), image.toString(), "stdout", "--psm", "6");
         try {
@@ -90,15 +130,28 @@ class TacticOcrService implements TacticImageTextExtractor {
     }
 
     private static BufferedImage readImage(Path image) {
-        try {
-            BufferedImage source = ImageIO.read(image.toFile());
-            if (source == null) {
+        java.io.File file = image.toFile();
+        try (ImageInputStream iis = ImageIO.createImageInputStream(file)) {
+            if (iis == null) {
                 throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
             }
-            long pixels = (long) source.getWidth() * source.getHeight();
+            var readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
+            }
+            ImageReader reader = readers.next();
+            reader.setInput(iis);
+            int width = reader.getWidth(0);
+            int height = reader.getHeight(0);
+            long pixels = (long) width * (long) height;
             if (pixels > MAX_IMAGE_PIXELS) {
-                throw new IllegalArgumentException("Tactic image is too large for OCR: " + image.getFileName()
-                        + " (" + source.getWidth() + "x" + source.getHeight() + ")");
+                reader.dispose();
+                throw new IllegalStateException("Image exceeds pixel budget: " + pixels);
+            }
+            BufferedImage source = reader.read(0);
+            reader.dispose();
+            if (source == null) {
+                throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
             }
             return source;
         } catch (IOException exception) {

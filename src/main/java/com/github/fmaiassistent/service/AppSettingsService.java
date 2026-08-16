@@ -17,6 +17,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URISyntaxException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -602,14 +604,29 @@ public class AppSettingsService {
             try (OutputStream output = Files.newOutputStream(temp)) {
                 properties.store(output, "FM AI Assistent settings");
             }
+            restrictToOwner(temp);
             try {
                 Files.move(temp, settingsPath,
                         StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ex) {
                 Files.move(temp, settingsPath, StandardCopyOption.REPLACE_EXISTING);
             }
+            restrictToOwner(settingsPath);
         } catch (IOException ex) {
             throw new IllegalStateException("Could not save settings to " + settingsPath, ex);
+        }
+    }
+
+    private static void restrictToOwner(Path file) {
+        if (!Files.exists(file)) {
+            return;
+        }
+        try {
+            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+        } catch (UnsupportedOperationException ex) {
+            // Windows: NTFS ACL in the user's home directory already restricts access
+        } catch (IOException ex) {
+            LOG.warn("Could not restrict permissions on {}", file, ex);
         }
     }
 
@@ -645,11 +662,16 @@ public class AppSettingsService {
             CodeSource codeSource = FmAiAssistentApplication.class.getProtectionDomain().getCodeSource();
             if (codeSource != null && codeSource.getLocation() != null) {
                 Path location = Path.of(codeSource.getLocation().toURI()).toAbsolutePath();
-                return Files.isRegularFile(location) ? location.getParent() : location;
+                if (Files.isRegularFile(location)) {
+                    return location.getParent();
+                }
+                Path home = Path.of(System.getProperty("user.home")).resolve(".fm-ai-assistent");
+                Files.createDirectories(home);
+                return home;
             }
-        } catch (URISyntaxException | RuntimeException ignored) {
+        } catch (URISyntaxException | RuntimeException | IOException ignored) {
         }
-        return Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        return Path.of(System.getProperty("user.home")).resolve(".fm-ai-assistent").toAbsolutePath();
     }
 
     private static Optional<Path> currentProcessCommand() {

@@ -8,10 +8,19 @@ import java.nio.ByteOrder;
 import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public interface ProcessMemoryReader extends AutoCloseable {
     long MAX_USER_ADDRESS = 0x00007FFFFFFFFFFFL;
     Charset FM_SINGLE_BYTE = Charset.forName("windows-1252");
+    AtomicLong READ_COUNT = new AtomicLong(0);
+    long REGION_CACHE_TTL_NS = TimeUnit.SECONDS.toNanos(30);
+    ConcurrentHashMap<Integer, RegionSnapshot> REGION_CACHE = new ConcurrentHashMap<>();
+
+    record RegionSnapshot(List<MemoryRegion> regions, long createdAtNanos) {
+    }
 
     int pid();
 
@@ -23,27 +32,39 @@ public interface ProcessMemoryReader extends AutoCloseable {
 
     List<MemoryRegion> maps() throws IOException;
 
+    private static void throttle() {
+        if (READ_COUNT.incrementAndGet() % 1024 == 0) {
+            Thread.yield();
+        }
+    }
+
     default int readU8(long address) throws IOException {
+        throttle();
         return readBytes(address, 1)[0] & 0xff;
     }
 
     default int readU16(long address) throws IOException {
+        throttle();
         return le(readBytes(address, 2)).getShort() & 0xffff;
     }
 
     default short readI16(long address) throws IOException {
+        throttle();
         return le(readBytes(address, 2)).getShort();
     }
 
     default long readU32(long address) throws IOException {
+        throttle();
         return le(readBytes(address, 4)).getInt() & 0xffffffffL;
     }
 
     default int readI32(long address) throws IOException {
+        throttle();
         return le(readBytes(address, 4)).getInt();
     }
 
     default long readU64(long address) throws IOException {
+        throttle();
         return le(readBytes(address, 8)).getLong();
     }
 
@@ -56,9 +77,38 @@ public interface ProcessMemoryReader extends AutoCloseable {
             if (value <= 0 || value > MAX_USER_ADDRESS) {
                 return Optional.empty();
             }
+            List<MemoryRegion> regions = cachedRegions();
+            if (!regions.isEmpty()) {
+                boolean contained = false;
+                for (MemoryRegion region : regions) {
+                    if (value >= region.start() && value < region.end()) {
+                        contained = true;
+                        break;
+                    }
+                }
+                if (!contained) {
+                    return Optional.empty();
+                }
+            }
             return Optional.of(value);
         } catch (IOException | RuntimeException ex) {
             return Optional.empty();
+        }
+    }
+
+    default List<MemoryRegion> cachedRegions() {
+        int key = pid();
+        RegionSnapshot snapshot = REGION_CACHE.get(key);
+        long now = System.nanoTime();
+        if (snapshot != null && now - snapshot.createdAtNanos() < REGION_CACHE_TTL_NS) {
+            return snapshot.regions();
+        }
+        try {
+            List<MemoryRegion> regions = maps();
+            REGION_CACHE.put(key, new RegionSnapshot(regions, now));
+            return regions;
+        } catch (IOException | RuntimeException ex) {
+            return snapshot == null ? List.of() : snapshot.regions();
         }
     }
 
@@ -78,7 +128,17 @@ public interface ProcessMemoryReader extends AutoCloseable {
                     return Optional.empty();
                 }
             }
-            return Optional.of(new String(data, FM_SINGLE_BYTE));
+            String result = new String(data, FM_SINGLE_BYTE);
+            int end = result.length();
+            while (end > 0) {
+                char c = result.charAt(end - 1);
+                if (c == 0 || Character.isWhitespace(c)) {
+                    end--;
+                } else {
+                    break;
+                }
+            }
+            return Optional.of(result.substring(0, end));
         } catch (IOException | RuntimeException ex) {
             return Optional.empty();
         }

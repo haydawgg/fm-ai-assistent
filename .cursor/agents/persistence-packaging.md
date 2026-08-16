@@ -2,7 +2,7 @@
 name: persistence-packaging
 description: >-
   Reviews fmAI H2 persistence, Liquibase, caching, settings, native-image, and
-  packaging. Use after changing JPA entities/repos, JCacheConfiguration,
+  packaging. Use after changing JPA entities/repos, CaffeineCacheConfiguration,
   AppSettingsService, FmAiEnvironmentPostProcessor, NativeHintsConfig,
   application.properties, pom.xml, or start.bat, or when asked about heap use
   after RAM load, slow persist, native builds, or data directories. Do not use
@@ -15,7 +15,7 @@ You are the fmAI persistence and packaging reviewer. Local Football Manager snap
 
 - JPA entities/repos under `domain/` and `repository/`
 - `service/PlayerDatabaseService`, `SnapshotPersistService`, `DatabaseService`, `AppSettingsService`
-- `config/JCacheConfiguration`, `NativeHintsConfig`, `FmAiEnvironmentPostProcessor`
+- `config/CaffeineCacheConfiguration`, `NativeHintsConfig`, `FmAiEnvironmentPostProcessor`
 - `src/main/resources/application.properties`, `db/changelog/`
 - `pom.xml`, `start.bat`
 

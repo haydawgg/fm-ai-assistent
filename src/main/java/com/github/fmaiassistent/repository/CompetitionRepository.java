@@ -1,6 +1,6 @@
 package com.github.fmaiassistent.repository;
 
-import com.github.fmaiassistent.config.JCacheConfiguration;
+import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import com.github.fmaiassistent.domain.entity.CompetitionEntity;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface CompetitionRepository extends JpaRepository<CompetitionEntity, Long>, JpaSpecificationExecutor<CompetitionEntity> {
 
-    @Cacheable(cacheNames = JCacheConfiguration.COMPETITIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE)
     @Query("""
                 select distinct c.name
                 from CompetitionEntity c
@@ -20,7 +20,7 @@ public interface CompetitionRepository extends JpaRepository<CompetitionEntity, 
             """)
     List<String> findDistinctNameByOrderByNameAsc();
 
-    @Cacheable(cacheNames = JCacheConfiguration.NATIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE)
     @Query("""
                 select distinct c.nation
                 from CompetitionEntity c
@@ -29,7 +29,7 @@ public interface CompetitionRepository extends JpaRepository<CompetitionEntity, 
             """)
     List<String> findDistinctNations();
 
-    @Cacheable(cacheNames = JCacheConfiguration.COMPETITIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE)
     @Query("""
                 select distinct c.gender
                 from CompetitionEntity c

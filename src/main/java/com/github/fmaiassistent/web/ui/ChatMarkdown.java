@@ -17,7 +17,21 @@ final class ChatMarkdown {
         if (markdown == null || markdown.isEmpty()) {
             return "";
         }
-        return renderTables(sanitizeLinks(markdown));
+        return stripDangerousHtml(renderTables(sanitizeLinks(markdown)));
+    }
+
+    private static String stripDangerousHtml(String html) {
+        String result = html;
+        result = result.replaceAll("(?is)<\\s*script\\b.*?</\\s*script\\s*>", "");
+        result = result.replaceAll("(?is)<\\s*iframe\\b.*?</\\s*iframe\\s*>", "");
+        result = result.replaceAll("(?is)<\\s*object\\b.*?</\\s*object\\s*>", "");
+        result = result.replaceAll("(?is)<\\s*embed\\b.*?>", "");
+        result = result.replaceAll("(?i)\\son\\w+\\s*=\\s*\"[^\"]*\"", "");
+        result = result.replaceAll("(?i)\\son\\w+\\s*=\\s*'[^']*'", "");
+        result = result.replaceAll("(?i)\\son\\w+\\s*=\\s*[^\\s>]+", "");
+        result = result.replaceAll("(?i)\\sstyle\\s*=\\s*\"[^\"]*\"", "");
+        result = result.replaceAll("(?i)\\sstyle\\s*=\\s*'[^']*'", "");
+        return result;
     }
 
     static String sanitizeLinks(String markdown) {
@@ -32,7 +46,9 @@ final class ChatMarkdown {
         while (matcher.find()) {
             out.append(markdown, last, matcher.start());
             String destination = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
-            if (dangerousScheme(decodeDestination(destination))) {
+            int linkStart = matcher.start();
+            boolean isImage = linkStart > 0 && markdown.charAt(linkStart - 1) == '!';
+            if (dangerousScheme(decodeDestination(destination), isImage)) {
                 out.append("](#blocked-)");
             } else {
                 out.append(matcher.group());
@@ -50,7 +66,7 @@ final class ChatMarkdown {
         StringBuilder out = new StringBuilder(markdown.length());
         for (int index = 0; index < lines.length; index++) {
             Matcher matcher = REFERENCE_DEFINITION.matcher(lines[index]);
-            if (matcher.matches() && dangerousScheme(decodeDestination(matcher.group(2)))) {
+            if (matcher.matches() && dangerousScheme(decodeDestination(matcher.group(2)), false)) {
                 out.append(matcher.group(1)).append("[#blocked-]");
             } else {
                 out.append(lines[index]);
@@ -62,14 +78,57 @@ final class ChatMarkdown {
         return out.toString();
     }
 
-    private static boolean dangerousScheme(String destination) {
-        String scheme = destination.strip().toLowerCase(Locale.ROOT);
+    private static boolean dangerousScheme(String destination, boolean isImage) {
+        String scheme = decodeDestination(destination).strip().toLowerCase(Locale.ROOT);
         if (scheme.startsWith("<")) {
             int end = scheme.indexOf('>');
             scheme = (end > 0 ? scheme.substring(1, end) : scheme.substring(1)).strip();
         }
         scheme = scheme.replaceAll("[\\s\\u00a0]+", "");
-        return scheme.startsWith("javascript:") || scheme.startsWith("data:") || scheme.startsWith("vbscript:");
+        if (scheme.contains("&")) {
+            scheme = decodeRemainingEntities(scheme);
+        }
+        if (scheme.startsWith("javascript:") || scheme.startsWith("vbscript:")) {
+            return true;
+        }
+        if (scheme.startsWith("data:")) {
+            if (isImage) {
+                return !(scheme.startsWith("data:image/png")
+                        || scheme.startsWith("data:image/jpeg")
+                        || scheme.startsWith("data:image/gif")
+                        || scheme.startsWith("data:image/webp"));
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static String decodeRemainingEntities(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        int index = 0;
+        while (index < text.length()) {
+            char current = text.charAt(index);
+            if (current == '&') {
+                int semicolon = text.indexOf(';', index + 1);
+                if (semicolon > index && semicolon - index <= 20) {
+                    String entity = text.substring(index + 1, semicolon);
+                    Character decoded = decodeEntity(entity);
+                    if (decoded != null) {
+                        out.append(decoded);
+                        index = semicolon + 1;
+                        continue;
+                    }
+                    // Unrecognized entity — the browser will still decode it.
+                    // Strip the & and ; so it can't form a dangerous scheme.
+                    out.append(entity).append(' ');
+                    index = semicolon + 1;
+                    continue;
+                }
+            }
+            out.append(current);
+            index++;
+        }
+        return out.toString();
     }
 
     static String decodeDestination(String destination) {
@@ -135,6 +194,19 @@ final class ChatMarkdown {
             case "nbsp" -> ' ';
             case "Tab" -> '\t';
             case "NewLine" -> '\n';
+            case "colon" -> ':';
+            case "sol" -> '/';
+            case "num" -> '#';
+            case "period" -> '.';
+            case "lpar" -> '(';
+            case "rpar" -> ')';
+            case "comma" -> ',';
+            case "semi" -> ';';
+            case "quest" -> '?';
+            case "excl" -> '!';
+            case "commat" -> '@';
+            case "percnt" -> '%';
+            case "equals" -> '=';
             default -> null;
         };
     }
@@ -266,6 +338,6 @@ final class ChatMarkdown {
         if (value == null || value.isEmpty()) {
             return "";
         }
-        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        return value.replace("&", "&amp;").replace("<", "&lt;");
     }
 }

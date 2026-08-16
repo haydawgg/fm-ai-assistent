@@ -377,8 +377,8 @@
             </column>
             <column name="title" type="VARCHAR(256)"/>
             <column name="model" type="VARCHAR(256)"/>
-            <column name="created_at" type="TIMESTAMP"/>
-            <column name="updated_at" type="TIMESTAMP"/>
+            <column name="created_at" type="TIMESTAMP(9) WITH TIME ZONE"/>
+            <column name="updated_at" type="TIMESTAMP(9) WITH TIME ZONE"/>
             <column name="title_locked" type="BOOLEAN"/>
         </createTable>
         <createTable tableName="chat_message">
@@ -392,7 +392,7 @@
             <column name="role" type="VARCHAR(32)"/>
             <column name="body" type="CLOB"/>
             <column name="model" type="VARCHAR(256)"/>
-            <column name="created_at" type="TIMESTAMP"/>
+            <column name="created_at" type="TIMESTAMP(9) WITH TIME ZONE"/>
             <column name="tools_json" type="CLOB"/>
             <column name="prompt_tokens" type="INT"/>
             <column name="completion_tokens" type="INT"/>
@@ -432,7 +432,19 @@
     </changeSet>
 
     <changeSet id="007-chat-message-ordinal-unique" author="codex">
+        <createTable tableName="chat_message_duplicates">
+            <column name="id" type="BIGINT"/>
+            <column name="session_id" type="VARCHAR(64)"/>
+            <column name="ordinal" type="INT"/>
+        </createTable>
         <sql>
+            INSERT INTO chat_message_duplicates (id, session_id, ordinal)
+            SELECT id, session_id, ordinal FROM (
+                SELECT id, session_id, ordinal, ROW_NUMBER() OVER (PARTITION BY session_id, ordinal ORDER BY id) AS rn
+                FROM chat_message
+            ) ranked
+            WHERE rn &gt; 1;
+
             DELETE FROM chat_message WHERE id IN (
                 SELECT id FROM (
                     SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id, ordinal ORDER BY id) AS rn
@@ -445,5 +457,11 @@
                 tableName="chat_message"
                 columnNames="session_id, ordinal"
                 constraintName="uk_chat_message_session_ordinal"/>
+    </changeSet>
+
+    <changeSet id="008-chat-timestamps-with-time-zone" author="codex">
+        <modifyDataType tableName="chat_session" columnName="created_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
+        <modifyDataType tableName="chat_session" columnName="updated_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
+        <modifyDataType tableName="chat_message" columnName="created_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
     </changeSet>
 </databaseChangeLog>

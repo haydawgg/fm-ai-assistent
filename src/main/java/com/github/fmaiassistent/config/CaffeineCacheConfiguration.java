@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 
 @Configuration(proxyBeanMethods = false)
 @EnableCaching
-public class JCacheConfiguration {
+public class CaffeineCacheConfiguration {
 
     public static final String PLAYERS_CACHE = "players";
     public static final String PLAYERS_WITH_CLUBS_CACHE = "players_with_clubs";
