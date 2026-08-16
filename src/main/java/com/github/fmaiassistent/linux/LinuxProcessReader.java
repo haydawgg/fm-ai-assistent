@@ -67,7 +67,7 @@ public class LinuxProcessReader implements ProcessMemoryReader {
         int total = 0;
         while (total < size) {
             int n = mem.read(buffer, address + total);
-            if (n < 0) {
+            if (n <= 0) {
                 break;
             }
             total += n;
@@ -86,11 +86,24 @@ public class LinuxProcessReader implements ProcessMemoryReader {
                 continue;
             }
             String[] range = parts[0].split("-", 2);
+            if (range.length != 2) {
+                continue;
+            }
+            long start;
+            long end;
+            long offset;
+            try {
+                start = Long.parseUnsignedLong(range[0], 16);
+                end = Long.parseUnsignedLong(range[1], 16);
+                offset = Long.parseUnsignedLong(parts[2], 16);
+            } catch (NumberFormatException ignored) {
+                continue;
+            }
             regions.add(new MemoryRegion(
-                    Long.parseUnsignedLong(range[0], 16),
-                    Long.parseUnsignedLong(range[1], 16),
+                    start,
+                    end,
                     parts[1],
-                    Long.parseUnsignedLong(parts[2], 16),
+                    offset,
                     parts[3],
                     parts[4],
                     parts.length == 6 ? parts[5] : ""));

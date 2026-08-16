@@ -26,6 +26,7 @@ import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
 import com.vaadin.flow.component.dependency.CssImport;
+import com.vaadin.flow.component.dependency.JavaScript;
 import com.vaadin.flow.component.details.Details;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
@@ -70,7 +71,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Route(value = "chat", layout = AppShell.class)
 @PageTitle("Chat")
 @CssImport("./styles/chat-view.css")
+@CssImport("./styles/highlight-github-dark.css")
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
+@JavaScript("./js/highlight.min.js")
 public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("d MMM");
@@ -124,7 +127,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private String pendingPrompt = "";
     private String lastUserText = "";
     private String queuedMessage = "";
-    private boolean usedFallback;
+    private final LinkedHashSet<String> triedModels = new LinkedHashSet<>();
+    private String pendingFallbackModel = "";
+    private String currentModel = "";
     private int lastUserOrdinal = -1;
     private double sessionCostUsd;
     private Integer pendingReplaceFrom;
@@ -233,7 +238,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     @Override
     protected void onDetach(DetachEvent event) {
         ChatUiContext.setDraft(input.getValue());
-        stopStream();
+        stopStream(false);
         super.onDetach(event);
     }
 
@@ -468,9 +473,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             input.focus();
         });
 
+        Map<String, byte[]> pendingDrop = new LinkedHashMap<>();
         Upload drop = new Upload(UploadHandler.inMemory((metadata, bytes) -> {
             String name = metadata.fileName() == null ? "uploaded-tactic" : metadata.fileName();
-            tacticContexts.loadUploads(Map.of(name, bytes));
+            pendingDrop.put(name, bytes);
         }));
         drop.setDropAllowed(true);
         drop.setAutoUpload(true);
@@ -478,7 +484,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         drop.setAcceptedFileTypes(".fmf", ".png", ".jpg", ".jpeg");
         drop.setUploadButton(new Button("Drop .fmf", VaadinIcon.UPLOAD.create()));
         drop.addClassName("chat-drop");
-        drop.addAllFinishedListener(event -> Notification.show("Tactic context updated", 1600, Notification.Position.BOTTOM_CENTER));
+        drop.addAllFinishedListener(event -> {
+            Map<String, byte[]> files = new LinkedHashMap<>(pendingDrop);
+            pendingDrop.clear();
+            try {
+                tacticContexts.loadUploads(files);
+                Notification.show("Tactic context updated", 1600, Notification.Position.BOTTOM_CENTER);
+            } catch (RuntimeException ex) {
+                Notification.show(ex.getMessage() == null ? "Tactic context update failed" : ex.getMessage(),
+                        4000, Notification.Position.MIDDLE);
+            }
+        });
 
         HorizontalLayout actions = new HorizontalLayout(send, stop);
         actions.setPadding(false);
@@ -533,7 +549,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private void updateOmitted() {
         int omittedCount = AssistantChatService.omittedCount(history);
         omitted.setVisible(omittedCount > 0);
-        omitted.setText(omittedCount + " earlier messages are summarised for the model.");
+        omitted.setText(omittedCount + " earlier messages are omitted from the model context.");
     }
 
     private void updateConfigurationState() {
@@ -583,10 +599,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 settings.openRouterModel(),
                 catalog.estimatePromptTokens(message, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
                 600);
-        String blocked = ChatSessionService.blockIfOverCap(settings.dailySpendCapUsd(), todaySpendUsd(), estimate);
-        if (blocked != null) {
-            Notification.show(blocked, 4000, Notification.Position.MIDDLE)
-                    .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+        if (dailyCapBlocked(message, estimate)) {
             return;
         }
         input.clear();
@@ -595,9 +608,6 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         slash.setVisible(false);
         if (pendingReplaceFrom != null && conversationId != null) {
             sessions.deleteFrom(conversationId, pendingReplaceFrom);
-            if (pendingReplaceFrom <= history.size()) {
-                history.subList(pendingReplaceFrom, history.size()).clear();
-            }
             pendingReplaceFrom = null;
             reloadTranscript();
         }
@@ -613,9 +623,13 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         welcome.setVisible(false);
         unconfigured.setVisible(false);
         lastUserText = message;
+        String modelId = modelOverride == null || modelOverride.isBlank()
+                ? settings.openRouterModel()
+                : modelOverride;
+        currentModel = modelId;
         List<AssistantChatService.ChatTurn> prior = historyForModel();
         if (persistUser) {
-            ChatMessageEntity saved = persist("user", message, ChatSessionService.MessageExtras.NONE);
+            ChatMessageEntity saved = persist("user", message, modelId, ChatSessionService.MessageExtras.NONE);
             lastUserOrdinal = saved.getOrdinal();
             transcript.add(userCard(message, lastUserOrdinal));
             history.add(new AssistantChatService.ChatTurn(true, message));
@@ -625,11 +639,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         refreshSessions();
         updateOmitted();
 
-        String modelId = modelOverride == null || modelOverride.isBlank()
-                ? settings.openRouterModel()
-                : modelOverride;
         if (modelOverride == null || modelOverride.isBlank()) {
-            usedFallback = false;
+            triedModels.clear();
+            triedModels.add(settings.openRouterModel());
+            pendingFallbackModel = "";
+        } else {
+            triedModels.add(modelId);
         }
         AssistantTurn turn = new AssistantTurn(modelId);
         activeTurn = turn;
@@ -646,6 +661,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         AtomicLong firstToken = new AtomicLong(0);
         List<AssistantChatService.ToolTrace> traces = new ArrayList<>();
         AssistantChatService.UsageSnapshot[] usage = {new AssistantChatService.UsageSnapshot(null, null)};
+        String[] generationId = {""};
         AssistantChatService.ThinkSplitter splitter = new AssistantChatService.ThinkSplitter();
         activeStream = chat.streamEvents(prior, message, conversationId, grounding(), modelOverride)
                 .subscribeOn(Schedulers.boundedElastic())
@@ -659,6 +675,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                                 traces.add(event.trace());
                                 turn.addTrace(event.trace());
                                 return;
+                            }
+                            if (event.generationId() != null && !event.generationId().isBlank()) {
+                                generationId[0] = event.generationId();
                             }
                             if (event.usage() != null && (event.usage().promptTokens() != null || event.usage().completionTokens() != null)) {
                                 usage[0] = event.usage();
@@ -693,12 +712,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             }
                         }),
                         error -> access(ui, () -> {
-                            if (tryFallback()) {
+                            if (!dailyCapBlocked(lastUserText) && tryFallback()) {
                                 if (turn.close()) {
                                     turn.root.removeFromParent();
                                 }
                                 finishStream(false);
-                                streamUserMessage(lastUserText, false, settings.openRouterFallbackModel());
+                                streamUserMessage(lastUserText, false, pendingFallbackModel);
                                 return;
                             }
                             if (!turn.close()) {
@@ -708,7 +727,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                                 turn.showContent();
                             }
                             turn.setError("I couldn't complete that request. " + safeMessage(error), lastUserText, this::retryLast);
-                            persist("error", turn.rawText(), extras(traces, usage[0], started.get(), firstToken.get(), turn.reasoningText()));
+                            persist("error", turn.rawText(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), turn.reasoningText(), generationId[0]));
                             turn.finishStreaming();
                             finishStream();
                         }),
@@ -729,16 +748,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             long duration = (System.nanoTime() - started.get()) / 1_000_000L;
                             Integer ttft = firstToken.get() == 0 ? null : (int) ((firstToken.get() - started.get()) / 1_000_000L);
                             turn.setMarkdown(response.toString());
-                            turn.setStats(usage[0], catalog.estimateUsd(settings.openRouterModel(), usage[0].promptTokens(), usage[0].completionTokens()), ttft, duration);
+                            turn.setStats(usage[0], catalog.estimateUsd(modelId, usage[0].promptTokens(), usage[0].completionTokens()), ttft, duration);
                             turn.setMentions(ChatEntityLinker.mentions(response.toString(), squadNames(), clubs.findNames()), this::openPlayer, this::openClub);
                             turn.setCitations(traces);
                             turn.setFollowUps(this::sendPrompt);
                             rememberAssistant(response.toString());
-                            ChatMessageEntity saved = persist("assistant", response.toString(), extras(traces, usage[0], started.get(), firstToken.get(), turn.reasoningText()));
-                            addSessionCost(usage[0]);
+                            ChatMessageEntity saved = persist("assistant", response.toString(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), turn.reasoningText(), generationId[0]));
+                            addSessionCost(modelId, usage[0]);
                             turn.finishStreaming();
                             turn.bindFeedback(saved);
-                            pingIfTabHidden();
+                            pingIfTabHidden(response.toString());
+                            enrichFromOpenRouter(ui, turn, saved, generationId[0], ttft, duration);
                             finishStream();
                             refreshSessions();
                             scrollToLatest();
@@ -750,19 +770,20 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private static List<AssistantChatService.ChatTurn> historyForModel(List<AssistantChatService.ChatTurn> turns) {
-        int start = Math.max(0, turns.size() - AssistantChatService.MAX_HISTORY_MESSAGES);
-        return List.copyOf(turns.subList(start, turns.size()));
+        return List.copyOf(turns);
     }
 
     private ChatSessionService.MessageExtras extras(
+            String modelId,
             List<AssistantChatService.ToolTrace> traces,
             AssistantChatService.UsageSnapshot usage,
             long startedNs,
             long firstTokenNs,
-            String reasoning) {
+            String reasoning,
+            String generationId) {
         Integer ttft = firstTokenNs == 0 ? null : (int) ((firstTokenNs - startedNs) / 1_000_000L);
         int duration = (int) ((System.nanoTime() - startedNs) / 1_000_000L);
-        Double cost = catalog.estimateUsd(settings.openRouterModel(), usage.promptTokens(), usage.completionTokens());
+        Double cost = catalog.estimateUsd(modelId, usage.promptTokens(), usage.completionTokens());
         return new ChatSessionService.MessageExtras(
                 tracesJson(traces),
                 usage.promptTokens(),
@@ -770,7 +791,49 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 cost,
                 ttft,
                 duration,
-                reasoning == null || reasoning.isBlank() ? null : reasoning);
+                reasoning == null || reasoning.isBlank() ? null : reasoning,
+                generationId == null || generationId.isBlank() ? null : generationId.strip());
+    }
+
+    private void enrichFromOpenRouter(
+            UI ui,
+            AssistantTurn turn,
+            ChatMessageEntity saved,
+            String generationId,
+            Integer ttft,
+            long durationMs) {
+        if (saved == null || generationId == null || generationId.isBlank()) {
+            return;
+        }
+        catalog.lookupGeneration(settings.openRouterApiKey(), generationId)
+                .thenAccept(lookup -> access(ui, () -> {
+                    if (lookup == null || lookup == OpenRouterModelCatalog.GenerationLookup.EMPTY) {
+                        return;
+                    }
+                    String sessionId = saved.getSessionId();
+                    ChatMessageEntity updated = sessions.updateGeneration(
+                            sessionId, saved.getOrdinal(), lookup, lookup.reasoning());
+                    if (!sessionId.equals(conversationId)) {
+                        return;
+                    }
+                    AssistantChatService.UsageSnapshot next = new AssistantChatService.UsageSnapshot(
+                            lookup.promptTokens() != null ? lookup.promptTokens() : saved.getPromptTokens(),
+                            lookup.completionTokens() != null ? lookup.completionTokens() : saved.getCompletionTokens(),
+                            lookup.reasoningTokens());
+                    Double cost = lookup.totalCost() != null ? lookup.totalCost() : saved.getCostUsd();
+                    if (lookup.totalCost() != null) {
+                        double previous = saved.getCostUsd() == null ? 0 : saved.getCostUsd();
+                        sessionCostUsd += lookup.totalCost() - previous;
+                        sessionCost.setText(sessionCostUsd <= 0 ? "" : String.format("Session $%.4f", sessionCostUsd));
+                    }
+                    turn.setStats(next, cost, ttft, durationMs);
+                    if (lookup.reasoning() != null && !lookup.reasoning().isBlank()) {
+                        turn.appendReasoningOnce(lookup.reasoning());
+                    }
+                    if (updated != null && updated.getGenerationId() != null) {
+                        turn.setGenerationId(updated.getGenerationId());
+                    }
+                }));
     }
 
     private static String tracesJson(List<AssistantChatService.ToolTrace> traces) {
@@ -799,9 +862,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 .replace("\n", "\\n").replace("\r", "") + "\"";
     }
 
-    private ChatMessageEntity persist(String role, String body, ChatSessionService.MessageExtras extras) {
+    private ChatMessageEntity persist(String role, String body, String model, ChatSessionService.MessageExtras extras) {
         ensureSession();
-        return sessions.append(conversationId, role, body, settings.openRouterModel(), extras);
+        return sessions.append(conversationId, role, body,
+                model == null || model.isBlank() ? settings.openRouterModel() : model, extras);
     }
 
     private Div userCard(String text, int ordinal) {
@@ -837,8 +901,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         while (lastUser >= 0 && !history.get(lastUser).user()) {
             lastUser--;
         }
-        if (lastUser >= 0) {
-            pendingReplaceFrom = lastUser;
+        if (lastUser >= 0 && lastUserOrdinal >= 0) {
+            pendingReplaceFrom = lastUserOrdinal;
             input.setValue(history.get(lastUser).text());
         }
     }
@@ -853,6 +917,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
     private void retryLast() {
         if (lastUserText.isBlank() || activeStream != null) {
+            return;
+        }
+        if (dailyCapBlocked(lastUserText)) {
             return;
         }
         streamUserMessage(lastUserText, false);
@@ -885,6 +952,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void stopStream() {
+        stopStream(true);
+    }
+
+    private void stopStream(boolean drainQueue) {
         AssistantTurn turn = activeTurn;
         if (activeStream != null) {
             activeStream.dispose();
@@ -897,12 +968,13 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             } else {
                 turn.paint();
                 rememberAssistant(turn.rawText());
-                persist("assistant", turn.rawText(), extras(List.of(),
-                        new AssistantChatService.UsageSnapshot(null, null), System.nanoTime(), 0, turn.reasoningText()));
+                persist("assistant", turn.rawText(), currentModel, extras(currentModel,
+                        List.of(),
+                        new AssistantChatService.UsageSnapshot(null, null), System.nanoTime(), 0, turn.reasoningText(), turn.generationId()));
             }
             turn.finishStreaming();
         }
-        finishStream();
+        finishStream(drainQueue);
     }
 
     private void finishStream() {
@@ -914,31 +986,48 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         activeTurn = null;
         updateConfigurationState();
         updateComposerHint();
-        if (!drainQueue || queuedMessage == null || queuedMessage.isBlank() || !chat.configured()) {
+        if (!drainQueue || !isAttached() || queuedMessage == null || queuedMessage.isBlank() || !chat.configured()) {
             return;
         }
         String next = queuedMessage;
         queuedMessage = "";
+        Double estimate = catalog.estimateUsd(
+                settings.openRouterModel(),
+                catalog.estimatePromptTokens(next, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                600);
+        if (dailyCapBlocked(next, estimate)) {
+            return;
+        }
+        if (pendingReplaceFrom != null && conversationId != null) {
+            sessions.deleteFrom(conversationId, pendingReplaceFrom);
+            pendingReplaceFrom = null;
+            reloadTranscript();
+        }
         streamUserMessage(next, true, null);
     }
 
     private boolean tryFallback() {
-        if (usedFallback) {
+        String next = null;
+        for (String id : settings.openRouterFallbackModels()) {
+            if (id != null && !id.isBlank() && !triedModels.contains(id)) {
+                next = id;
+                break;
+            }
+        }
+        if (next == null) {
             return false;
         }
-        String fallback = settings.openRouterFallbackModel();
-        String primary = settings.openRouterModel();
-        if (fallback == null || fallback.isBlank() || fallback.equals(primary)) {
-            return false;
-        }
-        usedFallback = true;
-        Notification.show("Retrying with " + fallback, 2200, Notification.Position.BOTTOM_CENTER)
+        pendingFallbackModel = next;
+        Notification.show("Retrying with " + next, 2200, Notification.Position.BOTTOM_CENTER)
                 .addClassName("app-toast");
         return true;
     }
 
     private void sendPrompt(String prompt) {
         if (prompt == null || prompt.isBlank() || !chat.configured() || activeStream != null) {
+            return;
+        }
+        if (dailyCapBlocked(prompt)) {
             return;
         }
         streamUserMessage(prompt, true, null);
@@ -997,8 +1086,27 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         return sessions.spendUsdSince(start);
     }
 
+    private boolean dailyCapBlocked(String message) {
+        Double estimate = catalog.estimateUsd(
+                settings.openRouterModel(),
+                catalog.estimatePromptTokens(message, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                600);
+        return dailyCapBlocked(message, estimate);
+    }
+
+    private boolean dailyCapBlocked(String message, Double estimate) {
+        String blocked = ChatSessionService.blockIfOverCap(settings.dailySpendCapUsd(), todaySpendUsd(), estimate);
+        if (blocked == null) {
+            return false;
+        }
+        Notification.show(blocked, 4000, Notification.Position.MIDDLE)
+                .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+        return true;
+    }
+
     private void newChat() {
-        stopStream();
+        stopStream(false);
+        restoreQueuedText();
         if (conversationId != null) {
             tacticContexts.forgetConversation(conversationId);
         }
@@ -1012,7 +1120,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         lastUserOrdinal = -1;
         pendingReplaceFrom = null;
         queuedMessage = "";
-        usedFallback = false;
+        triedModels.clear();
+        pendingFallbackModel = "";
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
         refreshStarters();
@@ -1032,16 +1141,30 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void openSession(String id) {
-        stopStream();
+        stopStream(false);
+        restoreQueuedText();
+        pendingReplaceFrom = null;
+        lastUserText = "";
+        lastUserOrdinal = -1;
         conversationId = id;
         settings.saveLastChatSessionId(id);
         reloadTranscript();
         refreshSessions();
     }
 
+    private void restoreQueuedText() {
+        if (queuedMessage != null && !queuedMessage.isBlank()
+                && (input.getValue() == null || input.getValue().isBlank())) {
+            input.setValue(queuedMessage);
+        }
+        queuedMessage = "";
+    }
+
     private void reloadTranscript() {
         history.clear();
         sessionCostUsd = 0;
+        lastUserText = "";
+        lastUserOrdinal = -1;
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
         if (conversationId == null) {
@@ -1081,7 +1204,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 transcript.add(turn.root);
             }
         }
-        addSessionCost(new AssistantChatService.UsageSnapshot(null, null));
+        addSessionCost("", new AssistantChatService.UsageSnapshot(null, null));
         welcome.setVisible(chat.configured() && rows.isEmpty());
         updateConfigurationState();
         scrollToLatest();
@@ -1148,8 +1271,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         settings.saveLastChatSessionId(conversationId);
     }
 
-    private void addSessionCost(AssistantChatService.UsageSnapshot usage) {
-        Double extra = catalog.estimateUsd(settings.openRouterModel(), usage.promptTokens(), usage.completionTokens());
+    private void addSessionCost(String modelId, AssistantChatService.UsageSnapshot usage) {
+        Double extra = catalog.estimateUsd(modelId, usage.promptTokens(), usage.completionTokens());
         if (extra != null) {
             sessionCostUsd += extra;
         }
@@ -1291,22 +1414,57 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         return error.getMessage() == null || error.getMessage().isBlank() ? "Please try again." : error.getMessage();
     }
 
-    private void pingIfTabHidden() {
+    private void pingIfTabHidden(String reply) {
         UI ui = getUI().orElse(null);
         if (ui == null) {
             return;
         }
+        String preview = reply == null ? "" : reply.replaceAll("\\s+", " ").strip();
+        if (preview.length() > 120) {
+            preview = preview.substring(0, 117) + "…";
+        }
+        Boolean pref = settings.desktopNotify();
+        String prefText = pref == null ? "" : Boolean.toString(pref);
         ui.getPage().executeJs("""
-                if (document.hidden) {
-                  const previous = document.title;
-                  document.title = 'Reply ready · ' + previous;
-                  setTimeout(() => {
-                    if (document.title.startsWith('Reply ready')) {
-                      document.title = previous;
-                    }
-                  }, 5000);
+                const body = $0;
+                const pref = $1;
+                if (!document.hidden) {
+                  return;
                 }
-                """);
+                const previous = document.title;
+                document.title = 'Reply ready · ' + previous;
+                setTimeout(() => {
+                  if (document.title.startsWith('Reply ready')) {
+                    document.title = previous;
+                  }
+                }, 5000);
+                const notify = () => {
+                  if (Notification.permission !== 'granted') {
+                    return;
+                  }
+                  try {
+                    new Notification('FM AI reply ready', { body, silent: true });
+                  } catch (error) {}
+                };
+                if (pref !== 'true') {
+                  return;
+                }
+                if (Notification.permission === 'default') {
+                  Notification.requestPermission().then(permission => {
+                    $2.$server.receiveNotifyPermission(permission);
+                    if (permission === 'granted') {
+                      notify();
+                    }
+                  });
+                  return;
+                }
+                notify();
+                """, preview, prefText, getElement());
+    }
+
+    @ClientCallable
+    public void receiveNotifyPermission(String permission) {
+        settings.saveDesktopNotify("granted".equalsIgnoreCase(permission));
     }
 
     private final class AssistantTurn {
@@ -1326,6 +1484,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         private final Set<String> tools = new LinkedHashSet<>();
         private String raw = "";
         private String reasoningRaw = "";
+        private String generationId = "";
         private boolean contentVisible;
         private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -1412,6 +1571,27 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             reasoning.setVisible(true);
         }
 
+        private void appendReasoningOnce(String text) {
+            if (text == null || text.isBlank()) {
+                return;
+            }
+            String next = text.strip();
+            if (reasoningRaw != null && reasoningRaw.contains(next)) {
+                return;
+            }
+            reasoningRaw = (reasoningRaw == null ? "" : reasoningRaw) + next;
+            reasoningBody.setText(reasoningRaw);
+            reasoning.setVisible(true);
+        }
+
+        private void setGenerationId(String id) {
+            generationId = id == null ? "" : id.strip();
+        }
+
+        private String generationId() {
+            return generationId;
+        }
+
         private void addTool(String name) {
             if (name == null || name.isBlank() || closed.get()) {
                 return;
@@ -1481,6 +1661,13 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                       if (!code || code.dataset.hl) {
                         return;
                       }
+                      if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+                        try {
+                          window.hljs.highlightElement(code);
+                          code.dataset.hl = '1';
+                          return;
+                        } catch (error) {}
+                      }
                       const cls = [...code.classList].find(c => c.startsWith('language-'));
                       const name = cls ? cls.slice(9).toLowerCase() : '';
                       let html = code.innerHTML;
@@ -1546,11 +1733,24 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 return;
             }
             int ordinal = row.getOrdinal();
+            setGenerationId(row.getGenerationId());
             thumbsUp.setVisible(true);
             thumbsDown.setVisible(true);
             paintFeedback(row.getFeedback());
             thumbsUp.addClickListener(event -> paintFeedback(sessions.setFeedback(conversationId, ordinal, "up")));
-            thumbsDown.addClickListener(event -> paintFeedback(sessions.setFeedback(conversationId, ordinal, "down")));
+            thumbsDown.addClickListener(event -> {
+                String value = sessions.setFeedback(conversationId, ordinal, "down");
+                paintFeedback(value);
+                if ("down".equals(value) && generationId != null && !generationId.isBlank()) {
+                    catalog.submitGenerationFeedback(settings.openRouterApiKey(), generationId, "incorrect_response")
+                            .whenComplete((result, error) -> getUI().ifPresent(ui -> access(ui, () -> {
+                                if (result != null && !result.ok() && (result.status() == 401 || result.status() == 403)) {
+                                    stats.setText((stats.getText() == null || stats.getText().isBlank()
+                                            ? "" : stats.getText() + " · ") + result.message());
+                                }
+                            })));
+                }
+            });
         }
 
         private void paintFeedback(String value) {
@@ -1586,6 +1786,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             if (usage != null && (usage.promptTokens() != null || usage.completionTokens() != null)) {
                 parts.add((usage.promptTokens() == null ? 0 : usage.promptTokens())
                         + "+" + (usage.completionTokens() == null ? 0 : usage.completionTokens()) + " tok");
+            }
+            if (usage != null && usage.reasoningTokens() != null && usage.reasoningTokens() > 0) {
+                parts.add(usage.reasoningTokens() + " reason");
             }
             if (cost != null && cost > 0) {
                 parts.add(String.format("$%.4f", cost));

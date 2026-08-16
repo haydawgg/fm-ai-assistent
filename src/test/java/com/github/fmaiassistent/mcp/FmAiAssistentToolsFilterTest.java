@@ -71,6 +71,22 @@ class FmAiAssistentToolsFilterTest {
         assertEquals(5_000_000L, FmAiAssistentTools.resolvePriceCap(null, 5_000_000L));
         assertEquals(12_000_000L, FmAiAssistentTools.resolvePriceCap(12_000_000L, 5_000_000L));
         assertEquals(1_000_000L, FmAiAssistentTools.resolvePriceCap(1_000_000L, 5_000_000L));
+        assertEquals(0L, FmAiAssistentTools.resolvePriceCap(null, 0L));
+        assertEquals(0L, FmAiAssistentTools.resolvePriceCap(null, -1L));
+        assertEquals(Long.MAX_VALUE, FmAiAssistentTools.resolvePriceCap(null, null));
+        assertTrue(FmAiAssistentTools.priceCapKnown(0L));
+        assertFalse(FmAiAssistentTools.priceCapKnown(Long.MAX_VALUE));
+    }
+
+    @Test
+    void unknownPositionCodesStayInvalid() {
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> Positions.canonicalCode("midfielder"));
+        assertTrue(error.getMessage().contains("unsupported position"));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> Positions.canonicalCode("XYZ"));
     }
 
     @Test

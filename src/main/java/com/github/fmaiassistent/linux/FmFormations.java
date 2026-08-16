@@ -92,7 +92,9 @@ public final class FmFormations {
             case 24 -> List.of("GK", "DR", "DC", "DC", "DL", "DMC", "DMC", "AMC", "AMC", "ST", "ST");
             case 26, 39 -> List.of("GK", "DR", "DC", "DC", "DL", "DMC", "MC", "MC", "ST", "ST", "ST");
             case 27 -> List.of("GK", "DR", "DC", "DC", "DL", "DMC", "MC", "MC", "AMC", "AMC", "ST");
-            case 2, 15, 38, 57 -> List.of("GK", "DR", "DC", "DC", "DC", "DL", "MR", "MC", "MC", "ML", "ST");
+            case 2 -> List.of("GK", "WBR", "DC", "DC", "DC", "WBL", "MC", "MC", "MC", "ST", "ST");
+            case 15 -> List.of("GK", "WBR", "DC", "DC", "DC", "WBL", "DMC", "MC", "MC", "AMC", "ST");
+            case 38, 57 -> List.of("GK", "DR", "DC", "DC", "DC", "DL", "MR", "MC", "MC", "ML", "ST");
             case 41, 64 -> List.of("GK", "WBR", "DC", "DC", "DC", "WBL", "MC", "MC", "AMC", "ST", "ST");
             case 59 -> List.of("GK", "WBR", "DC", "DC", "DC", "WBL", "MC", "MC", "AMR", "AML", "ST");
             case 36 -> List.of("GK", "DR", "DC", "DC", "DL", "MC", "MC", "MC", "ST", "ST", "ST");

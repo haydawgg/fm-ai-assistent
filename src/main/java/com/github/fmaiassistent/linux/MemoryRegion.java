@@ -12,4 +12,8 @@ public record MemoryRegion(long start, long end, String perms, long offset, Stri
     public boolean writable() {
         return perms.length() > 1 && perms.charAt(1) == 'w';
     }
+
+    public boolean executable() {
+        return perms.length() > 2 && perms.charAt(2) == 'x';
+    }
 }

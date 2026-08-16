@@ -62,6 +62,9 @@ public class ChatMessageEntity {
     @Column(name = "reasoning")
     private String reasoning;
 
+    @Column(name = "generation_id", length = 128)
+    private String generationId;
+
     protected ChatMessageEntity() {
     }
 
@@ -168,5 +171,13 @@ public class ChatMessageEntity {
 
     public void setReasoning(String reasoning) {
         this.reasoning = reasoning;
+    }
+
+    public String getGenerationId() {
+        return generationId;
+    }
+
+    public void setGenerationId(String generationId) {
+        this.generationId = generationId;
     }
 }

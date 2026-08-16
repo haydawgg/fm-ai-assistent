@@ -61,8 +61,9 @@ final class OnboardingWizard {
         Button test = new Button("Test key", VaadinIcon.CONNECT.create(), event -> {
             status.setText("Testing…");
             String key = apiKey.getValue();
+            UI ui = UI.getCurrent();
             CompletableFuture.supplyAsync(() -> catalog.probe(key))
-                    .whenComplete((result, error) -> OpenRouterModelPicker.access(UI.getCurrent(), () -> {
+                    .whenComplete((result, error) -> OpenRouterModelPicker.access(ui, () -> {
                         OpenRouterModelCatalog.ProbeResult probe = result != null
                                 ? result
                                 : new OpenRouterModelCatalog.ProbeResult(false, OpenRouterModelPicker.errorMessage(error));
@@ -71,8 +72,14 @@ final class OnboardingWizard {
         });
 
         Button finish = new Button("Start chatting", event -> {
-            if (club.getValue() != null && !club.getValue().isBlank()) {
-                settings.saveSessionClub(club.getValue());
+            String canonical = SessionClub.canonicalize(club.getValue(), names);
+            if (canonical.isBlank() && club.getValue() != null && !club.getValue().isBlank() && !names.isEmpty()) {
+                Notification.show("Pick a club from the list after loading RAM", 3000, Notification.Position.MIDDLE)
+                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                return;
+            }
+            if (!canonical.isBlank()) {
+                settings.saveSessionClub(canonical);
             }
             if (apiKey.getValue() != null && !apiKey.getValue().isBlank()) {
                 settings.saveOpenRouter(apiKey.getValue(), settings.openRouterModel());

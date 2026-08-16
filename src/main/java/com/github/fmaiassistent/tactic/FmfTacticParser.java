@@ -21,6 +21,7 @@ class FmfTacticParser {
     private static final byte[] CATALOG_MAGIC = {2, 1, 'f', 'm', 'f', '.', 8, 0, 0};
     private static final int ARCHIVE_DATA_OFFSET = 26;
     private static final int MAX_RESOURCE_SIZE = 32 * 1024 * 1024;
+    private static final int MAX_CATALOG_DEPTH = 64;
 
     private final Fm26TacticDecoder tacticDecoder = new Fm26TacticDecoder();
 
@@ -94,7 +95,7 @@ class FmfTacticParser {
         try {
             CatalogCursor cursor = new CatalogCursor(catalog);
             String rootName = cursor.string();
-            CatalogDirectory root = cursor.directory(rootName, "");
+            CatalogDirectory root = cursor.directory(rootName, "", 0);
             if (root.allFiles().isEmpty()) {
                 throw new IllegalArgumentException("The FMF archive index contains no resources");
             }
@@ -136,14 +137,14 @@ class FmfTacticParser {
 
     private static byte[] decompress(
             byte[] bytes, int offset, int length, long expectedLength, String description) {
-        try (ZstdInputStream input = new ZstdInputStream(new ByteArrayInputStream(bytes, offset, length));
-                ByteArrayOutputStream output = new ByteArrayOutputStream(
-                        expectedLength > 0 ? Math.toIntExact(expectedLength) : 1024)) {
-            input.transferTo(output);
-            byte[] result = output.toByteArray();
-            if (result.length > MAX_RESOURCE_SIZE) {
-                throw new IllegalArgumentException(description + " is too large");
-            }
+        if (expectedLength > MAX_RESOURCE_SIZE) {
+            throw new IllegalArgumentException(description + " is too large");
+        }
+        try (ZstdInputStream input = new ZstdInputStream(new ByteArrayInputStream(bytes, offset, length))) {
+            byte[] result = readLimited(
+                    input,
+                    expectedLength > 0 ? Math.toIntExact(expectedLength) : MAX_RESOURCE_SIZE,
+                    description);
             if (expectedLength >= 0 && result.length != expectedLength) {
                 throw new IllegalArgumentException(description + " has an unexpected uncompressed size");
             }
@@ -151,6 +152,21 @@ class FmfTacticParser {
         } catch (IOException exception) {
             throw new IllegalArgumentException("The " + description + " is damaged or unsupported", exception);
         }
+    }
+
+    private static byte[] readLimited(java.io.InputStream input, int limit, String description) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(limit, 8192));
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            total += read;
+            if (total > limit) {
+                throw new IllegalArgumentException(description + " is too large");
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
     }
 
     private static int littleEndianInt(byte[] bytes, int offset) {
@@ -224,7 +240,10 @@ class FmfTacticParser {
             this.bytes = bytes;
         }
 
-        private CatalogDirectory directory(String name, String path) {
+        private CatalogDirectory directory(String name, String path, int depth) {
+            if (depth > MAX_CATALOG_DEPTH) {
+                throw new IllegalArgumentException("The FMF archive index is nested too deeply");
+            }
             int fileCount = count();
             List<CatalogFile> files = new ArrayList<>(fileCount);
             for (int index = 0; index < fileCount; index++) {
@@ -241,7 +260,7 @@ class FmfTacticParser {
             List<CatalogDirectory> directories = new ArrayList<>(directoryCount);
             for (int index = 0; index < directoryCount; index++) {
                 String childName = string();
-                directories.add(directory(childName, path + childName + "/"));
+                directories.add(directory(childName, path + childName + "/", depth + 1));
             }
             return new CatalogDirectory(name, List.copyOf(files), List.copyOf(directories));
         }

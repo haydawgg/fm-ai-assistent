@@ -105,12 +105,15 @@ public final class MarketValuation {
             int position = bestPositionIndex(player);
             Integer ca = player.getCa();
             Integer age = asInteger(player.getAge());
+            Integer pa = player.getPa();
             if (position < 0 || ca == null || ca <= 0 || age == null || age < 0) {
                 continue;
             }
             priced++;
-            Bucket key = new Bucket(position, ca / 10, age / 5, value(player.getPa()) / 20);
-            level1.computeIfAbsent(key, ignored -> new PriceList()).add(player);
+            Bucket key = new Bucket(position, ca / 10, age / 5, pa == null ? -1 : value(pa) / 20);
+            if (pa != null) {
+                level1.computeIfAbsent(key, ignored -> new PriceList()).add(player);
+            }
             level2.computeIfAbsent(key.withoutPa(), ignored -> new PriceList()).add(player);
             level3.computeIfAbsent(key.withoutAge(), ignored -> new PriceList()).add(player);
         }
@@ -134,12 +137,16 @@ public final class MarketValuation {
     public Market marketFor(PlayerEntity player) {
         Integer ca = player.getCa();
         Integer age = asInteger(player.getAge());
+        Integer pa = player.getPa();
         int position = bestPositionIndex(player);
         if (position < 0 || ca == null || ca <= 0 || age == null || age < 0) {
             return null;
         }
-        Bucket key = new Bucket(position, ca / 10, age / 5, value(player.getPa()) / 20);
-        Market market = byPositionCaAgePa.get(key);
+        Bucket key = new Bucket(position, ca / 10, age / 5, pa == null ? -1 : value(pa) / 20);
+        Market market = null;
+        if (pa != null) {
+            market = byPositionCaAgePa.get(key);
+        }
         if (market == null || market.samples() < MIN_BUCKET_SAMPLES) {
             market = byPositionCaAge.get(key.withoutPa());
             if (market == null || market.samples() < MIN_BUCKET_SAMPLES) {
@@ -159,7 +166,9 @@ public final class MarketValuation {
         if (market == null) {
             return null;
         }
-        long weeklyWage = value(player.getSalaryWeeklyRaw());
+        long weeklyWage = player.getSalaryWeeklyRaw() == null
+                ? market.wage()
+                : player.getSalaryWeeklyRaw().longValue();
         long totalCost = fee + CONTRACT_YEARS * WEEKS_PER_YEAR * weeklyWage;
         long marketCost = market.price() + CONTRACT_YEARS * WEEKS_PER_YEAR * market.wage();
         double score = totalCost <= 0 ? 9.99 : Math.min(9.99, round2(marketCost / (double) totalCost));

@@ -11,10 +11,6 @@ import com.github.fmaiassistent.player.FieldDef;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.Key;
 import com.vaadin.flow.component.Shortcuts;
-import com.vaadin.flow.component.ModalityMode;
-import com.vaadin.flow.component.UI;
-import com.vaadin.flow.component.UIDetachedException;
-import com.vaadin.flow.server.Command;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.checkbox.Checkbox;
@@ -32,7 +28,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.progressbar.ProgressBar;
 import com.vaadin.flow.component.select.Select;
 import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
@@ -43,14 +38,8 @@ import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.text.NumberFormat;
-import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,19 +76,11 @@ public class MainView extends VerticalLayout {
             "NAME", "AGE", "CLUB", "POSITION", "CA", "PA",
             "SALARY_WEEKLY_RAW", "ASKING_PRICE", "CONTRACT_END_DATE");
 
-    private final RamLoadCoordinator ramLoad;
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
-    private final OpenRouterModelCatalog openRouterModels;
 
-    private final Dialog loadingDialog = new Dialog();
-    private final ProgressBar spinner = new ProgressBar();
-    private final Span loadingTitle = new Span("Reading Football Manager memory");
-    private final Span loadingSubtitle = new Span("Players, clubs and competitions will refresh automatically.");
-    private final Button loadButton = new Button("Load from RAM", VaadinIcon.DATABASE.create());
-    private final Button settingsButton = new Button(VaadinIcon.COG.create());
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
     private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
     private final ComboBox<String> savedViews = new ComboBox<>();
@@ -132,18 +113,14 @@ public class MainView extends VerticalLayout {
     private List<PlayerEntity> visiblePlayers = List.of();
 
     public MainView(
-            RamLoadCoordinator ramLoad,
             PlayerDatabaseService players,
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
-            AppSettingsService settings,
-            OpenRouterModelCatalog openRouterModels) {
-        this.ramLoad = ramLoad;
+            AppSettingsService settings) {
         this.players = players;
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
-        this.openRouterModels = openRouterModels;
         this.currency = settings.currency();
 
         setSizeFull();
@@ -158,7 +135,6 @@ public class MainView extends VerticalLayout {
         configureGrid(playersGrid);
         configureGrid(clubsGrid);
         configureGrid(competitionsGrid);
-        configureLoadingDialog();
         configureQuickFilters();
         configurePlayerShortcuts();
         playersGrid.addClassName("players-grid");
@@ -363,98 +339,6 @@ public class MainView extends VerticalLayout {
         grid.addThemeVariants(GridVariant.LUMO_NO_BORDER);
         grid.addClassName("data-grid");
         grid.getElement().getStyle().set("cursor", "default");
-    }
-
-    private void loadAllData() {
-        UI ui = UI.getCurrent();
-        loadButton.setEnabled(false);
-        loadButton.setText("Loading...");
-        loadButton.setIcon(VaadinIcon.REFRESH.create());
-        loadButton.addClassName("is-loading");
-        loadingDialog.open();
-        applyLoadProgress(new LoadProgress(LoadProgress.Phase.COMPETITIONS, 0, 1, 0));
-
-        CompletableFuture
-                .supplyAsync(() -> {
-                    try {
-                        return ramLoad.loadFromRam(progress -> accessUi(ui, () -> applyLoadProgress(progress)));
-                    } catch (IOException ex) {
-                        throw new CompletionException(ex);
-                    }
-                })
-                .thenAccept(result -> accessUi(ui, () -> {
-                    finishLoading();
-                    Notification loaded = Notification.show(
-                            "Loaded " + result.players() + " players, "
-                                    + result.clubs() + " clubs, "
-                                    + result.competitions() + " competitions"
-                                    + (result.skipSummary() == null ? "" : result.skipSummary()),
-                            4000,
-                            Notification.Position.TOP_CENTER
-                    );
-                    loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-                    loaded.addClassName("app-toast");
-                    updateStatus(result);
-                    refreshSelectedTab();
-                }))
-                .exceptionally(ex -> {
-                    accessUi(ui, () -> {
-                        finishLoading();
-                        Throwable cause = unwrapLoadError(ex);
-                        LOGGER.error("Load from RAM failed", cause);
-
-                        Notification failed = Notification.show(
-                                "Load failed: " + loadErrorMessage(cause),
-                                8000,
-                                Notification.Position.TOP_CENTER
-                        );
-                        failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
-                        failed.addClassName("app-toast");
-                    });
-                    return null;
-                });
-    }
-
-    private void applyLoadProgress(LoadProgress progress) {
-        spinner.setIndeterminate(progress.total() <= 0);
-        spinner.setValue(progress.overallFraction());
-        loadingTitle.setText(progress.title());
-        loadingSubtitle.setText(progress.subtitle());
-    }
-
-    private static Throwable unwrapLoadError(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null && current.getCause() != current
-                && (current instanceof CompletionException
-                || current instanceof ExecutionException
-                || (current instanceof IOException && current.getMessage() != null
-                && current.getMessage().startsWith("Player export failed")))) {
-            current = current.getCause();
-        }
-        return current;
-    }
-
-    private static String loadErrorMessage(Throwable cause) {
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
-    }
-
-    private void finishLoading() {
-        loadingDialog.close();
-        loadButton.setEnabled(true);
-        loadButton.setText("Load from RAM");
-        loadButton.setIcon(VaadinIcon.DATABASE.create());
-        loadButton.removeClassName("is-loading");
-    }
-
-    private static void accessUi(UI ui, Command action) {
-        if (ui == null) {
-            return;
-        }
-        try {
-            ui.access(action);
-        } catch (UIDetachedException ignored) {
-        }
     }
 
     private void refreshSelectedTab() {
@@ -974,35 +858,6 @@ public class MainView extends VerticalLayout {
             return "playing-club-loaned-in";
         }
         return null;
-    }
-
-    private void configureLoadingDialog() {
-        spinner.setMin(0);
-        spinner.setMax(1);
-        spinner.setValue(0);
-        spinner.setIndeterminate(false);
-        spinner.addClassName("loading-progress");
-        loadingDialog.setModality(ModalityMode.STRICT);
-        loadingDialog.setCloseOnEsc(false);
-        loadingDialog.setCloseOnOutsideClick(false);
-        loadingDialog.setDraggable(false);
-        loadingDialog.setResizable(false);
-
-        loadingTitle.addClassName("loading-text");
-        loadingSubtitle.addClassName("loading-text");
-        VerticalLayout content = new VerticalLayout(
-                new Div(VaadinIcon.DATABASE.create()),
-                spinner,
-                loadingTitle,
-                loadingSubtitle
-        );
-        content.setAlignItems(FlexComponent.Alignment.CENTER);
-        content.setPadding(true);
-        content.addClassName("loading-content");
-
-        loadingDialog.add(content);
-        loadingDialog.addClassName("loading-dialog");
-        loadingDialog.getElement().getThemeList().add("professional-dialog");
     }
 
     private void openPlayerDrawer(PlayerEntity player) {

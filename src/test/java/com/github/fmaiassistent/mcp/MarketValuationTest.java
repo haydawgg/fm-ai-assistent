@@ -67,6 +67,23 @@ class MarketValuationTest {
     }
 
     @Test
+    void unknownWeeklyWageUsesMarketWageInDealCost() {
+        MarketValuation market = MarketValuation.build(marketPlayers());
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", "unknown-wage");
+        row.put("ca", 135);
+        row.put("pa", 150);
+        row.put("age", 22);
+        row.put("asking_price", 6_000_000L);
+        row.put("club", "Market FC");
+        row.put("Striker", 16);
+        MarketValuation.Deal deal = market.deal(PlayerEntity.fromExportRow(row), 6_000_000L);
+        assertNotNull(deal);
+        assertEquals(6_000_000L + MarketValuation.CONTRACT_YEARS * MarketValuation.WEEKS_PER_YEAR * deal.market().wage(),
+                deal.totalCost());
+    }
+
+    @Test
     void fallsBackToCoarserBucketWhenFineGrainedBucketIsThin() {
         List<PlayerEntity> players = new ArrayList<>();
         // Same position/CA/age, split across two PA bands: 2 + 3 samples (< 5 each).

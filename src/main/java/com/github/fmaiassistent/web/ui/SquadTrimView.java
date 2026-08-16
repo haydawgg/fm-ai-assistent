@@ -136,14 +136,14 @@ public class SquadTrimView extends VerticalLayout {
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
         CompletableFuture.supplyAsync(() -> tools.sellRows(club))
-                .thenAccept(rows -> ui.access(() -> {
+                .thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
                     grid.setItems(rows);
                     long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
                     long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
                     summary.setText(rows.size() + " players · " + sell + " sell · " + loan + " loan");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
-                    ui.access(() -> {
+                    OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);

@@ -183,7 +183,7 @@ public class ShortlistView extends VerticalLayout {
                 tools.transferShortlistRows(
                         club, position, role, finalAgeCap, value(minCa), value(minPa),
                         feePounds(), wagePounds())
-        ).thenAccept(rows -> ui.access(() -> {
+        ).thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
             grid.setItems(rows);
             long listed = rows.stream().filter(TransferShortlistRow::transferListed).count();
             long injured = rows.stream().filter(TransferShortlistRow::injured).count();
@@ -193,7 +193,7 @@ public class ShortlistView extends VerticalLayout {
                     + (Boolean.TRUE.equals(wonderkids.getValue()) ? " with wonderkid age cap" : ""));
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
-            ui.access(() -> {
+            OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);

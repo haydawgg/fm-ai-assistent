@@ -120,14 +120,14 @@ public class SquadCompareView extends VerticalLayout {
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
         CompletableFuture.supplyAsync(() -> tools.compareSquads(left, right))
-                .thenAccept(result -> ui.access(() -> {
+                .thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
                     @SuppressWarnings("unchecked")
                     List<SquadAdvice.SquadCompareRow> rows = (List<SquadAdvice.SquadCompareRow>) result.get("positions");
                     grid.setItems(rows == null ? List.of() : rows);
                     summary.setText(cardText("Left", result.get("left")) + "  ·  " + cardText("Right", result.get("right")));
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
-                    ui.access(() -> {
+                    OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);

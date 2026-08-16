@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 class TacticOcrService implements TacticImageTextExtractor {
     private static final Logger log = LoggerFactory.getLogger(TacticOcrService.class);
+    private static final long MAX_IMAGE_PIXELS = 12_000_000L;
 
     private final TacticContextProperties properties;
 
@@ -93,6 +94,11 @@ class TacticOcrService implements TacticImageTextExtractor {
             BufferedImage source = ImageIO.read(image.toFile());
             if (source == null) {
                 throw new IllegalArgumentException("Unsupported or damaged tactic image: " + image.getFileName());
+            }
+            long pixels = (long) source.getWidth() * source.getHeight();
+            if (pixels > MAX_IMAGE_PIXELS) {
+                throw new IllegalArgumentException("Tactic image is too large for OCR: " + image.getFileName()
+                        + " (" + source.getWidth() + "x" + source.getHeight() + ")");
             }
             return source;
         } catch (IOException exception) {

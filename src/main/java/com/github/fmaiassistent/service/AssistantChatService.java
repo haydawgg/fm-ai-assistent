@@ -33,6 +33,10 @@ import java.util.function.Consumer;
 public class AssistantChatService {
     public static final int MAX_HISTORY_MESSAGES = 20;
     static final String DEFAULT_CONVERSATION_KEY = "openrouter-chat";
+    private static final String THINK_OPEN_LONG = "<thinking>";
+    private static final String THINK_OPEN = "<think>";
+    private static final String THINK_CLOSE_LONG = "</thinking>";
+    private static final String THINK_CLOSE = "</think>";
     private static final String SYSTEM = """
             You are the FM AI Assistent for Football Manager 26.
             Use the fm26_* tools for save data. Call fm26_status first if you are unsure whether RAM is loaded.
@@ -49,13 +53,17 @@ public class AssistantChatService {
     public record ToolTrace(String name, String label, String input, String output, long elapsedMs) {
     }
 
-    public record UsageSnapshot(Integer promptTokens, Integer completionTokens) {
+    public record UsageSnapshot(Integer promptTokens, Integer completionTokens, Integer reasoningTokens) {
+        public UsageSnapshot(Integer promptTokens, Integer completionTokens) {
+            this(promptTokens, completionTokens, null);
+        }
+
         static UsageSnapshot from(ChatResponse response) {
             if (response == null || response.getMetadata() == null || response.getMetadata().getUsage() == null) {
-                return new UsageSnapshot(null, null);
+                return new UsageSnapshot(null, null, null);
             }
             Usage usage = response.getMetadata().getUsage();
-            return new UsageSnapshot(tokenCount(usage.getPromptTokens()), tokenCount(usage.getCompletionTokens()));
+            return new UsageSnapshot(tokenCount(usage.getPromptTokens()), tokenCount(usage.getCompletionTokens()), null);
         }
 
         private static Integer tokenCount(Integer value) {
@@ -63,9 +71,13 @@ public class AssistantChatService {
         }
     }
 
-    public record ChatStreamEvent(Kind kind, String text, ToolTrace trace, UsageSnapshot usage) {
+    public record ChatStreamEvent(Kind kind, String text, ToolTrace trace, UsageSnapshot usage, String generationId) {
         public ChatStreamEvent(Kind kind, String text) {
-            this(kind, text, null, null);
+            this(kind, text, null, null, null);
+        }
+
+        public ChatStreamEvent(Kind kind, String text, ToolTrace trace, UsageSnapshot usage) {
+            this(kind, text, trace, usage, null);
         }
 
         public enum Kind {
@@ -139,21 +151,36 @@ public class AssistantChatService {
                 : conversationKey;
         String enriched = promptContext.enrich(key, userMessage);
         Sinks.Many<ChatStreamEvent> sideEvents = Sinks.many().unicast().onBackpressureBuffer();
+        java.util.concurrent.atomic.AtomicBoolean progressMade = new java.util.concurrent.atomic.AtomicBoolean();
         ToolCallback[] observed = observing(
                 tools.getToolCallbacks(),
-                name -> sideEvents.tryEmitNext(new ChatStreamEvent(ChatStreamEvent.Kind.TOOL, name)),
-                trace -> sideEvents.tryEmitNext(new ChatStreamEvent(ChatStreamEvent.Kind.TOOL_TRACE, trace.label(), trace, null)));
-        Flux<ChatStreamEvent> tokens = snapshot.prompt()
-                .system(systemPrompt(grounding == null ? ChatGrounding.empty() : grounding)
-                        + "Tone: " + settings.chatTone().instruction() + "\n")
-                .messages(promptMessages(history, enriched))
-                .toolCallbacks(observed)
-                .stream()
-                .chatResponse()
-                .flatMap(response -> Flux.fromIterable(toStreamEvents(response)))
+                name -> {
+                    progressMade.set(true);
+                    sideEvents.tryEmitNext(new ChatStreamEvent(ChatStreamEvent.Kind.TOOL, name));
+                },
+                trace -> {
+                    progressMade.set(true);
+                    sideEvents.tryEmitNext(new ChatStreamEvent(ChatStreamEvent.Kind.TOOL_TRACE, trace.label(), trace, null));
+                });
+        java.util.concurrent.atomic.AtomicReference<String> emittedReasoning = new java.util.concurrent.atomic.AtomicReference<>("");
+        Flux<ChatStreamEvent> tokens = Flux.defer(() -> {
+            ThinkSplitter thinkSplitter = new ThinkSplitter();
+            emittedReasoning.set("");
+            return snapshot.prompt()
+                    .system(systemPrompt(grounding == null ? ChatGrounding.empty() : grounding)
+                            + "Tone: " + settings.chatTone().instruction() + "\n")
+                    .messages(promptMessages(history, enriched))
+                    .toolCallbacks(observed)
+                    .stream()
+                    .chatResponse()
+                    .flatMap(response -> Flux.fromIterable(decorateStreamEvents(response, emittedReasoning, thinkSplitter)))
+                    .concatWith(Flux.defer(() -> Flux.fromIterable(
+                            decorateSplitterFlush(thinkSplitter.flush(), emittedReasoning))))
+                    .doOnNext(event -> progressMade.set(true));
+        })
                 .retryWhen(Retry.backoff(2, Duration.ofMillis(400))
                         .maxBackoff(Duration.ofSeconds(4))
-                        .filter(AssistantChatService::transientError))
+                        .filter(error -> transientError(error) && !progressMade.get()))
                 .doFinally(signal -> sideEvents.tryEmitComplete());
         return Flux.merge(sideEvents.asFlux(), tokens);
     }
@@ -185,6 +212,10 @@ public class AssistantChatService {
     }
 
     static List<ChatStreamEvent> toStreamEvents(ChatResponse response) {
+        return toStreamEvents(response, null);
+    }
+
+    static List<ChatStreamEvent> toStreamEvents(ChatResponse response, ThinkSplitter splitter) {
         String token = "";
         String reasoning = "";
         if (response != null && response.getResult() != null && response.getResult().getOutput() != null) {
@@ -198,20 +229,147 @@ public class AssistantChatService {
         if (response != null && response.getMetadata() != null) {
             reasoning = firstNonBlank(reasoning, extractReasoning(response.getMetadata()));
         }
-        ThinkSplitter.Piece split = ThinkSplitter.splitComplete(token);
+        ThinkSplitter.Piece split = splitter == null
+                ? ThinkSplitter.splitComplete(token)
+                : splitter.push(token);
         reasoning = firstNonBlank(reasoning, split.reasoning());
         token = split.answer();
         UsageSnapshot usage = UsageSnapshot.from(response);
+        String id = generationId(response);
         List<ChatStreamEvent> events = new ArrayList<>();
         if (!reasoning.isBlank()) {
-            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.REASONING, reasoning, null, usage));
+            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.REASONING, reasoning, null, usage, id));
         }
         if (!token.isEmpty()) {
-            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.TOKEN, token, null, usage));
-        } else if (events.isEmpty()) {
-            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.USAGE, "", null, usage));
+            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.TOKEN, token, null, usage, generationId(response)));
+        } else if (events.isEmpty() && splitter == null) {
+            events.add(new ChatStreamEvent(ChatStreamEvent.Kind.USAGE, "", null, usage, generationId(response)));
         }
         return events;
+    }
+
+    static List<ChatStreamEvent> decorateStreamEvents(
+            ChatResponse response, java.util.concurrent.atomic.AtomicReference<String> emittedReasoning) {
+        return decorateStreamEvents(response, emittedReasoning, null);
+    }
+
+    static List<ChatStreamEvent> decorateStreamEvents(
+            ChatResponse response,
+            java.util.concurrent.atomic.AtomicReference<String> emittedReasoning,
+            ThinkSplitter splitter) {
+        String id = generationId(response);
+        List<ChatStreamEvent> out = new ArrayList<>();
+        String previous = emittedReasoning == null || emittedReasoning.get() == null ? "" : emittedReasoning.get();
+        for (ChatStreamEvent event : toStreamEvents(response, splitter)) {
+            ChatStreamEvent tagged = new ChatStreamEvent(event.kind(), event.text(), event.trace(), event.usage(),
+                    firstNonBlank(event.generationId(), id));
+            if (tagged.kind() != ChatStreamEvent.Kind.REASONING) {
+                out.add(tagged);
+                continue;
+            }
+            String suffix = reasoningSuffix(previous, tagged.text());
+            if (suffix.isBlank()) {
+                continue;
+            }
+            if (tagged.text().startsWith(previous)) {
+                previous = tagged.text();
+            } else {
+                previous = previous + suffix;
+            }
+            out.add(new ChatStreamEvent(ChatStreamEvent.Kind.REASONING, suffix, null, tagged.usage(), tagged.generationId()));
+        }
+        if (emittedReasoning != null) {
+            emittedReasoning.set(previous);
+        }
+        return out;
+    }
+
+    static List<ChatStreamEvent> decorateSplitterFlush(
+            ThinkSplitter.Piece tail, java.util.concurrent.atomic.AtomicReference<String> emittedReasoning) {
+        if (tail == null) {
+            return List.of();
+        }
+        List<ChatStreamEvent> out = new ArrayList<>();
+        String previous = emittedReasoning == null || emittedReasoning.get() == null ? "" : emittedReasoning.get();
+        if (!tail.reasoning().isBlank()) {
+            String suffix = reasoningSuffix(previous, tail.reasoning());
+            if (!suffix.isBlank()) {
+                out.add(new ChatStreamEvent(ChatStreamEvent.Kind.REASONING, suffix, null, null, null));
+                if (emittedReasoning != null) {
+                    emittedReasoning.set(tail.reasoning().startsWith(previous)
+                            ? tail.reasoning()
+                            : previous + suffix);
+                }
+            }
+        }
+        if (!tail.answer().isEmpty()) {
+            out.add(new ChatStreamEvent(ChatStreamEvent.Kind.TOKEN, tail.answer(), null, null, null));
+        }
+        return out;
+    }
+
+    static String reasoningSuffix(String previous, String next) {
+        if (next == null || next.isBlank()) {
+            return "";
+        }
+        String prior = previous == null ? "" : previous;
+        if (prior.isEmpty()) {
+            return next;
+        }
+        if (next.equals(prior) || prior.endsWith(next) || prior.contains(next)) {
+            return "";
+        }
+        if (next.startsWith(prior)) {
+            return next.substring(prior.length());
+        }
+        return next;
+    }
+
+    static String generationId(ChatResponse response) {
+        if (response == null) {
+            return "";
+        }
+        if (response.getMetadata() != null) {
+            String id = response.getMetadata().getId();
+            if (id != null && !id.isBlank()) {
+                return id.strip();
+            }
+            String nested = extractGenerationId(response.getMetadata());
+            if (!nested.isBlank()) {
+                return nested;
+            }
+        }
+        if (response.getResult() != null && response.getResult().getMetadata() != null) {
+            return extractGenerationId(toMap(response.getResult().getMetadata()));
+        }
+        return "";
+    }
+
+    static String extractGenerationId(Object node) {
+        return extractGenerationId(node, 0);
+    }
+
+    private static String extractGenerationId(Object node, int depth) {
+        if (node == null || depth > 4) {
+            return "";
+        }
+        if (node instanceof Map<?, ?> map) {
+            for (String key : List.of("id", "generation_id", "generationId")) {
+                Object value = map.get(key);
+                if (value instanceof CharSequence text && looksLikeGenerationId(text.toString())) {
+                    return text.toString().strip();
+                }
+            }
+        }
+        return "";
+    }
+
+    private static boolean looksLikeGenerationId(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String id = value.strip();
+        return id.startsWith("gen-") || id.length() >= 8;
     }
 
     static boolean transientError(Throwable error) {
@@ -347,12 +505,12 @@ public class AssistantChatService {
         private void drain(StringBuilder reasoning, StringBuilder answer, boolean flush) {
             while (!pending.isEmpty()) {
                 if (!inThink) {
-                    int start = indexOfIgnoreCase(pending, "<think>");
-                    if (start < 0) {
+                    TagMatch start = firstOpenTag(pending);
+                    if (start == null) {
                         if (flush) {
                             answer.append(pending);
                             pending.setLength(0);
-                        } else if (partialTag(pending, "<think>")) {
+                        } else if (partialTag(pending, THINK_OPEN_LONG) || partialTag(pending, THINK_OPEN)) {
                             break;
                         } else {
                             answer.append(pending);
@@ -360,23 +518,46 @@ public class AssistantChatService {
                         }
                         break;
                     }
-                    answer.append(pending, 0, start);
-                    pending.delete(0, start + 7);
+                    answer.append(pending, 0, start.index());
+                    pending.delete(0, start.index() + start.tag().length());
                     inThink = true;
                 } else {
-                    int end = indexOfIgnoreCase(pending, "</think>");
-                    if (end < 0) {
-                        if (flush || !partialTag(pending, "</think>")) {
+                    TagMatch end = firstCloseTag(pending);
+                    if (end == null) {
+                        if (flush || !(partialTag(pending, THINK_CLOSE_LONG) || partialTag(pending, THINK_CLOSE))) {
                             reasoning.append(pending);
                             pending.setLength(0);
                         }
                         break;
                     }
-                    reasoning.append(pending, 0, end);
-                    pending.delete(0, end + 8);
+                    reasoning.append(pending, 0, end.index());
+                    pending.delete(0, end.index() + end.tag().length());
                     inThink = false;
                 }
             }
+        }
+
+        private static TagMatch firstOpenTag(StringBuilder buffer) {
+            return earlierTag(buffer, THINK_OPEN_LONG, THINK_OPEN);
+        }
+
+        private static TagMatch firstCloseTag(StringBuilder buffer) {
+            return earlierTag(buffer, THINK_CLOSE_LONG, THINK_CLOSE);
+        }
+
+        private static TagMatch earlierTag(StringBuilder buffer, String longTag, String shortTag) {
+            int longIndex = indexOfIgnoreCase(buffer, longTag);
+            int shortIndex = indexOfIgnoreCase(buffer, shortTag);
+            if (longIndex >= 0 && (shortIndex < 0 || longIndex <= shortIndex)) {
+                return new TagMatch(longIndex, longTag);
+            }
+            if (shortIndex >= 0) {
+                return new TagMatch(shortIndex, shortTag);
+            }
+            return null;
+        }
+
+        private record TagMatch(int index, String tag) {
         }
 
         private static boolean partialTag(StringBuilder buffer, String tag) {
@@ -597,6 +778,7 @@ public class AssistantChatService {
         ChatTone resolved = tone == null ? ChatTone.DETAILED : tone;
         java.util.HashMap<String, Object> extra = new java.util.HashMap<>();
         extra.put("include_reasoning", Boolean.TRUE);
+        extra.put("reasoning", java.util.Map.of("effort", "medium"));
         var builder = OpenAiChatOptions.builder()
                 .model(model)
                 .apiKey(apiKey)

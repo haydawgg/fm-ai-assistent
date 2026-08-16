@@ -424,4 +424,26 @@
             <column name="reasoning" type="CLOB"/>
         </addColumn>
     </changeSet>
+
+    <changeSet id="006-chat-message-generation-id" author="codex">
+        <addColumn tableName="chat_message">
+            <column name="generation_id" type="VARCHAR(128)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="007-chat-message-ordinal-unique" author="codex">
+        <sql>
+            DELETE FROM chat_message WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id, ordinal ORDER BY id) AS rn
+                    FROM chat_message
+                ) ranked
+                WHERE rn &gt; 1
+            );
+        </sql>
+        <addUniqueConstraint
+                tableName="chat_message"
+                columnNames="session_id, ordinal"
+                constraintName="uk_chat_message_session_ordinal"/>
+    </changeSet>
 </databaseChangeLog>

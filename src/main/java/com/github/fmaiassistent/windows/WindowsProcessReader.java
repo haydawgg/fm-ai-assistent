@@ -37,7 +37,6 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     private static final int PAGE_EXECUTE_WRITECOPY = 0x80;
     private static final int PAGE_GUARD = 0x100;
     private static final long MAX_ADDRESS = 0x00007FFFFFFFFFFFL;
-    private static final Pointer INVALID_HANDLE_VALUE = Pointer.createConstant(-1);
 
     private final int pid;
     private final Pointer process;
@@ -123,7 +122,8 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
             long start = Pointer.nativeValue(mbi.BaseAddress);
             long size = mbi.RegionSize;
             if (size <= 0 || start > MAX_ADDRESS - size) {
-                break;
+                address = Math.max(address + 0x1000, start + 0x1000);
+                continue;
             }
             long end = start + size;
             if (mbi.State == MEM_COMMIT) {
@@ -145,8 +145,11 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         for (int attempt = 0; attempt < 5; attempt++) {
             try {
                 List<ModuleRange> modules = modulesViaToolhelp();
-                if (!modules.isEmpty()) {
+                if (!modules.isEmpty() && looksComplete(modules)) {
                     return modules;
+                }
+                if (!modules.isEmpty()) {
+                    lastError = new IOException("Incomplete module list for PID " + pid);
                 }
             } catch (IOException ex) {
                 lastError = ex;
@@ -174,7 +177,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     private List<ModuleRange> modulesViaToolhelp() throws IOException {
         Pointer snapshot = Kernel32.INSTANCE.CreateToolhelp32Snapshot(
                 TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
-        if (snapshot == null || INVALID_HANDLE_VALUE.equals(snapshot)) {
+        if (snapshot == null || Pointer.nativeValue(snapshot) == -1L) {
             throw win32Error("CreateToolhelp32Snapshot failed for PID " + pid);
         }
         try {
@@ -194,6 +197,9 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
                 entry.dwSize = entry.size();
                 entry.write();
                 found = Kernel32.INSTANCE.Module32NextW(snapshot, entry);
+                if (!found && Native.getLastError() == ERROR_PARTIAL_COPY) {
+                    throw win32Error("Module32NextW failed for PID " + pid);
+                }
             }
             return modules;
         } finally {
@@ -239,6 +245,13 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         }
     }
 
+    private static boolean looksComplete(List<ModuleRange> modules) {
+        return modules.stream().anyMatch(module -> {
+            String path = module.path().toLowerCase(Locale.ROOT);
+            return path.contains("game_plugin.dll") || path.endsWith("fm.exe");
+        });
+    }
+
     private static String permissions(int protect) {
         if ((protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
             return "---";
@@ -258,10 +271,8 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
     }
 
     @Override
-    public void close() throws IOException {
-        if (!Kernel32.INSTANCE.CloseHandle(process)) {
-            throw win32Error("CloseHandle failed for PID " + pid);
-        }
+    public void close() {
+        Kernel32.INSTANCE.CloseHandle(process);
     }
 
     private record ModuleRange(long start, long end, String path) {

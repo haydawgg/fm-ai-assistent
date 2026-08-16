@@ -170,7 +170,7 @@ public class FmAiAssistentTools {
                 .filter(filter)
                 .sorted(Comparator
                         .comparing((PlayerEntity player) -> value(player.getPa())).reversed()
-                        .thenComparing((PlayerEntity player) -> value(player.getCa())).reversed()
+                        .thenComparing(Comparator.comparing((PlayerEntity player) -> value(player.getCa())).reversed())
                         .thenComparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .limit(safeLimit)
                 .map(fullDetails ? this::playerFullMap : this::playerSummaryMap)
@@ -286,7 +286,12 @@ public class FmAiAssistentTools {
         putIfNotNull(criteria, "max_age", maxAge);
         putIfNotNull(criteria, "min_ca", minCurrentAbility);
         putIfNotNull(criteria, "min_pa", minPotentialAbility);
-        criteria.put("max_asking_price", ranked.priceCap());
+        putIfNotNull(criteria, "max_asking_price", priceCapKnown(ranked.priceCap()) ? ranked.priceCap() : null);
+        if (!priceCapKnown(ranked.priceCap())) {
+            criteria.put("budget_note", "club transfer budget is not decoded; no price cap was applied");
+        } else if (ranked.priceCap() <= 0) {
+            criteria.put("budget_note", "club transfer budget is £0");
+        }
         criteria.put("weekly_wage_ceiling", ranked.wageCeiling());
         criteria.put("reputation_margin", ranked.reputationMargin());
         criteria.put("minimum_time_at_current_club", ranked.minimumTime().toString());
@@ -351,7 +356,12 @@ public class FmAiAssistentTools {
         criteria.put("min_ca", params.qualityFloor());
         putIfNotNull(criteria, "min_pa", params.minPa());
         putIfNotNull(criteria, "max_age", params.maxAge());
-        criteria.put("max_asking_price", params.priceCap());
+        putIfNotNull(criteria, "max_asking_price", priceCapKnown(params.priceCap()) ? params.priceCap() : null);
+        if (!priceCapKnown(params.priceCap())) {
+            criteria.put("budget_note", "club transfer budget is not decoded; no price cap was applied");
+        } else if (params.priceCap() <= 0) {
+            criteria.put("budget_note", "club transfer budget is £0");
+        }
         criteria.put("weekly_wage_ceiling", params.wageCeiling());
         criteria.put("reputation_margin", params.reputationMargin());
         criteria.put("minimum_time_at_current_club", params.minimumTime().toString());
@@ -450,7 +460,7 @@ public class FmAiAssistentTools {
         return out;
     }
 
-    @Tool(name = "fm26_wonderkid_shortlist", description = "Young high-PA signings. Same recruitment filters as fm26_transfer_shortlist with a default max age of 21. Money values are raw pounds.")
+    @Tool(name = "fm26_wonderkid_shortlist", description = "Young signings, same recruitment filters as fm26_transfer_shortlist with a default max age of 21. Pass minPotentialAbility to target high-PA prospects. Money values are raw pounds.")
     @Transactional(readOnly = true)
     public Map<String, Object> wonderkidShortlist(
             @ToolParam(description = "Managing club name, for example Feyenoord") String managingClub,
@@ -587,7 +597,7 @@ public class FmAiAssistentTools {
     public List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge) {
         ClubEntity club = requireClub(managingClub);
         int cap = maxAge == null ? 21 : maxAge;
-        List<PlayerEntity> youth = players.findPlayerEntities(PlayerFilterCriteria.clubOnly(club.getName()));
+        List<PlayerEntity> youth = ownedSquad(squadPlayers(club.getName()), club.getName());
         return SquadAdvice.academy(youth, cap);
     }
 
@@ -651,9 +661,18 @@ public class FmAiAssistentTools {
             if (already) {
                 continue;
             }
-            Map<String, Object> shortlist = transferShortlist(
-                    managingClub, pick.position(), pick.inPossessionRole(), "In Possession",
-                    null, null, null, null, null, null, null, null, null, null, null, null, 5);
+            Map<String, Object> shortlist;
+            try {
+                shortlist = transferShortlist(
+                        managingClub, pick.position(), pick.inPossessionRole(), "In Possession",
+                        null, null, null, null, null, null, null, null, null, null, null, null, 5);
+            } catch (IllegalArgumentException ex) {
+                upgrades.add(Map.of(
+                        "position", pick.position(),
+                        "in_possession_role", pick.inPossessionRole(),
+                        "skipped", "role fit lookup failed: " + ex.getMessage()));
+                continue;
+            }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("position", pick.position());
             row.put("in_possession_role", pick.inPossessionRole());
@@ -815,10 +834,9 @@ public class FmAiAssistentTools {
         int qualityFloor = minCurrentAbility == null
                 ? Math.max(0, benchmarkCa - DEFAULT_MONEYBALL_QUALITY_GAP)
                 : minCurrentAbility;
-        long budget = Math.max(0L, value(club.getTransferBudget()));
         int safeReputationMargin = reputationMargin == null ? DEFAULT_REPUTATION_MARGIN : Math.max(0, reputationMargin);
         Period minimumTime = parsePeriod(minimumTimeAtCurrentClub, Period.ofYears(1));
-        long priceCap = resolvePriceCap(maxAskingPrice, budget);
+        long priceCap = resolvePriceCap(maxAskingPrice, club.getTransferBudget());
         long wageCeiling = maxWeeklySalary == null
                 ? inferredWeeklyWageCeiling(squad, club)
                 : Math.max(0L, maxWeeklySalary);
@@ -930,7 +948,7 @@ public class FmAiAssistentTools {
             long askingPrice = value(player.getAskingPrice());
             boolean priceKnown = askingPrice > 0;
             boolean freeAgent = blank(player.getClub());
-            if (priceKnown && askingPrice > priceCap) {
+            if (priceKnown && priceCap != Long.MAX_VALUE && askingPrice > priceCap) {
                 continue;
             }
             if (!salaryWithinMax(player.getSalaryWeeklyRaw(), maxWeeklySalary)) {
@@ -972,7 +990,8 @@ public class FmAiAssistentTools {
         out.put("market_wage_weekly", deal.market().wage());
         out.put("market_samples", deal.market().samples());
         out.put("cost_fee", candidate.freeAgent() ? 0 : value(player.getAskingPrice()));
-        out.put("cost_wages_3yr", MarketValuation.CONTRACT_YEARS * MarketValuation.WEEKS_PER_YEAR * value(player.getSalaryWeeklyRaw()));
+        out.put("cost_wages_3yr", MarketValuation.CONTRACT_YEARS * MarketValuation.WEEKS_PER_YEAR
+                * (player.getSalaryWeeklyRaw() == null ? deal.market().wage() : player.getSalaryWeeklyRaw().longValue()));
         out.put("total_cost_3yr", deal.totalCost());
         out.put("value_gap", deal.marketCost() - deal.totalCost());
         out.put("name", player.getName());
@@ -992,6 +1011,7 @@ public class FmAiAssistentTools {
         }
         out.put("asking_price", candidate.priceKnown() ? player.getAskingPrice() : null);
         out.put("price_fit", candidate.freeAgent() ? "free_agent" : !candidate.priceKnown() ? "unknown"
+                : !priceCapKnown(priceCap) ? "budget_unknown"
                 : value(player.getAskingPrice()) <= priceCap ? "within_budget" : "over_budget");
         out.put("salary_weekly", player.getSalaryWeeklyRaw());
         out.put("wage_fit", wageFits(player.getSalaryWeeklyRaw(), wageCeiling));
@@ -1376,8 +1396,8 @@ public class FmAiAssistentTools {
         double improvement = benchmarkCa <= 0 ? 1.0 : clamp((value(player.getCa()) - benchmarkCa + 25.0) / 50.0);
         double growth = clamp((effectivePotential(player) - value(player.getCa())) / 50.0);
         double age = ageScore(player);
-        double price = freeAgent ? 1.0 : !priceKnown ? 0.35 : priceCap <= 0
-                ? 0.0
+        double price = freeAgent ? 1.0 : !priceKnown ? 0.35 : !priceCapKnown(priceCap)
+                ? 0.35
                 : clamp(1.0 - value(player.getAskingPrice()) / (double) priceCap);
         double wage = wageFitScore(player.getSalaryWeeklyRaw(), wageCeiling);
         double willingnessScore = willingness == Willingness.HIGH ? 1.0 : 0.6;
@@ -1424,10 +1444,9 @@ public class FmAiAssistentTools {
                 ? squad
                 : squad.stream().filter(player -> positionScore(player, positionSpec) >= positionMinimum).toList();
 
-        long budget = Math.max(0L, value(club.getTransferBudget()));
         int safeReputationMargin = reputationMargin == null ? DEFAULT_REPUTATION_MARGIN : Math.max(0, reputationMargin);
         Period minimumTime = parsePeriod(minimumTimeAtCurrentClub, Period.ofYears(1));
-        long priceCap = resolvePriceCap(maxAskingPrice, budget);
+        long priceCap = resolvePriceCap(maxAskingPrice, club.getTransferBudget());
         long wageCeiling = maxWeeklySalary == null
                 ? inferredWeeklyWageCeiling(squad, club)
                 : Math.max(0L, maxWeeklySalary);
@@ -1499,6 +1518,7 @@ public class FmAiAssistentTools {
         }
         out.put("asking_price", candidate.priceKnown() ? player.getAskingPrice() : null);
         out.put("price_fit", candidate.freeAgent() ? "free_agent" : !candidate.priceKnown() ? "unknown"
+                : !priceCapKnown(priceCap) ? "budget_unknown"
                 : value(player.getAskingPrice()) <= priceCap ? "within_budget" : "over_budget");
         out.put("salary_weekly", player.getSalaryWeeklyRaw());
         out.put("wage_fit", wageFits(player.getSalaryWeeklyRaw(), wageCeiling));
@@ -1953,8 +1973,18 @@ public class FmAiAssistentTools {
         return salaryWeekly != null && salaryWeekly <= wageCeiling;
     }
 
-    static long resolvePriceCap(Long maxAskingPrice, long budget) {
-        return maxAskingPrice == null ? budget : Math.max(0L, maxAskingPrice);
+    static long resolvePriceCap(Long maxAskingPrice, Long budget) {
+        if (maxAskingPrice != null) {
+            return Math.max(0L, maxAskingPrice);
+        }
+        if (budget == null) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(0L, budget);
+    }
+
+    static boolean priceCapKnown(long priceCap) {
+        return priceCap != Long.MAX_VALUE;
     }
 
     static boolean rolesMatch(String catalogName, String query) {

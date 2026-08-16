@@ -22,7 +22,7 @@ class GameDateFinderTest {
         putCurrentDate(reader, 0x7E00 | 8, 2028);
 
         LocalDate date = new GameDateFinder()
-                .find(reader, 0, 0x238bdd, GAME_PLUGIN_BASE)
+                .find(reader, 0x238bdd, GAME_PLUGIN_BASE)
                 .orElseThrow();
 
         assertEquals(LocalDate.of(2028, 1, 8), date);
@@ -34,7 +34,7 @@ class GameDateFinderTest {
         putCurrentDate(reader, 0x1A00 | 159, 2026);
 
         LocalDate date = new GameDateFinder()
-                .find(reader, 0, 0x238bdd, GAME_PLUGIN_BASE)
+                .find(reader, 0x238bdd, GAME_PLUGIN_BASE)
                 .orElseThrow();
 
         assertEquals(LocalDate.of(2026, 6, 8), date);
@@ -54,7 +54,7 @@ class GameDateFinderTest {
         putCurrentDate(reader, 8, 2028);
 
         assertTrue(new GameDateFinder()
-                .find(reader, 0, 0x235144, GAME_PLUGIN_BASE)
+                .find(reader, 0x235144, GAME_PLUGIN_BASE)
                 .isEmpty());
     }
 

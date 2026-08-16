@@ -152,7 +152,7 @@ public class ContractsView extends VerticalLayout {
         CompletableFuture.supplyAsync(() -> new Result(
                         tools.contractRows(sessionClub),
                         tools.wageHealth(sessionClub)))
-                .thenAccept(result -> ui.access(() -> {
+                .thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
                     grid.setItems(result.rows());
                     applyHealth(result.health());
                     long renew = result.rows().stream().filter(row -> "renew".equals(row.action())).count();
@@ -163,7 +163,7 @@ public class ContractsView extends VerticalLayout {
                             + renew + " renew · " + sell + " sell · " + loan + " loan");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
-                    ui.access(() -> {
+                    OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);

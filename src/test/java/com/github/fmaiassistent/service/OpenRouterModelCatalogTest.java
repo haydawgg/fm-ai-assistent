@@ -90,4 +90,35 @@ class OpenRouterModelCatalogTest {
                 """);
         assertTrue(models.isEmpty());
     }
+
+    @Test
+    void parseGenerationReadsNativeCostAndReasoningTokens() {
+        OpenRouterModelCatalog.GenerationLookup lookup = OpenRouterModelCatalog.parseGeneration(mapper, """
+                {
+                  "data": {
+                    "id": "gen-abc123",
+                    "total_cost": 0.0123,
+                    "native_tokens_prompt": 80,
+                    "native_tokens_completion": 40,
+                    "native_tokens_reasoning": 12,
+                    "reasoning": "check the XI"
+                  }
+                }
+                """);
+        assertEquals("gen-abc123", lookup.id());
+        assertEquals(0.0123, lookup.totalCost(), 1e-9);
+        assertEquals(80, lookup.promptTokens());
+        assertEquals(40, lookup.completionTokens());
+        assertEquals(12, lookup.reasoningTokens());
+        assertEquals("check the XI", lookup.reasoning());
+    }
+
+    @Test
+    void parseFallbackModelsPrefersJsonListThenLegacy() {
+        assertEquals(List.of("openai/gpt-4.1-mini", "google/gemini-2.5-flash"),
+                AppSettingsService.parseFallbackModels(mapper,
+                        "[\"openai/gpt-4.1-mini\",\"google/gemini-2.5-flash\"]", "legacy/model"));
+        assertEquals(List.of("legacy/model"), AppSettingsService.parseFallbackModels(mapper, "", "legacy/model"));
+        assertEquals(List.of(), AppSettingsService.parseFallbackModels(mapper, "", ""));
+    }
 }

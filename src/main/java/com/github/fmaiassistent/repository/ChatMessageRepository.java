@@ -17,6 +17,9 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, 
 
     long countBySessionId(String sessionId);
 
+    @Query("select coalesce(max(m.ordinal), -1) from ChatMessageEntity m where m.sessionId = :sessionId")
+    int maxOrdinalBySessionId(@Param("sessionId") String sessionId);
+
     ChatMessageEntity findBySessionIdAndOrdinal(String sessionId, int ordinal);
 
     @Query("select coalesce(sum(m.costUsd), 0) from ChatMessageEntity m where m.createdAt >= :from and m.costUsd is not null")

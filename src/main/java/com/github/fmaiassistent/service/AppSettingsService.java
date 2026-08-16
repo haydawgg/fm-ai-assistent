@@ -9,16 +9,21 @@ import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.web.ui.SavedChatPrompt;
 import com.github.fmaiassistent.web.ui.SavedPlayerView;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URISyntaxException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +31,7 @@ import java.util.Properties;
 
 @Service
 public class AppSettingsService {
+    private static final Logger LOG = LoggerFactory.getLogger(AppSettingsService.class);
     private static final String SETTINGS_FILE = "fm-ai-assistent.properties";
     private static final String SETTINGS_FILE_PROPERTY = "fmaiassistent.settings.file";
     private static final String CURRENCY_KEY = "currency";
@@ -38,6 +44,8 @@ public class AppSettingsService {
     private static final String CHAT_INSTRUCTIONS_KEY = "chat.instructions";
     private static final String CHAT_DAILY_CAP_KEY = "chat.daily.cap.usd";
     private static final String OPENROUTER_FALLBACK_KEY = "openrouter.fallback.model";
+    private static final String OPENROUTER_FALLBACK_MODELS_KEY = "openrouter.fallback.models";
+    private static final String CHAT_NOTIFY_KEY = "chat.notify.desktop";
     private static final String CHAT_TONE_KEY = "chat.tone";
     private static final String PINNED_MODELS_KEY = "openrouter.models.pinned";
     private static final String ONBOARDING_KEY = "onboarding.complete";
@@ -234,19 +242,86 @@ public class AppSettingsService {
     }
 
     public String openRouterFallbackModel() {
+        List<String> models = openRouterFallbackModels();
+        return models.isEmpty() ? "" : models.getFirst();
+    }
+
+    public List<String> openRouterFallbackModels() {
         synchronized (settingsLock) {
-            String value = load().getProperty(OPENROUTER_FALLBACK_KEY, "");
-            return value == null ? "" : value.strip();
+            Properties properties = load();
+            return parseFallbackModels(
+                    objectMapper,
+                    properties.getProperty(OPENROUTER_FALLBACK_MODELS_KEY, ""),
+                    properties.getProperty(OPENROUTER_FALLBACK_KEY, ""));
         }
     }
 
+    static List<String> parseFallbackModels(ObjectMapper mapper, String json, String legacy) {
+        List<String> ids = new ArrayList<>();
+        if (json != null && !json.isBlank()) {
+            try {
+                List<String> parsed = mapper.readValue(json, new TypeReference<>() {
+                });
+                if (parsed != null) {
+                    for (String id : parsed) {
+                        if (id != null && !id.isBlank() && !ids.contains(id.strip())) {
+                            ids.add(id.strip());
+                        }
+                    }
+                }
+            } catch (JacksonException ignored) {
+            }
+        }
+        if (ids.isEmpty() && legacy != null && !legacy.isBlank()) {
+            ids.add(legacy.strip());
+        }
+        return List.copyOf(ids);
+    }
+
     public void saveOpenRouterFallbackModel(String model) {
+        saveOpenRouterFallbackModels(model == null || model.isBlank() ? List.of() : List.of(model.strip()));
+    }
+
+    public void saveOpenRouterFallbackModels(List<String> models) {
         synchronized (settingsLock) {
             Properties properties = load();
-            if (model == null || model.isBlank()) {
+            List<String> ids = models == null ? List.of() : models.stream()
+                    .filter(id -> id != null && !id.isBlank())
+                    .map(String::strip)
+                    .distinct()
+                    .toList();
+            if (ids.isEmpty()) {
                 properties.remove(OPENROUTER_FALLBACK_KEY);
+                properties.remove(OPENROUTER_FALLBACK_MODELS_KEY);
             } else {
-                properties.setProperty(OPENROUTER_FALLBACK_KEY, model.strip());
+                properties.setProperty(OPENROUTER_FALLBACK_KEY, ids.getFirst());
+                try {
+                    properties.setProperty(OPENROUTER_FALLBACK_MODELS_KEY, objectMapper.writeValueAsString(ids));
+                } catch (JacksonException ex) {
+                    throw new IllegalStateException("Could not serialize fallback models", ex);
+                }
+            }
+            save(properties);
+        }
+    }
+
+    public Boolean desktopNotify() {
+        synchronized (settingsLock) {
+            String value = load().getProperty(CHAT_NOTIFY_KEY, "");
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return "true".equalsIgnoreCase(value.strip());
+        }
+    }
+
+    public void saveDesktopNotify(Boolean enabled) {
+        synchronized (settingsLock) {
+            Properties properties = load();
+            if (enabled == null) {
+                properties.remove(CHAT_NOTIFY_KEY);
+            } else {
+                properties.setProperty(CHAT_NOTIFY_KEY, Boolean.toString(enabled));
             }
             save(properties);
         }
@@ -444,8 +519,8 @@ public class AppSettingsService {
 
     private SavedPlayerView normalizeView(SavedPlayerView view) {
         PlayerFilterCriteria filter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
-        Map<String, Integer> positions = filter.positionMinimums() == null ? Map.of() : Map.copyOf(filter.positionMinimums());
-        Map<String, Integer> attributes = filter.attributeMinimums() == null ? Map.of() : Map.copyOf(filter.attributeMinimums());
+        Map<String, Integer> positions = filter.positionMinimums() == null ? Map.of() : copyNonNull(filter.positionMinimums());
+        Map<String, Integer> attributes = filter.attributeMinimums() == null ? Map.of() : copyNonNull(filter.attributeMinimums());
         PlayerFilterCriteria normalizedFilter = new PlayerFilterCriteria(
                 nullToEmpty(filter.name()),
                 nullToEmpty(filter.gender()),
@@ -481,6 +556,16 @@ public class AppSettingsService {
         return value == null ? "" : value;
     }
 
+    private static <V> Map<String, V> copyNonNull(Map<String, V> source) {
+        Map<String, V> result = new HashMap<>();
+        source.forEach((key, value) -> {
+            if (value != null) {
+                result.put(key, value);
+            }
+        });
+        return result;
+    }
+
     private Properties load() {
         Properties properties = new Properties();
         if (!Files.exists(settingsPath)) {
@@ -489,9 +574,22 @@ public class AppSettingsService {
         try (InputStream input = Files.newInputStream(settingsPath)) {
             properties.load(input);
         } catch (IOException ex) {
-            throw new IllegalStateException("Could not load settings from " + settingsPath, ex);
+            backupCorruptSettings(ex);
+            return properties;
         }
         return properties;
+    }
+
+    private void backupCorruptSettings(IOException cause) {
+        LOG.error("Settings file {} is unreadable; backing it up and starting with defaults", settingsPath, cause);
+        try {
+            Path backup = settingsPath.resolveSibling(
+                    settingsPath.getFileName() + ".corrupt-" + System.currentTimeMillis());
+            Files.move(settingsPath, backup);
+            LOG.info("Corrupt settings backed up to {}", backup);
+        } catch (IOException backupError) {
+            LOG.error("Could not back up corrupt settings file {}", settingsPath, backupError);
+        }
     }
 
     private void save(Properties properties) {
@@ -500,8 +598,15 @@ public class AppSettingsService {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            try (OutputStream output = Files.newOutputStream(settingsPath)) {
+            Path temp = settingsPath.resolveSibling(settingsPath.getFileName() + ".tmp");
+            try (OutputStream output = Files.newOutputStream(temp)) {
                 properties.store(output, "FM AI Assistent settings");
+            }
+            try {
+                Files.move(temp, settingsPath,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(temp, settingsPath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException ex) {
             throw new IllegalStateException("Could not save settings to " + settingsPath, ex);

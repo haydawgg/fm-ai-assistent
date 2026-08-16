@@ -6,6 +6,7 @@ import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
+import com.vaadin.flow.component.checkbox.Checkbox;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
@@ -21,7 +22,9 @@ import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -54,15 +57,33 @@ final class SettingsDialog {
         apiKey.setHelperText("From openrouter.ai/keys. Empty disables in-app chat; Claude or another MCP client can still use /mcp.");
 
         ComboBox<String> fallback = OpenRouterModelPicker.comboBox();
-        fallback.setLabel("Fallback model");
-        fallback.setHelperText("Used once if the primary model fails. Leave blank to skip.");
+        fallback.setLabel("Add fallback model");
+        fallback.setHelperText("Tried in order if the primary fails.");
         Map<String, String> fallbackLabels = new LinkedHashMap<>();
+        List<String> fallbackModels = new ArrayList<>(settings.openRouterFallbackModels());
+        Div fallbackList = new Div();
+        fallbackList.setWidthFull();
+        Runnable refreshFallbacks = () -> refreshFallbackList(fallbackList, fallbackModels, fallbackLabels);
 
         ComboBox<String> model = OpenRouterModelPicker.comboBox();
         model.setHelperText("Catalog refreshes from OpenRouter when this dialog opens. Type an id if a model is missing.");
         Map<String, String> labels = new LinkedHashMap<>();
         OpenRouterModelPicker.bind(model, catalog, settings.openRouterModel(), false, labels);
-        OpenRouterModelPicker.bind(fallback, catalog, settings.openRouterFallbackModel(), false, fallbackLabels);
+        OpenRouterModelPicker.bind(fallback, catalog, "", false, fallbackLabels);
+        Button addFallback = new Button("Add", event -> {
+            String id = fallback.getValue();
+            if (id != null && !id.isBlank() && !fallbackModels.contains(id.strip())) {
+                fallbackModels.add(id.strip());
+                refreshFallbacks.run();
+            }
+            fallback.clear();
+        });
+        addFallback.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        HorizontalLayout fallbackBar = new HorizontalLayout(fallback, addFallback);
+        fallbackBar.setWidthFull();
+        fallbackBar.setFlexGrow(1, fallback);
+        fallbackBar.setAlignItems(com.vaadin.flow.component.orderedlayout.FlexComponent.Alignment.END);
+        refreshFallbacks.run();
         Span catalogStatus = new Span("Refreshing OpenRouter models…");
         catalogStatus.addClassName("settings-path");
         UI ui = UI.getCurrent();
@@ -73,19 +94,18 @@ final class SettingsDialog {
             if (models != null && !models.isEmpty()) {
                 OpenRouterModelPicker.apply(model, labels, models,
                         OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
-                OpenRouterModelPicker.apply(fallback, fallbackLabels, models,
-                        OpenRouterModelPicker.firstNonBlank(fallback.getValue(), settings.openRouterFallbackModel()));
+                OpenRouterModelPicker.apply(fallback, fallbackLabels, models, fallback.getValue());
                 catalogStatus.setText(models.size() + " OpenRouter models · live catalog");
             } else {
                 OpenRouterModelPicker.apply(model, labels, catalog.cachedModels(),
                         OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
-                OpenRouterModelPicker.apply(fallback, fallbackLabels, catalog.cachedModels(),
-                        OpenRouterModelPicker.firstNonBlank(fallback.getValue(), settings.openRouterFallbackModel()));
+                OpenRouterModelPicker.apply(fallback, fallbackLabels, catalog.cachedModels(), fallback.getValue());
                 String detail = error == null ? catalog.lastError() : OpenRouterModelPicker.errorMessage(error);
                 catalogStatus.setText(detail == null || detail.isBlank()
                         ? "Could not refresh OpenRouter models. Type a model id."
                         : "Could not refresh OpenRouter models: " + detail);
             }
+            refreshFallbacks.run();
         }));
 
         NumberField dailyCap = new NumberField("Daily spend cap (USD)");
@@ -109,6 +129,11 @@ final class SettingsDialog {
         instructions.setValue(settings.chatInstructions());
         instructions.setPlaceholder("Answer in Dutch. Always compare 3 options. Never suggest over budget.");
         instructions.setHelperText("Injected into the system prompt for every in-app chat turn.");
+
+        Checkbox notify = new Checkbox("Notify when a reply finishes in another tab");
+        notify.setValue(Boolean.TRUE.equals(settings.desktopNotify()));
+        Span notifyHint = new Span("Asks the browser the first time a reply finishes while this tab is hidden.");
+        notifyHint.addClassName("settings-path");
 
         Span testStatus = new Span("");
         testStatus.addClassName("settings-path");
@@ -155,8 +180,8 @@ final class SettingsDialog {
         refreshPromptList(settings, promptList);
 
         VerticalLayout layout = new VerticalLayout(
-                intro, currencySelect, apiKey, test, testStatus, model, fallback, catalogStatus,
-                dailyCap, topP, instructions, promptName, promptText, savePrompt, promptList, file);
+                intro, currencySelect, apiKey, test, testStatus, model, fallbackBar, fallbackList, catalogStatus,
+                dailyCap, topP, notify, notifyHint, instructions, promptName, promptText, savePrompt, promptList, file);
         layout.setPadding(false);
         layout.setSpacing(true);
         layout.addClassName("settings-content");
@@ -166,9 +191,10 @@ final class SettingsDialog {
             MoneyCurrency currency = currencySelect.getValue() == null ? MoneyCurrency.POUND : currencySelect.getValue();
             settings.saveCurrency(currency);
             settings.saveOpenRouter(apiKey.getValue(), model.getValue());
-            settings.saveOpenRouterFallbackModel(fallback.getValue());
+            settings.saveOpenRouterFallbackModels(fallbackModels);
             settings.saveDailySpendCapUsd(dailyCap.getValue());
             settings.saveChatTopP(topP.getValue());
+            settings.saveDesktopNotify(notify.getValue());
             settings.saveChatInstructions(instructions.getValue());
             if (onSaved != null) {
                 onSaved.accept(currency);
@@ -183,6 +209,40 @@ final class SettingsDialog {
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(cancel, save);
         dialog.open();
+    }
+
+    private static void refreshFallbackList(Div list, List<String> models, Map<String, String> labels) {
+        list.removeAll();
+        for (int index = 0; index < models.size(); index++) {
+            String id = models.get(index);
+            int current = index;
+            Span label = new Span((index + 1) + ". " + labels.getOrDefault(id, id));
+            Button up = new Button(VaadinIcon.ARROW_UP.create(), event -> {
+                if (current == 0) {
+                    return;
+                }
+                models.set(current, models.set(current - 1, id));
+                refreshFallbackList(list, models, labels);
+            });
+            Button down = new Button(VaadinIcon.ARROW_DOWN.create(), event -> {
+                if (current >= models.size() - 1) {
+                    return;
+                }
+                models.set(current, models.set(current + 1, id));
+                refreshFallbackList(list, models, labels);
+            });
+            Button remove = new Button(VaadinIcon.TRASH.create(), event -> {
+                models.remove(current);
+                refreshFallbackList(list, models, labels);
+            });
+            up.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            down.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            remove.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+            HorizontalLayout row = new HorizontalLayout(label, up, down, remove);
+            row.setWidthFull();
+            row.setFlexGrow(1, label);
+            list.add(row);
+        }
     }
 
     private static void refreshPromptList(AppSettingsService settings, Div promptList) {

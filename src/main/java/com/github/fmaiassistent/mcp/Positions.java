@@ -21,13 +21,13 @@ public final class Positions {
             case "dc", "cb", "defendercentral", "centraldefender", "centreback", "centerback" -> "DEFENDER_CENTRAL";
             case "dr", "defenderright", "rightback", "rb" -> "DEFENDER_RIGHT";
             case "wbl", "wingbackleft", "leftwingback", "lwb" -> "WING_BACK_LEFT";
-            case "dmc", "dm", "defensivemidfielder" -> "DEFENSIVE_MIDFIELDER";
+            case "dmc", "dm", "cdm", "defensivemidfielder" -> "DEFENSIVE_MIDFIELDER";
             case "wbr", "wingbackright", "rightwingback", "rwb" -> "WING_BACK_RIGHT";
             case "ml", "midfielderleft", "leftmidfielder", "lm" -> "MIDFIELDER_LEFT";
             case "mc", "cm", "midfieldercentral", "centralmidfielder" -> "MIDFIELDER_CENTRAL";
             case "mr", "midfielderright", "rightmidfielder", "rm" -> "MIDFIELDER_RIGHT";
             case "aml", "attackingmidfielderleft", "leftwinger", "lw" -> "ATTACKING_MIDFIELDER_LEFT";
-            case "amc", "am", "attackingmidfieldercentral", "attackingmidfielder" -> "ATTACKING_MIDFIELDER_CENTRAL";
+            case "amc", "am", "cam", "attackingmidfieldercentral", "attackingmidfielder" -> "ATTACKING_MIDFIELDER_CENTRAL";
             case "amr", "attackingmidfielderright", "rightwinger", "rw" -> "ATTACKING_MIDFIELDER_RIGHT";
             case "st", "striker", "forward", "cf", "centreforward", "centerforward" -> "STRIKER";
             default -> throw new IllegalArgumentException("unsupported position: " + code
@@ -46,13 +46,13 @@ public final class Positions {
             case "dc", "cb", "dcr", "dcl", "sw", "defendercentral", "centraldefender", "centreback", "centerback" -> "DC";
             case "dr", "defenderright", "rightback", "rb" -> "DR";
             case "wbl", "wingbackleft", "leftwingback", "lwb" -> "WBL";
-            case "dmc", "dm", "dmr", "dml", "defensivemidfielder" -> "DMC";
+            case "dmc", "dm", "cdm", "dmr", "dml", "defensivemidfielder" -> "DMC";
             case "wbr", "wingbackright", "rightwingback", "rwb" -> "WBR";
             case "ml", "midfielderleft", "leftmidfielder", "lm" -> "ML";
             case "mc", "cm", "mcr", "mcl", "midfieldercentral", "centralmidfielder" -> "MC";
             case "mr", "midfielderright", "rightmidfielder", "rm" -> "MR";
             case "aml", "attackingmidfielderleft", "leftwinger", "lw" -> "AML";
-            case "amc", "am", "amcr", "amcl", "attackingmidfieldercentral", "attackingmidfielder" -> "AMC";
+            case "amc", "am", "cam", "amcr", "amcl", "attackingmidfieldercentral", "attackingmidfielder" -> "AMC";
             case "amr", "attackingmidfielderright", "rightwinger", "rw" -> "AMR";
             case "st", "str", "stc", "stl", "stcr", "stcl", "striker", "forward", "cf", "centreforward", "centerforward" -> "ST";
             default -> throw new IllegalArgumentException("unsupported position: " + position

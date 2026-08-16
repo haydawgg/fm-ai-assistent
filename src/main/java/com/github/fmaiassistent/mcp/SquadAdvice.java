@@ -216,7 +216,10 @@ public final class SquadAdvice {
     public static List<ContractRow> contractQueue(List<PlayerEntity> squad, ClubEntity club) {
         Map<String, SellRow> byName = new HashMap<>();
         for (SellRow row : sellShortlist(squad, club)) {
-            byName.put(row.name(), row);
+            SellRow existing = byName.get(row.name());
+            if (existing == null || row.sellScore() > existing.sellScore()) {
+                byName.put(row.name(), row);
+            }
         }
         List<ContractRow> rows = new ArrayList<>();
         for (PlayerEntity player : squad.stream().filter(MarketValuation::hasPlayablePosition).toList()) {
@@ -288,7 +291,7 @@ public final class SquadAdvice {
                     player.getContractEndDate()));
         }
         rows.sort(Comparator.comparingInt(AcademyRow::pa).reversed()
-                .thenComparingInt(AcademyRow::upside).reversed()
+                .thenComparing(Comparator.comparingInt(AcademyRow::upside).reversed())
                 .thenComparing(AcademyRow::name, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         return rows;
     }

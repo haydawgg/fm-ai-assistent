@@ -80,11 +80,29 @@ public final class FmOffsets {
     }
 
     public static long findGamePluginBase(ProcessMemoryReader reader) throws IOException {
-        return reader.maps().stream()
+        List<MemoryRegion> matches = reader.maps().stream()
                 .filter(region -> region.path().toLowerCase(Locale.ROOT).contains("game_plugin.dll"))
-                .mapToLong(region -> region.start())
-                .min()
+                .toList();
+        return matches.stream()
+                .min(FmOffsets::comparePluginMappings)
+                .map(MemoryRegion::start)
                 .orElseThrow(() -> new IllegalStateException("game_plugin.dll not found in maps"));
+    }
+
+    private static int comparePluginMappings(MemoryRegion left, MemoryRegion right) {
+        int byOffset = Boolean.compare(left.offset() != 0, right.offset() != 0);
+        if (byOffset != 0) {
+            return byOffset;
+        }
+        int byExecutable = Boolean.compare(!left.executable(), !right.executable());
+        if (byExecutable != 0) {
+            return byExecutable;
+        }
+        int byReadable = Boolean.compare(!left.readable(), !right.readable());
+        if (byReadable != 0) {
+            return byReadable;
+        }
+        return Long.compare(left.start(), right.start());
     }
 
     public static Bounds peopleBounds(ProcessMemoryReader reader, int build, Long gamePluginBase) throws IOException {

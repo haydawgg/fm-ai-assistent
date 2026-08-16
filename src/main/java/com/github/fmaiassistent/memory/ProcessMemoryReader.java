@@ -5,12 +5,13 @@ import com.github.fmaiassistent.linux.MemoryRegion;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Optional;
 
 public interface ProcessMemoryReader extends AutoCloseable {
     long MAX_USER_ADDRESS = 0x00007FFFFFFFFFFFL;
+    Charset FM_SINGLE_BYTE = Charset.forName("windows-1252");
 
     int pid();
 
@@ -73,11 +74,11 @@ public interface ProcessMemoryReader extends AutoCloseable {
             byte[] data = readBytes(address + 4, size);
             for (byte b : data) {
                 int ch = b & 0xff;
-                if (ch != 9 && ch != 10 && ch != 13 && (ch < 32 || ch >= 0xf5)) {
+                if (ch != 9 && ch != 10 && ch != 13 && ch < 32) {
                     return Optional.empty();
                 }
             }
-            return Optional.of(new String(data, StandardCharsets.UTF_8));
+            return Optional.of(new String(data, FM_SINGLE_BYTE));
         } catch (IOException | RuntimeException ex) {
             return Optional.empty();
         }

@@ -123,7 +123,7 @@ public class AcademyView extends VerticalLayout {
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
         CompletableFuture.supplyAsync(() -> tools.academyRows(sessionClub, cap))
-                .thenAccept(rows -> ui.access(() -> {
+                .thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
                     grid.setItems(rows);
                     long cover = rows.stream().filter(row -> row.vsFirstTeam() >= -8).count();
                     summary.removeClassName("moneyball-empty");
@@ -131,7 +131,7 @@ public class AcademyView extends VerticalLayout {
                             + " · " + cover + " within 8 CA of the first-team average");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
-                    ui.access(() -> {
+                    OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);

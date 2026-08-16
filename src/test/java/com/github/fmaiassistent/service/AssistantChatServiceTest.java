@@ -113,6 +113,7 @@ class AssistantChatServiceTest {
         assertEquals("openai/gpt-4.1-mini", options.getModel());
         assertEquals(0.7, options.getTemperature());
         assertEquals(Boolean.TRUE, options.getExtraBody().get("include_reasoning"));
+        assertEquals("medium", ((java.util.Map<?, ?>) options.getExtraBody().get("reasoning")).get("effort"));
         assertEquals(null, options.getTopP());
     }
 
@@ -185,5 +186,27 @@ class AssistantChatServiceTest {
         assertEquals("", b.answer() + b.reasoning());
         assertEquals("secret", c.reasoning());
         assertEquals("visible", c.answer());
+    }
+
+    @Test
+    void thinkingTagsAreSplitFromTheAnswer() {
+        AssistantChatService.ThinkSplitter.Piece piece = AssistantChatService.ThinkSplitter.splitComplete(
+                "<thinking>plan the XI</thinking>\nHere is the side.");
+        assertEquals("plan the XI", piece.reasoning());
+        assertTrue(piece.answer().contains("Here is the side."));
+        assertTrue(!piece.answer().contains("<thinking>"));
+    }
+
+    @Test
+    void reasoningSuffixEmitsOnlyNewText() {
+        assertEquals("Need a cheap DM", AssistantChatService.reasoningSuffix("", "Need a cheap DM"));
+        assertEquals(" for Ajax", AssistantChatService.reasoningSuffix("Need a cheap DM", "Need a cheap DM for Ajax"));
+        assertEquals("", AssistantChatService.reasoningSuffix("Need a cheap DM", "Need a cheap DM"));
+    }
+
+    @Test
+    void extractGenerationIdPrefersGenPrefix() {
+        assertEquals("gen-abc12345", AssistantChatService.extractGenerationId(
+                java.util.Map.of("id", "gen-abc12345", "model", "openai/gpt-4.1-mini")));
     }
 }

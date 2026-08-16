@@ -219,6 +219,149 @@ public class OpenRouterModelCatalog {
     public record ProbeResult(boolean ok, String message) {
     }
 
+    public record GenerationLookup(
+            String id,
+            Double totalCost,
+            Integer promptTokens,
+            Integer completionTokens,
+            Integer reasoningTokens,
+            String reasoning) {
+        public static final GenerationLookup EMPTY = new GenerationLookup("", null, null, null, null, "");
+    }
+
+    public record FeedbackResult(boolean ok, int status, String message) {
+    }
+
+    public CompletableFuture<GenerationLookup> lookupGeneration(String apiKey, String generationId) {
+        return CompletableFuture.supplyAsync(() -> fetchGeneration(apiKey, generationId), fetchExecutor);
+    }
+
+    public CompletableFuture<FeedbackResult> submitGenerationFeedback(String apiKey, String generationId, String category) {
+        return CompletableFuture.supplyAsync(() -> postFeedback(apiKey, generationId, category), fetchExecutor);
+    }
+
+    GenerationLookup fetchGeneration(String apiKey, String generationId) {
+        if (apiKey == null || apiKey.isBlank() || generationId == null || generationId.isBlank()) {
+            return GenerationLookup.EMPTY;
+        }
+        try {
+            URI uri = URI.create(BASE_URL + "/generation?id=" + java.net.URLEncoder.encode(generationId.strip(), java.nio.charset.StandardCharsets.UTF_8));
+            HttpJson response = exchange(uri, "GET", apiKey.strip(), null);
+            if (response.status() < 200 || response.status() >= 300) {
+                return GenerationLookup.EMPTY;
+            }
+            return parseGeneration(objectMapper, response.body());
+        } catch (RuntimeException | IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return GenerationLookup.EMPTY;
+        }
+    }
+
+    FeedbackResult postFeedback(String apiKey, String generationId, String category) {
+        if (apiKey == null || apiKey.isBlank() || generationId == null || generationId.isBlank()) {
+            return new FeedbackResult(false, 0, "Missing generation id.");
+        }
+        String kind = category == null || category.isBlank() ? "incorrect_response" : category.strip();
+        String json = "{\"generation_id\":\"" + generationId.strip().replace("\"", "")
+                + "\",\"category\":\"" + kind.replace("\"", "") + "\"}";
+        try {
+            HttpJson response = exchange(URI.create(BASE_URL + "/generation/feedback"), "POST", apiKey.strip(), json);
+            if (response.status() == 401 || response.status() == 403) {
+                return new FeedbackResult(false, response.status(), "OpenRouter rejected this key type for ratings.");
+            }
+            if (response.status() < 200 || response.status() >= 300) {
+                return new FeedbackResult(false, response.status(), "OpenRouter feedback HTTP " + response.status());
+            }
+            return new FeedbackResult(true, response.status(), "Recorded");
+        } catch (RuntimeException | IOException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return new FeedbackResult(false, 0, rootMessage(ex));
+        }
+    }
+
+    static GenerationLookup parseGeneration(ObjectMapper mapper, String json) {
+        if (json == null || json.isBlank()) {
+            return GenerationLookup.EMPTY;
+        }
+        JsonNode root = mapper.readTree(json);
+        JsonNode data = root.has("data") && root.get("data").isObject() ? root.get("data") : root;
+        String id = firstText(data, "id", "generation_id");
+        Double cost = firstNumber(data, "total_cost", "usage", "totalCost");
+        Integer prompt = firstInt(data, "native_tokens_prompt", "tokens_prompt", "prompt_tokens");
+        Integer completion = firstInt(data, "native_tokens_completion", "tokens_completion", "completion_tokens");
+        Integer reasoning = firstInt(data, "native_tokens_reasoning", "tokens_reasoning", "reasoning_tokens");
+        String reasoningText = firstText(data, "reasoning", "reasoning_text");
+        if (reasoningText.isBlank() && data.has("reasoning_details")) {
+            reasoningText = data.path("reasoning_details").toString();
+            if ("null".equals(reasoningText) || reasoningText.isBlank()) {
+                reasoningText = "";
+            }
+        }
+        return new GenerationLookup(id, cost, prompt, completion, reasoning, reasoningText);
+    }
+
+    private record HttpJson(int status, String body) {
+    }
+
+    private HttpJson exchange(URI uri, String method, String apiKey, String jsonBody)
+            throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                .timeout(REQUEST_TIMEOUT)
+                .header("Accept", "application/json")
+                .header("User-Agent", APP_TITLE)
+                .header("HTTP-Referer", HTTP_REFERER)
+                .header("X-Title", APP_TITLE);
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+        if ("POST".equals(method)) {
+            builder.header("Content-Type", "application/json");
+            builder.POST(HttpRequest.BodyPublishers.ofString(jsonBody == null ? "{}" : jsonBody));
+        } else {
+            builder.GET();
+        }
+        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        return new HttpJson(response.statusCode(), response.body() == null ? "" : response.body());
+    }
+
+    private static String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            String value = text(node, field);
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static Double firstNumber(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.isNumber()) {
+                return value.asDouble();
+            }
+            if (value != null && value.isTextual()) {
+                try {
+                    return Double.parseDouble(value.asText());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Integer firstInt(JsonNode node, String... fields) {
+        Double number = firstNumber(node, fields);
+        if (number == null || number <= 0) {
+            return null;
+        }
+        return number.intValue();
+    }
+
     public Double estimateUsd(String modelId, Integer promptTokens, Integer completionTokens) {
         return estimateUsd(cached, modelId, promptTokens, completionTokens);
     }

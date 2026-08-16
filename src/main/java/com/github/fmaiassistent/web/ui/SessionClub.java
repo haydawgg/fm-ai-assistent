@@ -14,15 +14,18 @@ final class SessionClub {
         return clubs.findNames();
     }
 
-    static String resolved(AppSettingsService settings, List<String> names) {
-        String saved = settings.sessionClub();
-        if (saved.isBlank()) {
+    static String canonicalize(String saved, List<String> names) {
+        if (saved == null || saved.isBlank()) {
             return "";
         }
         return names.stream()
                 .filter(name -> name.equalsIgnoreCase(saved))
                 .findFirst()
                 .orElse("");
+    }
+
+    static String resolved(AppSettingsService settings, List<String> names) {
+        return canonicalize(settings.sessionClub(), names);
     }
 
     static void prefill(ComboBox<String> combo, AppSettingsService settings, List<String> names) {

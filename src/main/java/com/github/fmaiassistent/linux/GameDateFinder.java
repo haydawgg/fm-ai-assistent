@@ -1,30 +1,31 @@
 package com.github.fmaiassistent.linux;
 
 import com.github.fmaiassistent.memory.ProcessMemoryReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Optional;
 
 public class GameDateFinder {
+    private static final Logger log = LoggerFactory.getLogger(GameDateFinder.class);
+
     /** FM packs extra flag bits above the day-of-year; keep the low 9 bits. */
     public static final int DAY_MASK = 0x01FF;
 
     public Optional<LocalDate> find(ProcessMemoryReader reader) throws IOException {
-        return find(reader, 0);
-    }
-
-    public Optional<LocalDate> find(ProcessMemoryReader reader, long expectedPlayerCount) throws IOException {
-        return find(reader, expectedPlayerCount, FmOffsets.DEFAULT_BUILD, null);
+        return find(reader, FmOffsets.DEFAULT_BUILD, null);
     }
 
     public Optional<LocalDate> find(
             ProcessMemoryReader reader,
-            long expectedPlayerCount,
             int build,
             Long gamePluginBase) {
         Long dateRva = FmOffsets.currentDateRva(build);
         if (dateRva == null) {
+            log.warn("Current-date RVA is not known for build 0x{}; the game date will be unavailable",
+                    Integer.toHexString(build));
             return Optional.empty();
         }
 
@@ -36,6 +37,7 @@ public class GameDateFinder {
                     ? Optional.of(dayYearToDate(day, year))
                     : Optional.empty();
         } catch (IOException | RuntimeException ex) {
+            log.warn("Could not read the current game date: {}", ex.toString());
             return Optional.empty();
         }
     }

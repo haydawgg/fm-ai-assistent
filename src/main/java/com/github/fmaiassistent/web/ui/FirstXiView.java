@@ -213,11 +213,12 @@ public class FirstXiView extends VerticalLayout {
         }
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        String tacticText = tactic.getValue();
         CompletableFuture.supplyAsync(() -> {
-            List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tactic.getValue());
+            List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tacticText);
             List<SquadAdvice.XiPick> picks = tools.bestXiRows(sessionClub, slots);
             return new RunResult(picks, tools.unavailableForClub(sessionClub), tools.suggestedBuys(sessionClub, picks));
-        }).thenAccept(result -> ui.access(() -> {
+        }).thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
             List<SquadAdvice.XiPick> picks = result.picks();
             List<Map<String, Object>> out = result.unavailable();
             List<Map<String, Object>> buys = result.buys();
@@ -252,7 +253,7 @@ public class FirstXiView extends VerticalLayout {
                     + " — suggested buys from fm26_transfer_shortlist");
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
-            ui.access(() -> {
+            OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);

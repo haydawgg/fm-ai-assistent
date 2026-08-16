@@ -206,7 +206,7 @@ public class MoneyballView extends VerticalLayout {
                         value(maxAge),
                         feePounds(),
                         wagePounds())
-        ).thenAccept(result -> ui.access(() -> {
+        ).thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
             renderDealCards(result.rows());
@@ -216,7 +216,7 @@ public class MoneyballView extends VerticalLayout {
             summary.removeClassName("moneyball-empty");
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
-            ui.access(() -> {
+            OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);

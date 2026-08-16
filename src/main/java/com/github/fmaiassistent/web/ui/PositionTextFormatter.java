@@ -128,7 +128,11 @@ public final class PositionTextFormatter {
         if (value == null || String.valueOf(value).isBlank()) {
             return null;
         }
-        return Integer.valueOf(String.valueOf(value));
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private record PlayerPosition(PositionLine line, PositionSide side, int score) {

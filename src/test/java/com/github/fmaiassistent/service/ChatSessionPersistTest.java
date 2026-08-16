@@ -83,8 +83,21 @@ class ChatSessionPersistTest {
     void reasoningIsPersistedOnAssistantTurns() {
         ChatSessionEntity session = sessions.create("openai/gpt-4.1-mini");
         sessions.append(session.getId(), "assistant", "Here is the XI.", "openai/gpt-4.1-mini",
-                new ChatSessionService.MessageExtras(null, 10, 20, 0.01, 100, 400, "checking formation"));
+                new ChatSessionService.MessageExtras(null, 10, 20, 0.01, 100, 400, "checking formation", "gen-test"));
         assertEquals("checking formation", sessions.messages(session.getId()).getFirst().getReasoning());
+        assertEquals("gen-test", sessions.messages(session.getId()).getFirst().getGenerationId());
+        sessions.delete(session.getId());
+    }
+
+    @Test
+    void appendUsesNextOrdinalAfterAGap() {
+        ChatSessionEntity session = sessions.create("openai/gpt-4.1-mini");
+        sessions.append(session.getId(), "user", "first", "openai/gpt-4.1-mini", ChatSessionService.MessageExtras.NONE);
+        jdbc.update("insert into chat_message (session_id, ordinal, role, body) values (?, ?, ?, ?)",
+                session.getId(), 5, "assistant", "gapped");
+        sessions.append(session.getId(), "user", "after gap", "openai/gpt-4.1-mini", ChatSessionService.MessageExtras.NONE);
+        List<ChatMessageEntity> rows = sessions.messages(session.getId());
+        assertEquals(6, rows.getLast().getOrdinal());
         sessions.delete(session.getId());
     }
 }

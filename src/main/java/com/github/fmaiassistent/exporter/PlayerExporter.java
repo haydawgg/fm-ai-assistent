@@ -99,7 +99,7 @@ public class PlayerExporter {
         FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
         long total = bounds.count();
         int threads = Math.min(Runtime.getRuntime().availableProcessors(), 4);
-        LocalDate gameDate = gameDateFinder.find(reader, 0, build, gamePluginBase).orElse(null);
+        LocalDate gameDate = gameDateFinder.find(reader, build, gamePluginBase).orElse(null);
         BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>(DECODE_QUEUE_CAPACITY);
         Set<Long> peoplePointers = ConcurrentHashMap.newKeySet();
         Map<Long, String> clubNames = new ConcurrentHashMap<>();
@@ -642,7 +642,10 @@ public class PlayerExporter {
             return new InjuryStatus(false, "", "", 0, 0);
         }
         try {
-            long item = reader.readU64(vectorStart.get());
+            long item = reader.qwordOrNull(vectorStart.get()).orElse(0L);
+            if (item == 0) {
+                return new InjuryStatus(true, "", "", 0, 0);
+            }
             String description = reader.qwordOrNull(item + 0x08)
                     .flatMap(type -> FmMemoryStrings.objectStringAt(reader, type, 0x20))
                     .map(PlayerExporter::capitalizeFirst)
@@ -659,7 +662,7 @@ public class PlayerExporter {
             }
             return new InjuryStatus(true, description, startDate, lightTrainingTotalDays, fullTrainingTotalDays);
         } catch (IOException | RuntimeException ex) {
-            return new InjuryStatus(false, "", "", 0, 0);
+            return new InjuryStatus(true, "", "", 0, 0);
         }
     }
 

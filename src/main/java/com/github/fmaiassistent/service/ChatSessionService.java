@@ -74,7 +74,7 @@ public class ChatSessionService {
     public ChatMessageEntity append(String sessionId, String role, String body, String model, MessageExtras extras) {
         ChatSessionEntity session = sessions.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("chat session not found"));
-        int ordinal = (int) messages.countBySessionId(sessionId);
+        int ordinal = messages.maxOrdinalBySessionId(sessionId) + 1;
         ChatMessageEntity row = new ChatMessageEntity(sessionId, ordinal, role, body, model);
         if (extras != null) {
             row.setToolsJson(extras.toolsJson());
@@ -84,6 +84,7 @@ public class ChatSessionService {
             row.setTtftMs(extras.ttftMs());
             row.setDurationMs(extras.durationMs());
             row.setReasoning(extras.reasoning());
+            row.setGenerationId(extras.generationId());
         }
         messages.save(row);
         if (!session.isTitleLocked() && "user".equals(role) && DEFAULT_TITLE.equals(session.getTitle())) {
@@ -143,6 +144,37 @@ public class ChatSessionService {
         return row.getFeedback();
     }
 
+    @Transactional
+    public ChatMessageEntity updateGeneration(
+            String sessionId,
+            int ordinal,
+            OpenRouterModelCatalog.GenerationLookup lookup,
+            String reasoningAppend) {
+        ChatMessageEntity row = messages.findBySessionIdAndOrdinal(sessionId, ordinal);
+        if (row == null || lookup == null) {
+            return row;
+        }
+        if (lookup.id() != null && !lookup.id().isBlank()) {
+            row.setGenerationId(lookup.id().strip());
+        }
+        if (lookup.promptTokens() != null) {
+            row.setPromptTokens(lookup.promptTokens());
+        }
+        if (lookup.completionTokens() != null) {
+            row.setCompletionTokens(lookup.completionTokens());
+        }
+        if (lookup.totalCost() != null) {
+            row.setCostUsd(lookup.totalCost());
+        }
+        if (reasoningAppend != null && !reasoningAppend.isBlank()) {
+            String current = row.getReasoning() == null ? "" : row.getReasoning();
+            if (!current.contains(reasoningAppend.strip())) {
+                row.setReasoning(current.isBlank() ? reasoningAppend.strip() : current + reasoningAppend);
+            }
+        }
+        return messages.save(row);
+    }
+
     public static String blockIfOverCap(double capUsd, double spentUsd, Double estimateUsd) {
         if (capUsd <= 0) {
             return null;
@@ -172,7 +204,8 @@ public class ChatSessionService {
             Double costUsd,
             Integer ttftMs,
             Integer durationMs,
-            String reasoning) {
-        public static final MessageExtras NONE = new MessageExtras(null, null, null, null, null, null, null);
+            String reasoning,
+            String generationId) {
+        public static final MessageExtras NONE = new MessageExtras(null, null, null, null, null, null, null, null);
     }
 }
