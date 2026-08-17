@@ -376,6 +376,16 @@
     font-weight: 650;
 }
 
+.chat-markdown th[align="center"],
+.chat-markdown td[align="center"] {
+    text-align: center;
+}
+
+.chat-markdown th[align="right"],
+.chat-markdown td[align="right"] {
+    text-align: right;
+}
+
 .chat-markdown ul,
 .chat-markdown ol {
     margin: 0.4em 0 0.6em;

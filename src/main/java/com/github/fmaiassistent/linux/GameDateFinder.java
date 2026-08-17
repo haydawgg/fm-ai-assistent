@@ -15,6 +15,9 @@ public class GameDateFinder {
     /** FM packs extra flag bits above the day-of-year; keep the low 9 bits. */
     public static final int DAY_MASK = 0x01FF;
 
+    /** Default game reference date when in-game date cannot be read from RAM (start of FM 2024/25 season). */
+    public static final LocalDate DEFAULT_GAME_DATE = LocalDate.of(2024, 7, 1);
+
     public Optional<LocalDate> find(ProcessMemoryReader reader) throws IOException {
         return find(reader, FmOffsets.DEFAULT_BUILD, null);
     }
@@ -60,7 +63,7 @@ public class GameDateFinder {
     }
 
     public static int ageYears(LocalDate dateOfBirth, LocalDate on) {
-        return Period.between(dateOfBirth, on).getYears();
+        return Math.max(0, Period.between(dateOfBirth, on).getYears());
     }
 
     public static Integer effectiveAge(String storedAge, String dateOfBirth, String ageAsOf) {
@@ -74,7 +77,7 @@ public class GameDateFinder {
         }
         LocalDate on = parseIsoDate(ageAsOf);
         if (on == null) {
-            on = LocalDate.now();
+            on = DEFAULT_GAME_DATE;
         }
         return ageYears(dob, on);
     }

@@ -13,6 +13,11 @@ node_modules/
 src/main/frontend/generated/
 src/main/frontend/index.html
 
+# Generated Vaadin bundles (not source; keep LLM/ripgrep from loading them)
+src/main/bundles/
+# Minified vendored library (not hand-edited source)
+src/main/frontend/js/highlight.min.js
+
 .genie26_setup_*.exe
 /node_modules/
 /vite.generated.ts

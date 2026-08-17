@@ -465,7 +465,10 @@ public class PlayerExporter {
         row.put("salary_pa", salary.annualRounded());
         row.put("salary_weekly_raw", salary.weeklyRaw());
         row.put("date_of_birth", dob == null ? "" : dob.toString());
-        row.put("age", dob == null || gameDate == null ? "" : ageOn(dob, gameDate));
+        // Always store a computed age so direct UIs and effectiveAge agree. age_as_of records only the real
+        // in-game date: when the RAM date is unknown it stays empty so expiry/tenure logic is not fooled by a
+        // fabricated season-baseline date, while ages remain stable against the baseline via effectiveAge().
+        row.put("age", dob == null ? "" : ageOn(dob, gameDate != null ? gameDate : GameDateFinder.DEFAULT_GAME_DATE));
         row.put("age_as_of", gameDate == null ? "" : gameDate.toString());
         row.put("height_cm", nearbyU8(
                 reader, nearby, nearbyFrom, record + layout.relative(HEIGHT_CM_REL),
@@ -773,7 +776,7 @@ public class PlayerExporter {
                 || (gameDate.getMonthValue() == dob.getMonthValue() && gameDate.getDayOfMonth() < dob.getDayOfMonth())) {
             age--;
         }
-        return age;
+        return Math.max(0, age);
     }
 
     private static void applyGameDate(Map<String, Object> row, LocalDate gameDate) {
@@ -783,17 +786,13 @@ public class PlayerExporter {
     private static void applyGameDate(List<Map<String, Object>> rows, LocalDate gameDate) {
         for (Map<String, Object> row : rows) {
             String dobValue = String.valueOf(row.getOrDefault("date_of_birth", ""));
-            if (gameDate == null || dobValue.isBlank()) {
+            try {
+                row.put("age", dobValue.isBlank() ? ""
+                        : ageOn(LocalDate.parse(dobValue), gameDate != null ? gameDate : GameDateFinder.DEFAULT_GAME_DATE));
+                row.put("age_as_of", gameDate == null ? "" : gameDate.toString());
+            } catch (DateTimeException ex) {
                 row.put("age", "");
                 row.put("age_as_of", "");
-            } else {
-                try {
-                    row.put("age", ageOn(LocalDate.parse(dobValue), gameDate));
-                    row.put("age_as_of", gameDate.toString());
-                } catch (DateTimeException ex) {
-                    row.put("age", "");
-                    row.put("age_as_of", "");
-                }
             }
             String futureTransferDate = String.valueOf(row.getOrDefault("future_transfer_date", ""));
             if (gameDate == null) {

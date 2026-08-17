@@ -47,6 +47,49 @@ class GameDateFinderTest {
     }
 
     @Test
+    void ageYearsNeverGoesNegativeOnCorruptFutureDob() {
+        // A garbled RAM date-of-birth later than the reference date must not produce a negative age in chat.
+        assertEquals(0, GameDateFinder.ageYears(LocalDate.of(2030, 1, 1), GameDateFinder.DEFAULT_GAME_DATE));
+        assertEquals(0, GameDateFinder.effectiveAge("", "2030-01-01", ""));
+    }
+
+    @Test
+    void effectiveAgeFallsBackToDefaultGameDateWhenAgeAsOfIsMissing() {
+        // Mattia Liberali (born 2007-04-06) should be 17 at default FM start (2024-07-01), not system calendar age
+        assertEquals(17, GameDateFinder.effectiveAge("", "2007-04-06", ""));
+        assertEquals(17, GameDateFinder.effectiveAge(null, "2007-04-06", null));
+    }
+
+    @Test
+    void storedAgeWinsEvenWhenAgeAsOfIsEmpty() {
+        // Export writes a computed age even when the RAM game date is unknown; age_as_of stays empty so
+        // expiry/tenure code is not fooled, but effectiveAge must still prefer the stored age.
+        assertEquals(17, GameDateFinder.effectiveAge("17", "2007-04-06", ""));
+        assertEquals(17, GameDateFinder.effectiveAge("17", "2007-04-06", null));
+    }
+
+    @Test
+    void chatAgesNeverDriftWithTheSystemClock() {
+        // The exact wonderkid target dates from chat: ages must match the FM season baseline (2024-07-01),
+        // never the live machine calendar (which was the original bug and inflated everyone by ~2 years).
+        assertGameAge("Mattia Liberali", "2007-04-06", 17);
+        assertGameAge("Isaac Babadi", "2005-04-06", 19);
+        assertGameAge("Leandro Hernández", "2005-06-13", 19);
+        assertGameAge("Jayden Danns", "2006-01-16", 18);
+        assertGameAge("Abdallah Manga", "2010-01-01", 14);
+    }
+
+    private static void assertGameAge(String label, String dateOfBirth, int expected) {
+        int gameAge = GameDateFinder.effectiveAge("", dateOfBirth, "");
+        int clockAge = GameDateFinder.ageYears(LocalDate.parse(dateOfBirth), LocalDate.now());
+        assertEquals(expected, gameAge, label + " must match the FM baseline age");
+        assertTrue(gameAge != clockAge,
+                label + " must not be derived from the system clock (would report " + clockAge + " in "
+                        + LocalDate.now().getYear() + ")");
+        assertEquals("2024-07-01", GameDateFinder.DEFAULT_GAME_DATE.toString());
+    }
+
+    @Test
     void estimatedDateRvaMatchesTheKnownBuild() {
         assertEquals(BUILD_238BDD_CURRENT_DATE_RVA, FmOffsets.estimatedCurrentDateRva(0x238bdd));
         assertEquals(BUILD_238BDD_CURRENT_DATE_RVA, FmOffsets.currentDateRva(0x238bdd));

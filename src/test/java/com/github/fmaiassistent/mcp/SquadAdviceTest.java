@@ -128,6 +128,14 @@ class SquadAdviceTest {
     }
 
     @Test
+    void daysUntilExpiryIsUnknownWithoutGameDate() {
+        // When the in-game date was not read, age_as_of stays empty: expiry must not be guessed
+        // against any fabricated date so contract-queue advice stays honest.
+        PlayerEntity player = player("Unknown", 140, 24, 8_000, "Striker", 18, false, "2026-06-30", null);
+        assertNull(SquadAdvice.daysUntilExpiry(player));
+    }
+
+    @Test
     void contractQueueMapsKeepToRenewAndSkipsFarContracts() {
         PlayerEntity renew = player("RenewMe", 150, 24, 8_000, "Striker", 18, false, "2026-03-01", "2026-01-01");
         PlayerEntity later = player("Later", 148, 24, 8_000, "Striker", 17, false, "2028-01-01", "2026-01-01");

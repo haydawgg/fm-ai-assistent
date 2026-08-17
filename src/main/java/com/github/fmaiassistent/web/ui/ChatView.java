@@ -3,6 +3,7 @@ package com.github.fmaiassistent.web.ui;
 import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.linux.GameDateFinder;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.service.AppSettingsService;
@@ -1139,10 +1140,13 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
     private String asOfStamp() {
         Object gameDate = players.metadata().get("game_date");
-        if (gameDate == null || String.valueOf(gameDate).isBlank()) {
-            return "";
+        if (gameDate != null && !String.valueOf(gameDate).isBlank()) {
+            return " · as of " + String.valueOf(gameDate).strip();
         }
-        return " · as of " + String.valueOf(gameDate).strip();
+        if (players.countPlayers() > 0) {
+            return " · as of " + GameDateFinder.DEFAULT_GAME_DATE + " (season baseline)";
+        }
+        return "";
     }
 
     private double todaySpendUsd() {
