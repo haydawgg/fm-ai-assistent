@@ -69,20 +69,38 @@ function findJar() {
         .readdirSync(process.resourcesPath)
         .filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
       if (matches.length > 0) {
-        return path.join(process.resourcesPath, matches[0]);
+        return path.join(process.resourcesPath, selectJar(matches));
       }
     }
     const dev = path.join(__dirname, '..', 'target');
     if (fs.existsSync(dev)) {
       const matches = fs.readdirSync(dev).filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
       if (matches.length > 0) {
-        return path.join(dev, matches[0]);
+        return path.join(dev, selectJar(matches));
       }
     }
   } catch {
     // ignore read errors; fall through to null
   }
   return null;
+}
+
+function selectJar(matches) {
+  return [...matches].sort((left, right) => {
+    const version = (name) => name.match(/^fm-ai-assistent-([\d.]+)(-SNAPSHOT)?\.jar$/);
+    const a = version(left);
+    const b = version(right);
+    const compareVersion = (x, y) => {
+      const xs = x.split('.').map(Number);
+      const ys = y.split('.').map(Number);
+      for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
+        const result = (xs[i] || 0) - (ys[i] || 0);
+        if (result !== 0) return result;
+      }
+      return 0;
+    };
+    return compareVersion(b[1], a[1]) || (a[2] ? 1 : 0) - (b[2] ? 1 : 0) || left.localeCompare(right);
+  })[0];
 }
 
 function isBackendAlreadyRunning() {

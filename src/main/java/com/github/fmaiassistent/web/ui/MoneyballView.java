@@ -319,7 +319,7 @@ public class MoneyballView extends VerticalLayout {
         if (displayed == null) {
             return null;
         }
-        long pounds = MoneyDisplay.toBasePounds(displayed.longValue(), currency);
+        long pounds = MoneyDisplay.inclusiveMaxToBasePounds(displayed.longValue(), currency);
         return pounds > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) pounds;
     }
 

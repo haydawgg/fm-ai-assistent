@@ -47,7 +47,7 @@ function createWindow() {
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url);
+      void shell.openExternal(url).catch(() => {});
     }
     return { action: 'deny' };
   });
@@ -64,7 +64,7 @@ function createWindow() {
     }
     event.preventDefault();
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url);
+      void shell.openExternal(url).catch(() => {});
     }
   });
 
@@ -163,8 +163,9 @@ if (gotSingleInstanceLock) {
     ipcMain.handle('app:version', () => app.getVersion());
     ipcMain.handle('app:open-external', (_event, url) => {
       if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
-        shell.openExternal(url);
+        return shell.openExternal(url).catch(() => undefined);
       }
+      return undefined;
     });
     ipcMain.handle('backend:state', () => getBackendState());
 

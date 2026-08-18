@@ -98,8 +98,9 @@ public interface ProcessMemoryReader extends AutoCloseable {
 
     default List<MemoryRegion> cachedRegions() {
         int key = pid();
-        RegionSnapshot snapshot = REGION_CACHE.get(key);
         long now = System.nanoTime();
+        REGION_CACHE.entrySet().removeIf(entry -> now - entry.getValue().createdAtNanos() >= REGION_CACHE_TTL_NS);
+        RegionSnapshot snapshot = REGION_CACHE.get(key);
         if (snapshot != null && now - snapshot.createdAtNanos() < REGION_CACHE_TTL_NS) {
             return snapshot.regions();
         }

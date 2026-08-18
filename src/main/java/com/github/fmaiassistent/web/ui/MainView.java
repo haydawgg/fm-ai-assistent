@@ -1794,18 +1794,14 @@ public class MainView extends VerticalLayout {
             return null;
         }
         MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
-        return Math.round(pounds * selected.rateFromPounds().doubleValue());
+        return MoneyDisplay.convert(pounds, selected);
     }
 
     private Long toFilterPounds(Long displayed) {
         if (displayed == null) {
             return null;
         }
-        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
-        if (selected == MoneyCurrency.POUND) {
-            return displayed;
-        }
-        return Math.round(displayed / selected.rateFromPounds().doubleValue());
+        return MoneyDisplay.toBasePounds(displayed, currency);
     }
 
     private static String display(Object value) {
@@ -2222,40 +2218,21 @@ public class MainView extends VerticalLayout {
         return goalkeeper != null && goalkeeper >= 15;
     }
 
-    private static int comparePlayerColumn(PlayerEntity left, PlayerEntity right, PlayerColumn column) {
+    private int comparePlayerColumn(PlayerEntity left, PlayerEntity right, PlayerColumn column) {
         if (NUMERIC_SORT_COLUMNS.contains(column.key())) {
             if ("SALARY_WEEKLY_RAW".equals(column.key())) {
                 return compareLongs(
-                        roundedDisplayedWeeklySalary(column.value(left)),
-                        roundedDisplayedWeeklySalary(column.value(right)));
+                        displayedWeeklySalary(column.value(left)),
+                        displayedWeeklySalary(column.value(right)));
             }
             return compareLongs(sortableLong(column.value(left)), sortableLong(column.value(right)));
         }
         return display(column.value(left)).compareToIgnoreCase(display(column.value(right)));
     }
 
-    private static Long roundedDisplayedWeeklySalary(Object value) {
+    private Long displayedWeeklySalary(Object value) {
         Long pounds = sortableLong(value);
-        return pounds == null ? null : roundDisplayedWeeklySalary(pounds);
-    }
-
-    private static long roundDisplayedWeeklySalary(long pounds) {
-        if (pounds <= 0) {
-            return 0;
-        }
-        long step;
-        if (pounds < 500L) {
-            step = 10L;
-        } else if (pounds < 1_000L) {
-            step = 50L;
-        } else if (pounds < 10_000L) {
-            step = 100L;
-        } else if (pounds < 50_000L) {
-            step = 500L;
-        } else {
-            step = 1_000L;
-        }
-        return Math.round(pounds / (double) step) * step;
+        return pounds == null ? null : MoneyDisplay.displayedAmount(pounds, currency);
     }
 
     private static int compareClubColumn(ClubEntity left, ClubEntity right, String column) {

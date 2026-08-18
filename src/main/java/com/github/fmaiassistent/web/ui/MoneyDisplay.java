@@ -25,6 +25,13 @@ public final class MoneyDisplay {
                 .longValue();
     }
 
+    /** Returns the numeric value shown by {@link #format(long, MoneyCurrency)}. */
+    public static long displayedAmount(long pounds, MoneyCurrency currency) {
+        MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
+        long converted = convert(pounds, selected);
+        return selected == MoneyCurrency.POUND ? converted : roundDisplayedAmount(converted);
+    }
+
     /** Converts an amount typed in the display currency back to raw pounds. */
     public static long toBasePounds(long amountInCurrency, MoneyCurrency currency) {
         MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
@@ -87,10 +94,7 @@ public final class MoneyDisplay {
     /** Formats raw pounds in the display currency, e.g. "$6,000,000". */
     public static String format(long pounds, MoneyCurrency currency) {
         MoneyCurrency selected = currency == null ? MoneyCurrency.POUND : currency;
-        long converted = convert(pounds, selected);
-        if (selected != MoneyCurrency.POUND) {
-            converted = roundDisplayedAmount(converted);
-        }
-        return selected.symbol() + NumberFormat.getIntegerInstance(Locale.US).format(converted);
+        return selected.symbol() + NumberFormat.getIntegerInstance(Locale.US)
+                .format(displayedAmount(pounds, selected));
     }
 }
