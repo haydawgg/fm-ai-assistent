@@ -21,6 +21,8 @@ src/main/frontend/js/highlight.min.js
 # Electron build output and bundled JAR
 electron/dist/
 electron/resources/
+# Legacy build output from pre-config builds
+dist/
 
 .genie26_setup_*.exe
 /node_modules/

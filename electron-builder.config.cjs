@@ -6,7 +6,13 @@ module.exports = {
     output: 'electron/dist',
     buildResources: 'electron/assets',
   },
-  files: ['electron/**/*', 'package.json'],
+  files: [
+    'electron/**/*',
+    '!electron/dist/**',
+    '!electron/resources/**',
+    '!node_modules/**/*',
+    'package.json',
+  ],
   extraResources: [
     {
       from: 'electron/resources',

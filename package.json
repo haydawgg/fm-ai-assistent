@@ -1,7 +1,9 @@
 {
-  "name": "no-name",
+  "name": "fm-ai-assistent",
   "license": "UNLICENSED",
   "version": "0.4.0",
+  "description": "FM AI Assistent - desktop app wrapper for Football Manager 26 RAM reader and AI assistant",
+  "author": "haydawgg",
   "type": "module",
   "main": "electron/main.js",
   "dependencies": {
@@ -20,12 +22,12 @@
   },
   "scripts": {
     "electron-dev": "electron .",
-    "electron-build": "electron-builder",
-    "build-all": "npm run build-jar && electron-builder",
-    "build-win": "npm run build-jar && electron-builder --win",
-    "build-mac": "npm run build-jar && electron-builder --mac",
-    "build-linux": "npm run build-jar && electron-builder --linux",
-    "build-jar": "mvn -Pelectron package -DskipTests"
+    "electron-build": "electron-builder --config electron-builder.config.cjs",
+    "build-all": "npm run build-jar && electron-builder --config electron-builder.config.cjs",
+    "build-win": "npm run build-jar && electron-builder --win --config electron-builder.config.cjs",
+    "build-mac": "npm run build-jar && electron-builder --mac --config electron-builder.config.cjs",
+    "build-linux": "npm run build-jar && electron-builder --linux --config electron-builder.config.cjs",
+    "build-jar": "mvn -Pelectron package -DskipTests || \"%USERPROFILE%\\.local\\apache-maven-3.9.16\\bin\\mvn.cmd\" -Pelectron package -DskipTests"
   },
   "devDependencies": {
     "@babel/preset-react": "7.28.5",

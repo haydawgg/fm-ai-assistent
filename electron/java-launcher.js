@@ -55,9 +55,11 @@ function findJava() {
 
 function findJar() {
   if (app.isPackaged) {
-    const bundled = path.join(process.resourcesPath, 'fm-ai-assistent.jar');
-    if (fs.existsSync(bundled)) {
-      return bundled;
+    const matches = fs
+      .readdirSync(process.resourcesPath)
+      .filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
+    if (matches.length > 0) {
+      return path.join(process.resourcesPath, matches[0]);
     }
   }
   const dev = path.join(__dirname, '..', 'target');
