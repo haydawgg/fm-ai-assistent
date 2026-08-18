@@ -4,9 +4,26 @@ import path from 'path';
 import { startBackend, stopBackend, getBackendState } from './java-launcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
+let BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
+let BACKEND_ORIGIN = null;
+try {
+  BACKEND_ORIGIN = new URL(BACKEND_URL).origin;
+} catch {
+  BACKEND_URL = 'http://127.0.0.1:8080';
+  BACKEND_ORIGIN = new URL(BACKEND_URL).origin;
+}
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.github.fmaiassistent');
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 let mainWindow = null;
+let quitting = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -36,11 +53,17 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('http://127.0.0.1:8080') || url.startsWith('http://localhost:8080')) {
+    let origin = null;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      // invalid URL; block it below
+    }
+    if (origin === BACKEND_ORIGIN) {
       return;
     }
+    event.preventDefault();
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      event.preventDefault();
       shell.openExternal(url);
     }
   });
@@ -54,9 +77,14 @@ function waitForBackend(url, timeoutMs = 120_000) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     const poll = () => {
+      const state = getBackendState();
+      if (state.state === 'error') {
+        reject(new Error(state.error || 'Backend failed to start'));
+        return;
+      }
       fetch(url, { signal: AbortSignal.timeout(2000) })
         .then((response) => {
-          if (response.ok || response.status < 500) {
+          if (response.ok) {
             resolve();
           } else {
             retry();
@@ -75,28 +103,42 @@ function waitForBackend(url, timeoutMs = 120_000) {
   });
 }
 
-app.whenReady().then(async () => {
-  ipcMain.handle('app:version', () => app.getVersion());
-  ipcMain.handle('app:open-external', (_event, url) => {
-    if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
-      shell.openExternal(url);
-    }
-  });
-  ipcMain.handle('backend:state', () => getBackendState());
+function showError(message) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.loadFile(path.join(__dirname, 'error.html'), { query: { message } });
+}
 
-  createWindow();
-
-  const started = await startBackend();
-  if (!started) {
-    const state = getBackendState();
-    if (state.external) {
-      mainWindow.loadURL(BACKEND_URL);
-      return;
-    }
+async function loadAppIntoWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const state = getBackendState();
+  if (state.state === 'ready') {
+    mainWindow.loadURL(BACKEND_URL);
+    return;
+  }
+  if (state.state === 'error') {
     showError(state.error || 'Failed to start Java backend');
     return;
   }
-
+  let started = false;
+  try {
+    started = await startBackend();
+  } catch (error) {
+    showError(`Backend did not start: ${error.message}`);
+    return;
+  }
+  if (!started) {
+    const current = getBackendState();
+    if (current.external) {
+      mainWindow.loadURL(BACKEND_URL);
+      return;
+    }
+    showError(current.error || 'Failed to start Java backend');
+    return;
+  }
   try {
     await waitForBackend(BACKEND_URL);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -105,27 +147,52 @@ app.whenReady().then(async () => {
   } catch (error) {
     showError(`Backend did not start: ${error.message}`);
   }
-});
-
-function showError(message) {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-  mainWindow.loadFile(path.join(__dirname, 'error.html'), { query: { message } });
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+  });
 
-app.on('before-quit', () => {
-  stopBackend();
-});
+  app.whenReady().then(async () => {
+    ipcMain.handle('app:version', () => app.getVersion());
+    ipcMain.handle('app:open-external', (_event, url) => {
+      if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+        shell.openExternal(url);
+      }
+    });
+    ipcMain.handle('backend:state', () => getBackendState());
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-  }
-});
+    await loadAppIntoWindow();
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('before-quit', (event) => {
+    if (quitting) {
+      return;
+    }
+    event.preventDefault();
+    quitting = true;
+    stopBackend().finally(() => {
+      app.exit(0);
+    });
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      loadAppIntoWindow();
+    }
+  });
+}

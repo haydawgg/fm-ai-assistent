@@ -7,6 +7,10 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
 const JVM_ARGS = ['-Xms256m', '-Xmx2g', '--enable-native-access=ALL-UNNAMED'];
+const SPRING_ARGS = [
+  '--management.endpoint.shutdown.enabled=true',
+  '--management.endpoints.web.exposure.include=health,info,shutdown',
+];
 
 let javaProcess = null;
 let stopping = false;
@@ -43,7 +47,12 @@ function javaCandidates() {
       }
     }
   } else {
-    candidates.push('/usr/bin/java', '/usr/local/bin/java', '/opt/java/bin/java');
+    addIfExists('/usr/bin/java');
+    addIfExists('/usr/local/bin/java');
+    addIfExists('/opt/java/bin/java');
+    addIfExists('/opt/jdk-25/bin/java');
+    addIfExists('/usr/lib/jvm/default-java/bin/java');
+    addIfExists('/usr/lib/jvm/java-25-openjdk/bin/java');
   }
   return candidates;
 }
@@ -54,20 +63,24 @@ function findJava() {
 }
 
 function findJar() {
-  if (app.isPackaged) {
-    const matches = fs
-      .readdirSync(process.resourcesPath)
-      .filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
-    if (matches.length > 0) {
-      return path.join(process.resourcesPath, matches[0]);
+  try {
+    if (app.isPackaged) {
+      const matches = fs
+        .readdirSync(process.resourcesPath)
+        .filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
+      if (matches.length > 0) {
+        return path.join(process.resourcesPath, matches[0]);
+      }
     }
-  }
-  const dev = path.join(__dirname, '..', 'target');
-  if (fs.existsSync(dev)) {
-    const matches = fs.readdirSync(dev).filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
-    if (matches.length > 0) {
-      return path.join(dev, matches[0]);
+    const dev = path.join(__dirname, '..', 'target');
+    if (fs.existsSync(dev)) {
+      const matches = fs.readdirSync(dev).filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
+      if (matches.length > 0) {
+        return path.join(dev, matches[0]);
+      }
     }
+  } catch {
+    // ignore read errors; fall through to null
   }
   return null;
 }
@@ -77,9 +90,15 @@ function isBackendAlreadyRunning() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2000);
     fetch(BACKEND_URL, { signal: controller.signal })
-      .then((response) => {
+      .then(async (response) => {
         clearTimeout(timer);
-        resolve(response.status < 500);
+        if (response.status >= 500) {
+          resolve(false);
+          return;
+        }
+        const text = await response.text().catch(() => '');
+        // Only adopt the port if it is really our Vaadin app, not some other service.
+        resolve(/vaadin/i.test(text) || /fm-ai-assistent/i.test(text));
       })
       .catch(() => {
         clearTimeout(timer);
@@ -90,14 +109,18 @@ function isBackendAlreadyRunning() {
 
 function killProcessTree(pid) {
   if (process.platform === 'win32') {
-    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => {});
-  } else {
+    return new Promise((resolve) => {
+      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => resolve());
+    });
+  }
+  return new Promise((resolve) => {
     try {
       process.kill(pid, 'SIGTERM');
     } catch {
       // already gone
     }
-  }
+    resolve();
+  });
 }
 
 export function getBackendState() {
@@ -108,6 +131,7 @@ export async function startBackend() {
   if (javaProcess) {
     return true;
   }
+  stopping = false;
   if (await isBackendAlreadyRunning()) {
     backendState = { state: 'ready', external: true, error: null };
     return false;
@@ -132,7 +156,7 @@ export async function startBackend() {
   backendState = { state: 'starting', external: false, error: null };
 
   return new Promise((resolve) => {
-    javaProcess = spawn(java, [...JVM_ARGS, '-jar', jar], {
+    javaProcess = spawn(java, [...JVM_ARGS, '-jar', jar, ...SPRING_ARGS], {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -164,8 +188,33 @@ export async function startBackend() {
 
 export function stopBackend() {
   stopping = true;
-  if (javaProcess && javaProcess.pid) {
-    killProcessTree(javaProcess.pid);
+  const proc = javaProcess;
+  if (!proc || !proc.pid || proc.exitCode !== null) {
+    return Promise.resolve();
   }
-  javaProcess = null;
+  // Ask Spring Boot to shut down gracefully first so H2 and exports flush cleanly.
+  fetch(`${BACKEND_URL}/actuator/shutdown`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (!finished) {
+        finished = true;
+        resolve();
+      }
+    };
+    const forceTimer = setTimeout(() => {
+      killProcessTree(proc.pid).then(finish);
+    }, 8000);
+    // Guard against a race where the process exits between the exitCode check and listener attach.
+    proc.once('exit', () => {
+      clearTimeout(forceTimer);
+      finish();
+    });
+    setTimeout(finish, 15000);
+  });
 }
