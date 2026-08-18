@@ -1,11 +1,16 @@
 import { app } from 'electron';
-import { spawn, execFile } from 'child_process';
+import { spawn, execFile, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
+let BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
+try {
+  new URL(BACKEND_URL);
+} catch {
+  BACKEND_URL = 'http://127.0.0.1:8080';
+}
 const JVM_ARGS = ['-Xms256m', '-Xmx2g', '--enable-native-access=ALL-UNNAMED'];
 const SPRING_ARGS = [
   '--management.endpoint.shutdown.enabled=true',
@@ -14,6 +19,7 @@ const SPRING_ARGS = [
 
 let javaProcess = null;
 let stopping = false;
+let startPromise = null;
 let backendState = { state: 'idle', external: false, error: null };
 
 function javaCandidates() {
@@ -111,7 +117,9 @@ function isBackendAlreadyRunning() {
       .then(async (response) => {
         clearTimeout(timer);
         if (response.status >= 500) {
-          resolve(false);
+          // A server is mid-boot or unhealthy on this port. Treat the port as
+          // occupied so we don't spawn a second JVM that races for it.
+          resolve(true);
           return;
         }
         const text = await response.text().catch(() => '');
@@ -145,7 +153,43 @@ export function getBackendState() {
   return backendState;
 }
 
+export function markBackendReady() {
+  if (backendState.state === 'starting') {
+    backendState = { state: 'ready', external: false, error: null };
+  }
+}
+
+function javaMajorVersion(java) {
+  try {
+    const { stderr, stdout, status } = spawnSync(java, ['-version'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      windowsHide: true,
+    });
+    if (status !== 0) {
+      return null;
+    }
+    const match = `${stderr}\n${stdout}`.match(/version\s+"(\d+)/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function startBackend() {
+  if (javaProcess) {
+    return true;
+  }
+  if (startPromise) {
+    return startPromise;
+  }
+  startPromise = doStartBackend().finally(() => {
+    startPromise = null;
+  });
+  return startPromise;
+}
+
+async function doStartBackend() {
   if (javaProcess) {
     return true;
   }
@@ -158,6 +202,16 @@ export async function startBackend() {
   const java = findJava();
   if (!java) {
     backendState = { state: 'error', external: false, error: 'Java 25 was not found. Install Eclipse Temurin JDK 25.' };
+    return false;
+  }
+
+  const major = javaMajorVersion(java);
+  if (major !== null && major < 25) {
+    backendState = {
+      state: 'error',
+      external: false,
+      error: `Java ${major} was found, but FM AI Assistent requires Java 25. Install Eclipse Temurin JDK 25.`,
+    };
     return false;
   }
 
@@ -222,17 +276,20 @@ export function stopBackend() {
     const finish = () => {
       if (!finished) {
         finished = true;
+        clearTimeout(forceTimer);
+        clearTimeout(abandonTimer);
         resolve();
       }
     };
     const forceTimer = setTimeout(() => {
       killProcessTree(proc.pid).then(finish);
-    }, 8000);
+    }, 12_000);
+    const abandonTimer = setTimeout(() => {
+      killProcessTree(proc.pid).then(finish);
+    }, 25_000);
     // Guard against a race where the process exits between the exitCode check and listener attach.
     proc.once('exit', () => {
-      clearTimeout(forceTimer);
       finish();
     });
-    setTimeout(finish, 15000);
   });
 }

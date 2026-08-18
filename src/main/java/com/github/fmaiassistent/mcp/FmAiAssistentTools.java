@@ -62,7 +62,7 @@ public class FmAiAssistentTools {
     private final JdbcTemplate jdbc;
     private final RamLoadCoordinator ramLoad;
     private final DatabaseLoadAllService loadAll;
-    private final ThreadLocal<List<RoleAttributeRow>> roleAttributeCache = new ThreadLocal<>();
+    private volatile List<RoleAttributeRow> roleAttributeRowsCache;
 
     public FmAiAssistentTools(
             PlayerDatabaseService players,
@@ -235,7 +235,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Position group exact filter, for example Striker, Goalkeeper, Centre-Back, Central Midfielder") String positionGroup,
             @ToolParam(required = false, description = "Role name contains filter, for example Advanced Forward, Ball-Playing Centre-Back, Goalkeeper") String roleName,
             @ToolParam(required = false, description = "Maximum roles to return") Integer limit) {
-        roleAttributeCache.remove();
+        roleAttributeRowsCache = null;
         int safeLimit = safeLimit(limit);
         List<RoleAttributeRow> rows = roleAttributeRows();
 
@@ -312,7 +312,7 @@ public class FmAiAssistentTools {
             Boolean injured,
             Integer limit,
             boolean dropUnwilling) {
-        roleAttributeCache.remove();
+        roleAttributeRowsCache = null;
         RankedTransfers ranked;
         try {
             ranked = rankTransfers(
@@ -391,7 +391,7 @@ public class FmAiAssistentTools {
             @ToolParam(required = false, description = "Transfer-agreed filter. Defaults to false because agreed players are unavailable.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Injury filter. false=fit only, true=injured only, omit=both.") Boolean injured,
             @ToolParam(required = false, description = "Maximum candidates. Defaults to 8, maximum 30.") Integer limit) {
-        roleAttributeCache.remove();
+        roleAttributeRowsCache = null;
         List<PlayerEntity> allPlayers = allPlayers();
         MoneyballParameters params;
         try {
@@ -667,7 +667,7 @@ public class FmAiAssistentTools {
     public Map<String, Object> bestXi(
             @ToolParam(description = "Managing club name") String managingClub,
             @ToolParam(required = false, description = "Eleven tactic slots, one per line: GK,Ball Playing GK,Sweeper Keeper. Omit to use the live RAM formation.") String tacticSlots) {
-        roleAttributeCache.remove();
+        roleAttributeRowsCache = null;
         ClubEntity club = requireClub(managingClub);
         String slotsText = tacticSlots;
         String source = "pasted";
@@ -1474,7 +1474,7 @@ public class FmAiAssistentTools {
     }
 
     private List<RoleAttributeRow> roleAttributeRows() {
-        List<RoleAttributeRow> cached = roleAttributeCache.get();
+        List<RoleAttributeRow> cached = roleAttributeRowsCache;
         if (cached != null) {
             return cached;
         }
@@ -1496,7 +1496,7 @@ public class FmAiAssistentTools {
                          rs.getString("attribute_priority"),
                          rs.getString("attribute_name"),
                          rs.getInt("sort_order")));
-        roleAttributeCache.set(rows);
+        roleAttributeRowsCache = rows;
         return rows;
     }
 

@@ -153,6 +153,15 @@
                     <jvmArguments>-Xms256m -Xmx2g --enable-native-access=ALL-UNNAMED</jvmArguments>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Bound the forked test JVM so parallel surefire forks don't
+                         exhaust host memory (see hs_err_pid*.log startup OOMs). -->
+                    <argLine>-Xms256m -Xmx1g --enable-native-access=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

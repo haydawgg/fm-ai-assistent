@@ -1,6 +1,8 @@
 package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.ai.AiPromptContext;
+import com.openai.client.OpenAIClient;
+import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
 import org.springframework.ai.chat.client.ChatClient;
@@ -107,6 +109,8 @@ public class AssistantChatService {
     private ChatTone cachedTone;
     private Double cachedTopP;
     private ChatClient client;
+    private OpenAIClient syncClient;
+    private OpenAIClientAsync asyncClient;
 
     public AssistantChatService(AppSettingsService settings, ToolCallbackProvider tools, AiPromptContext promptContext) {
         this.settings = settings;
@@ -682,6 +686,8 @@ public class AssistantChatService {
                     || !Objects.equals(club, cachedClub)
                     || cachedTone != tone
                     || !Objects.equals(topP, cachedTopP)) {
+                OpenAIClient oldSync = syncClient;
+                OpenAIClientAsync oldAsync = asyncClient;
                 cachedApiKey = apiKey;
                 cachedModel = model;
                 cachedClub = club;
@@ -698,16 +704,44 @@ public class AssistantChatService {
                         .baseUrl(OpenRouterModelCatalog.BASE_URL)
                         .putHeader("HTTP-Referer", OpenRouterModelCatalog.HTTP_REFERER)
                         .putHeader("X-Title", OpenRouterModelCatalog.APP_TITLE);
+                OpenAIClient newSync = syncBuilder.build();
+                OpenAIClientAsync newAsync = asyncBuilder.build();
                 OpenAiChatModel chatModel = OpenAiChatModel.builder()
-                        .openAiClient(syncBuilder.build())
-                        .openAiClientAsync(asyncBuilder.build())
+                        .openAiClient(newSync)
+                        .openAiClientAsync(newAsync)
                         .options(options)
                         .build();
                 client = ChatClient.builder(chatModel)
                         .defaultSystem(systemPrompt(club))
                         .build();
+                syncClient = newSync;
+                asyncClient = newAsync;
+                closeQuietly(oldSync);
+                closeQuietly(oldAsync);
             }
             return client;
+        }
+    }
+
+    private static void closeQuietly(OpenAIClient client) {
+        if (client == null) {
+            return;
+        }
+        try {
+            client.close();
+        } catch (Exception ignored) {
+            // best-effort cleanup of a superseded HTTP client
+        }
+    }
+
+    private static void closeQuietly(OpenAIClientAsync client) {
+        if (client == null) {
+            return;
+        }
+        try {
+            client.close();
+        } catch (Exception ignored) {
+            // best-effort cleanup of a superseded HTTP client
         }
     }
 

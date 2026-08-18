@@ -79,12 +79,12 @@ public class FirstXiView extends VerticalLayout {
         setSpacing(false);
         addClassName("moneyball-view");
         addClassName("first-xi-view");
-        String liveSlots = String.valueOf(metadata.getOrDefault("tactic_slots", ""));
+        String liveSlots = display(metadata.get("tactic_slots"));
         tactic.setValue(liveSlots.isBlank() ? DEFAULT_TACTIC : liveSlots);
         tactic.setWidthFull();
         tactic.setMinHeight("6em");
         tactic.setMaxHeight("12em");
-        String formation = String.valueOf(metadata.getOrDefault("tactic_formation", ""));
+        String formation = display(metadata.get("tactic_formation"));
         tactic.setHelperText("One line per slot: " + String.join(", ", PositionCodes.CODES)
                 + " plus in-possession and out-of-possession roles."
                 + (formation.isBlank()
@@ -234,18 +234,22 @@ public class FirstXiView extends VerticalLayout {
             List<UpgradeRow> rows = new ArrayList<>();
             for (Map<String, Object> buy : buys) {
                 Object raw = buy.get("candidates");
-                String names = "";
+                List<String> candidateNames = new ArrayList<>();
                 if (raw instanceof List<?> list) {
-                    names = list.stream()
-                            .map(item -> item instanceof Map<?, ?> map ? String.valueOf(map.get("name")) : "")
-                            .filter(name -> !name.isBlank())
-                            .reduce((left, right) -> left + ", " + right)
-                            .orElse("");
+                    for (Object item : list) {
+                        if (!(item instanceof Map<?, ?> map)) {
+                            continue;
+                        }
+                        String name = display(map.get("name"));
+                        if (!name.isBlank()) {
+                            candidateNames.add(name);
+                        }
+                    }
                 }
                 rows.add(new UpgradeRow(
-                        String.valueOf(buy.get("position")),
-                        String.valueOf(buy.get("in_possession_role")),
-                        names));
+                        display(buy.get("position")),
+                        display(buy.get("in_possession_role")),
+                        String.join(", ", candidateNames)));
             }
             upgrades.setItems(rows);
             summary.removeClassName("moneyball-empty");
@@ -363,6 +367,14 @@ public class FirstXiView extends VerticalLayout {
             return "";
         }
         Object value = metadata.get(key);
+        if (value == null) {
+            return "";
+        }
+        String text = String.valueOf(value);
+        return "null".equals(text) ? "" : text;
+    }
+
+    private static String display(Object value) {
         if (value == null) {
             return "";
         }

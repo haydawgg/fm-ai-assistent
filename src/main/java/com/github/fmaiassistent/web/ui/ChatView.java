@@ -209,6 +209,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     @Override
     public void beforeEnter(BeforeEnterEvent event) {
         pendingPrompt = event.getLocation().getQueryParameters().getSingleParameter("q").orElse("");
+        // Same-route navigation reuses the view instance, so onAttach never fires
+        // again; consume the prompt here instead so ?q= prompts are not dropped.
+        if (!pendingPrompt.isBlank() && isAttached()) {
+            submitPendingPrompt(event.getUI());
+        }
     }
 
     @Override
@@ -823,6 +828,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                                 scrollToLatest();
                             });
                         });
+        updateConfigurationState();
     }
 
     private List<AssistantChatService.ChatTurn> historyForModel() {

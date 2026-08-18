@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { startBackend, stopBackend, getBackendState } from './java-launcher.js';
+import { startBackend, stopBackend, getBackendState, markBackendReady } from './java-launcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
@@ -85,6 +85,7 @@ function waitForBackend(url, timeoutMs = 120_000) {
       fetch(url, { signal: AbortSignal.timeout(2000) })
         .then((response) => {
           if (response.ok) {
+            markBackendReady();
             resolve();
           } else {
             retry();
@@ -151,12 +152,15 @@ async function loadAppIntoWindow() {
 
 if (gotSingleInstanceLock) {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      loadAppIntoWindow();
+      return;
     }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
   });
 
   app.whenReady().then(async () => {
@@ -180,10 +184,10 @@ if (gotSingleInstanceLock) {
   });
 
   app.on('before-quit', (event) => {
+    event.preventDefault();
     if (quitting) {
       return;
     }
-    event.preventDefault();
     quitting = true;
     stopBackend().finally(() => {
       app.exit(0);

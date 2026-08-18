@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.service.DatabaseLoadAllService;
 import com.github.fmaiassistent.service.LoadProgress;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.vaadin.flow.component.UI;
@@ -59,14 +60,16 @@ final class RamLoadUi {
         loadButton.setText("Loading...");
         loadingDialog.open();
 
-        CompletableFuture
-                .supplyAsync(() -> {
+        CompletableFuture<DatabaseLoadAllService.LoadAllResult> future =
+                CompletableFuture.supplyAsync(() -> {
                     try {
                         return ramLoad.loadFromRam(progress -> access(ui, () -> apply(spinner, loadingTitle, loadingSubtitle, progress)));
                     } catch (IOException ex) {
                         throw new CompletionException(ex);
                     }
-                })
+                });
+        ui.addDetachListener(event -> future.cancel(true));
+        future
                 .thenAccept(result -> access(ui, () -> {
                     loadingDialog.close();
                     restore(loadButton);
@@ -81,6 +84,9 @@ final class RamLoadUi {
                     ui.getPage().reload();
                 }))
                 .exceptionally(ex -> {
+                    if (future.isCancelled()) {
+                        return null;
+                    }
                     access(ui, () -> {
                         loadingDialog.close();
                         restore(loadButton);

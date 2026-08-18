@@ -52,9 +52,7 @@ public final class PlayerSpecifications {
             addIntRange(predicates, cb, root, "pa", filter.paMin(), filter.paMax());
             addLongRange(predicates, cb, root, "askingPrice", filter.askingPriceMin(), filter.askingPriceMax());
             if (filter.salaryMax() != null) {
-                predicates.add(cb.or(
-                        cb.isNull(root.get("salaryWeeklyRaw")),
-                        cb.lessThanOrEqualTo(root.get("salaryWeeklyRaw"), filter.salaryMax())));
+                predicates.add(cb.lessThanOrEqualTo(root.get("salaryWeeklyRaw"), filter.salaryMax()));
             }
             addMinimums(predicates, cb, root, filter.positionMinimums());
             addMinimums(predicates, cb, root, filter.attributeMinimums());

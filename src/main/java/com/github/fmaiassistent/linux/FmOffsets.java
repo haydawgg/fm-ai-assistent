@@ -89,7 +89,8 @@ public final class FmOffsets {
                 .filter(region -> region.path().toLowerCase(Locale.ROOT).contains("game_plugin.dll"))
                 .toList();
         return matches.stream()
-                .min(FmOffsets::comparePluginMappings)
+                .min(Comparator.comparingLong(MemoryRegion::start)
+                        .thenComparing(FmOffsets::comparePluginMappings))
                 .map(MemoryRegion::start)
                 .orElseThrow(() -> new IllegalStateException("game_plugin.dll not found in maps"));
     }
@@ -289,23 +290,26 @@ public final class FmOffsets {
 
     private static Map<String, Long> tableCounts(ProcessMemoryReader reader, long tableBase) {
         Map<String, Long> counts = new LinkedHashMap<>();
-        try {
-            for (Map.Entry<String, Long> slot : SLOTS.entrySet()) {
+        for (Map.Entry<String, Long> slot : SLOTS.entrySet()) {
+            try {
                 long slotPtr = reader.readU64(tableBase + slot.getValue());
+                if (slotPtr == 0) {
+                    continue;
+                }
                 long offsetValue = reader.readU64(slotPtr + 0x80);
                 long start = reader.readU64(offsetValue);
                 long end = reader.readU64(offsetValue + 8);
                 if (end < start || (end - start) % 8 != 0) {
-                    return Map.of();
+                    continue;
                 }
                 long count = (end - start) / 8;
                 if (count < 0 || count > 2_000_000) {
-                    return Map.of();
+                    continue;
                 }
                 counts.put(slot.getKey(), count);
+            } catch (IOException | RuntimeException ex) {
+                // Ignore an unusable slot; score the slots that decode cleanly.
             }
-        } catch (IOException | RuntimeException ex) {
-            return Map.of();
         }
         return counts;
     }

@@ -811,7 +811,7 @@ public class PlayerEntity {
 
     @Override
     public int hashCode() {
-        return PlayerEntity.class.hashCode();
+        return Objects.hash(id);
     }
 
     private void setExportField(String exportField, Object value) {

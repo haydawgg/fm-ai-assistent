@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface CompetitionRepository extends JpaRepository<CompetitionEntity, Long>, JpaSpecificationExecutor<CompetitionEntity> {
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, key = "'names'")
     @Query("""
                 select distinct c.name
                 from CompetitionEntity c
@@ -20,7 +20,7 @@ public interface CompetitionRepository extends JpaRepository<CompetitionEntity, 
             """)
     List<String> findDistinctNameByOrderByNameAsc();
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE, key = "'names'")
     @Query("""
                 select distinct c.nation
                 from CompetitionEntity c
@@ -29,7 +29,7 @@ public interface CompetitionRepository extends JpaRepository<CompetitionEntity, 
             """)
     List<String> findDistinctNations();
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, key = "'genders'")
     @Query("""
                 select distinct c.gender
                 from CompetitionEntity c

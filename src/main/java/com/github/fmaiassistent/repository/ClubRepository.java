@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpecificationExecutor<ClubEntity> {
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, key = "'names'")
     @Query("""
                 select distinct c.name
                 from ClubEntity c
@@ -20,7 +20,7 @@ public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpec
             """)
     List<String> findDistinctNameByOrderByNameAsc();
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, key = "'competitions'")
     @Query("""
                 select distinct c.competition
                 from ClubEntity c
@@ -29,7 +29,7 @@ public interface ClubRepository extends JpaRepository<ClubEntity, Long>, JpaSpec
             """)
     List<String> findDistinctCompetitionByOrderByCompetitionAsc();
 
-    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, key = "'nations'")
     @Query("""
                 select distinct c.nation
                 from ClubEntity c

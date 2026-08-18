@@ -152,11 +152,11 @@ public class ClubExporter {
                     Long.toHexString(club));
             return new Finance(null, null, null);
         }
-        long balanceRaw = reader.readU32(extra + CLUB_BALANCE_REL);
+        long balanceRaw = reader.readI32(extra + CLUB_BALANCE_REL);
         long balance = roundToNearest(balanceRaw, balanceRoundingStep(balanceRaw));
-        long transferBudgetRaw = reader.readU32(extra + CLUB_TRANSFER_BUDGET_REL);
+        long transferBudgetRaw = reader.readI32(extra + CLUB_TRANSFER_BUDGET_REL);
         long transferBudget = roundToNearest(transferBudgetRaw, transferRoundingStep(transferBudgetRaw));
-        long payrollRaw = reader.readU32(extra + CLUB_PAYROLL_BUDGET_REL);
+        long payrollRaw = reader.readI32(extra + CLUB_PAYROLL_BUDGET_REL);
         long payrollBudget = roundToNearest(payrollRaw, payrollRoundingStep(payrollRaw));
         return new Finance(balance, transferBudget, payrollBudget);
     }
