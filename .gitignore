@@ -18,6 +18,10 @@ src/main/bundles/
 # Minified vendored library (not hand-edited source)
 src/main/frontend/js/highlight.min.js
 
+# Electron build output and bundled JAR
+electron/dist/
+electron/resources/
+
 .genie26_setup_*.exe
 /node_modules/
 /vite.generated.ts

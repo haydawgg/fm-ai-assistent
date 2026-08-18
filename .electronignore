@@ -1,0 +1,9 @@
+node_modules
+target
+electron/dist
+electron/resources
+src/main/frontend/generated
+.vscode
+.idea
+*.log
+hs_err_pid*.log
