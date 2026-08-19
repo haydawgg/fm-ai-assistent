@@ -432,7 +432,7 @@ public class OverviewView extends VerticalLayout {
         retry.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         state.add(retry);
         add(state);
-        Notification.show("Dashboard refresh failed", 4000, Notification.Position.TOP_CENTER)
+        UiFeedback.error("Dashboard refresh failed", 4000, Notification.Position.TOP_CENTER)
                 .addThemeVariants(NotificationVariant.LUMO_ERROR);
     }
 

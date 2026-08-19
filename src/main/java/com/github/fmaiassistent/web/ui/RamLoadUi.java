@@ -72,13 +72,12 @@ final class RamLoadUi {
                 result -> {
                     loadingDialog.close();
                     restore(loadButton);
-                    Notification loaded = Notification.show(
+                    Notification loaded = UiFeedback.success(
                             "Loaded " + result.players() + " players · in-game "
                                     + (result.gameDate() == null || result.gameDate().isBlank() ? "date unknown" : result.gameDate())
                                     + (result.skipSummary() == null ? "" : result.skipSummary()),
                             3500,
                             Notification.Position.TOP_CENTER);
-                    loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                     loaded.addClassName("app-toast");
                     ui.getPage().reload();
                 },
@@ -87,11 +86,10 @@ final class RamLoadUi {
                     restore(loadButton);
                     Throwable cause = unwrap(error);
                     LOGGER.error("Load from RAM failed", cause);
-                    Notification failed = Notification.show(
+                    Notification failed = UiFeedback.error(
                             "Load failed: " + message(cause),
                             8000,
                             Notification.Position.TOP_CENTER);
-                    failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
                     failed.addClassName("app-toast");
                 });
     }

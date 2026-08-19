@@ -181,7 +181,7 @@ final class SettingsDialog {
                 promptText.clear();
                 refreshPromptList(settings, promptList);
             } catch (IllegalArgumentException error) {
-                Notification.show(error.getMessage(), 2500, Notification.Position.TOP_CENTER);
+                UiFeedback.error(error.getMessage(), 2500, Notification.Position.TOP_CENTER);
             }
         });
         savePrompt.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
@@ -207,8 +207,7 @@ final class SettingsDialog {
             if (onSaved != null) {
                 onSaved.accept(currency);
             }
-            Notification saved = Notification.show("Settings saved", 2500, Notification.Position.TOP_CENTER);
-            saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            Notification saved = UiFeedback.success("Settings saved", 2500, Notification.Position.TOP_CENTER);
             saved.addClassName("app-toast");
             dialog.close();
         });
@@ -238,8 +237,9 @@ final class SettingsDialog {
 
     private static void showProbeResult(Span status, OpenRouterModelCatalog.ProbeResult probe) {
         status.setText(probe.message());
-        Notification notice = Notification.show(probe.message(), 2800, Notification.Position.TOP_CENTER);
-        notice.addThemeVariants(probe.ok() ? NotificationVariant.LUMO_SUCCESS : NotificationVariant.LUMO_ERROR);
+        Notification notice = probe.ok()
+                ? UiFeedback.success(probe.message(), 2800, Notification.Position.TOP_CENTER)
+                : UiFeedback.error(probe.message(), 2800, Notification.Position.TOP_CENTER);
     }
 
     private static void refreshFallbackList(Div list, List<String> models, Map<String, String> labels) {

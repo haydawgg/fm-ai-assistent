@@ -69,7 +69,7 @@ final class TacticContextPanel extends Details {
         upload.setDropAllowed(false);
         upload.addClassName("tactic-context-upload");
         upload.addAllFinishedListener(ignored -> importUploads());
-        upload.addFileRejectedListener(event -> Notification.show(event.getErrorMessage()));
+        upload.addFileRejectedListener(event -> UiFeedback.error(event.getErrorMessage(), 4000, Notification.Position.MIDDLE));
 
         Span help = new Span(
                 "Select or upload an FM26 .fmf tactic. The app decodes its tactical roles, "
@@ -126,7 +126,7 @@ final class TacticContextPanel extends Details {
                 },
                 error -> {
                     setBusy(false);
-                    Notification.show(safeMessage(error));
+                    UiFeedback.error(safeMessage(error), 4000, Notification.Position.MIDDLE);
                     refresh();
                 });
     }

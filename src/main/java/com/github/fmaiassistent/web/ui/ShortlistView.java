@@ -160,14 +160,14 @@ public class ShortlistView extends VerticalLayout {
     private void run() {
         String club = sessionClub;
         if (club.isBlank()) {
-            Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
+            UiFeedback.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
         String position = "Any".equals(positionFilter.getValue()) ? null : positionFilter.getValue();
         String role = "Any".equals(roleFilter.getValue()) ? null : roleFilter.getValue();
         if (role != null && position == null) {
-            Notification.show("Pick a position before choosing a role", 3000, Notification.Position.MIDDLE)
+            UiFeedback.show("Pick a position before choosing a role", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }

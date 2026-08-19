@@ -32,7 +32,7 @@ final class PlayerDossier {
         try {
             open(tools.playerByName(name), currency, sessionClub);
         } catch (RuntimeException ex) {
-            Notification.show(ex.getMessage() == null ? "Player not found" : ex.getMessage(),
+            UiFeedback.error(ex.getMessage() == null ? "Player not found" : ex.getMessage(),
                     4000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
         }

@@ -755,7 +755,7 @@ public class MainView extends VerticalLayout {
         Button save = new Button("Save", VaadinIcon.CHECK.create(), event -> {
             String viewName = meaningfulText(name.getValue());
             if (viewName == null) {
-                Notification.show("Enter a view name", 3000, Notification.Position.TOP_CENTER);
+                UiFeedback.show("Enter a view name", 3000, Notification.Position.TOP_CENTER);
                 return;
             }
             settings.savePlayerView(new SavedPlayerView(viewName, playerFilter, showAllPlayerColumns));
@@ -766,8 +766,7 @@ public class MainView extends VerticalLayout {
             } finally {
                 syncingSavedViews = false;
             }
-            Notification saved = Notification.show("View saved", 2500, Notification.Position.TOP_CENTER);
-            saved.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            Notification saved = UiFeedback.success("View saved", 2500, Notification.Position.TOP_CENTER);
             saved.addClassName("app-toast");
             dialog.close();
         });
@@ -782,12 +781,12 @@ public class MainView extends VerticalLayout {
     private void deleteSelectedView() {
         String name = savedViews.getValue();
         if (name == null || name.isBlank()) {
-            Notification.show("Select a saved view to delete", 2500, Notification.Position.TOP_CENTER);
+            UiFeedback.show("Select a saved view to delete", 2500, Notification.Position.TOP_CENTER);
             return;
         }
         settings.deletePlayerView(name);
         refreshSavedViewOptions();
-        Notification deleted = Notification.show("View deleted", 2500, Notification.Position.TOP_CENTER);
+        Notification deleted = UiFeedback.show("View deleted", 2500, Notification.Position.TOP_CENTER);
         deleted.addClassName("app-toast");
     }
 
@@ -849,7 +848,7 @@ public class MainView extends VerticalLayout {
             return;
         }
         selection.startCompare();
-        Notification notice = Notification.show(
+        Notification notice = UiFeedback.show(
                 "Select another player to compare",
                 2500,
                 Notification.Position.TOP_CENTER);
@@ -2282,7 +2281,7 @@ public class MainView extends VerticalLayout {
             return true;
         }
         if (value < min || value > max) {
-            Notification.show(field.getLabel() + " must be between " + min + " and " + max, 5000, Notification.Position.TOP_CENTER);
+            UiFeedback.show(field.getLabel() + " must be between " + min + " and " + max, 5000, Notification.Position.TOP_CENTER);
             return false;
         }
         return true;
@@ -2290,7 +2289,7 @@ public class MainView extends VerticalLayout {
 
     private static boolean validRange(String label, Integer min, Integer max) {
         if (min != null && max != null && min > max) {
-            Notification.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
+            UiFeedback.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
             return false;
         }
         return true;
@@ -2298,7 +2297,7 @@ public class MainView extends VerticalLayout {
 
     private static boolean validRange(String label, Long min, Long max) {
         if (min != null && max != null && min > max) {
-            Notification.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
+            UiFeedback.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
             return false;
         }
         return true;

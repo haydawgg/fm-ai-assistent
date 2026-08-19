@@ -73,7 +73,7 @@ final class OnboardingWizard {
         Button finish = new Button("Finish setup", event -> {
             String canonical = SessionClub.canonicalize(club.getValue(), names);
             if (canonical.isBlank() && club.getValue() != null && !club.getValue().isBlank() && !names.isEmpty()) {
-                Notification.show("Pick a club from the list after loading RAM", 3000, Notification.Position.MIDDLE)
+                UiFeedback.show("Pick a club from the list after loading RAM", 3000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
                 return;
             }
@@ -89,7 +89,7 @@ final class OnboardingWizard {
             if (ui != null) {
                 ui.navigate("");
             }
-            Notification.show("Setup saved", 2000, Notification.Position.TOP_CENTER)
+            UiFeedback.show("Setup saved", 2000, Notification.Position.TOP_CENTER)
                     .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
         });
         finish.addThemeVariants(ButtonVariant.LUMO_PRIMARY);

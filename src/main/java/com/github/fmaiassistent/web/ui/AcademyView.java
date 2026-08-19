@@ -115,7 +115,7 @@ public class AcademyView extends VerticalLayout {
 
     private void run() {
         if (sessionClub.isBlank()) {
-            Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
+            UiFeedback.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }

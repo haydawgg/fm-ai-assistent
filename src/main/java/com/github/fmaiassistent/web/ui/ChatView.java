@@ -370,7 +370,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private void refreshStarters() {
         starters.removeAll();
         if (players.countPlayers() <= 0) {
-            Button load = new Button("Load from RAM first", event -> Notification.show(
+            Button load = new Button("Load from RAM first", event -> UiFeedback.show(
                     "Use Load in the top bar with FM26 running.", 2500, Notification.Position.TOP_CENTER));
             load.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
             load.addClassName("chat-starter");
@@ -614,7 +614,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             String note = waiting > 1
                     ? "Queued — " + waiting + " messages waiting"
                     : "Queued — sending when this reply finishes";
-            Notification.show(note, 1800, Notification.Position.BOTTOM_CENTER)
+            UiFeedback.show(note, 1800, Notification.Position.BOTTOM_CENTER)
                     .addClassName("app-toast");
             updateComposerHint();
             return;
@@ -1079,7 +1079,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             return false;
         }
         composerState.setPendingFallbackModel(next);
-        Notification.show("Retrying with " + next, 2200, Notification.Position.BOTTOM_CENTER)
+        UiFeedback.show("Retrying with " + next, 2200, Notification.Position.BOTTOM_CENTER)
                 .addClassName("app-toast");
         return true;
     }
@@ -1129,7 +1129,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 link.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
                 """, markdown.toString());
-        Notification.show("Markdown downloaded", 1400, Notification.Position.BOTTOM_CENTER)
+        UiFeedback.show("Markdown downloaded", 1400, Notification.Position.BOTTOM_CENTER)
                 .addClassName("app-toast");
     }
 
@@ -1177,7 +1177,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (blocked == null) {
             return false;
         }
-        Notification.show(blocked, 4000, Notification.Position.MIDDLE)
+        UiFeedback.error(blocked, 4000, Notification.Position.MIDDLE)
                 .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
         return true;
     }
@@ -1235,7 +1235,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             input.setValue(queued);
         }
         if (composerState.hasQueued()) {
-            Notification.show(
+            UiFeedback.show(
                     composerState.queuedCount() + " queued message(s) were returned to the composer for review.",
                     3500,
                     Notification.Position.BOTTOM_CENTER);
@@ -1499,7 +1499,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (ui != null && text != null) {
             ui.getPage().executeJs("navigator.clipboard.writeText($0)", text);
         }
-        Notification.show("Copied", 1200, Notification.Position.BOTTOM_CENTER).addClassName("app-toast");
+        UiFeedback.show("Copied", 1200, Notification.Position.BOTTOM_CENTER).addClassName("app-toast");
     }
 
     @ClientCallable
@@ -1509,7 +1509,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         int maxChars = 10 * 1024 * 1024;
         if (dataUrl.length() > maxChars) {
-            Notification.show("Pasted image too large (max 10 MB)", 3000, Notification.Position.MIDDLE)
+            UiFeedback.error("Pasted image too large (max 10 MB)", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
             return;
         }
@@ -1527,13 +1527,13 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 },
                 bytes -> {
                     if (bytes == null) {
-                        Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                        UiFeedback.error("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
                                 .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
                         return;
                     }
                     importChatTacticFiles(Map.of(fileName, bytes), "Pasted screenshot added as tactic context");
                 },
-                error -> Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                error -> UiFeedback.error("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
                         .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR));
     }
 
@@ -1555,12 +1555,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 ignored -> {
                     tacticPanel.setImportBusy(false);
                     tacticPanel.refreshCurrent();
-                    Notification.show(successMessage, 1800, Notification.Position.BOTTOM_CENTER)
+                    UiFeedback.show(successMessage, 1800, Notification.Position.BOTTOM_CENTER)
                             .addClassName("app-toast");
                 },
                 error -> {
                     tacticPanel.setImportBusy(false);
-                    Notification.show(error.getMessage() == null ? "Tactic context update failed" : error.getMessage(),
+                    UiFeedback.error(error.getMessage() == null ? "Tactic context update failed" : error.getMessage(),
                             4000, Notification.Position.MIDDLE);
                 });
     }

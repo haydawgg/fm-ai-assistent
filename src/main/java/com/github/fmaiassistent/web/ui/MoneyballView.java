@@ -188,7 +188,7 @@ public class MoneyballView extends VerticalLayout {
     private void run() {
         String clubName = sessionClub;
         if (clubName.isBlank()) {
-            Notification.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
+            UiFeedback.show("Pick your club in the top bar", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }

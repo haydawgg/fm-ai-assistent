@@ -113,7 +113,7 @@ public class SquadCompareView extends VerticalLayout {
         String left = leftClub.getValue();
         String right = rightClub.getValue();
         if (left == null || left.isBlank() || right == null || right.isBlank()) {
-            Notification.show("Pick your club in the top bar and another club", 3000, Notification.Position.MIDDLE)
+            UiFeedback.show("Pick your club in the top bar and another club", 3000, Notification.Position.MIDDLE)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
             return;
         }
