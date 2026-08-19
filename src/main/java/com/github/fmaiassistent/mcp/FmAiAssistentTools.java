@@ -5,6 +5,11 @@ import com.github.fmaiassistent.football.PlayerAnalysisRules;
 import com.github.fmaiassistent.football.TransferShortlistCandidate;
 import com.github.fmaiassistent.football.TransferShortlistPort;
 import com.github.fmaiassistent.football.TransferShortlistQuery;
+import com.github.fmaiassistent.football.MoneyballAnalysisResult;
+import com.github.fmaiassistent.football.MoneyballCandidate;
+import com.github.fmaiassistent.football.MoneyballDeal;
+import com.github.fmaiassistent.football.MoneyballPort;
+import com.github.fmaiassistent.football.MoneyballQuery;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
@@ -39,7 +44,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 @Service
-public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlistPort {
+public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlistPort, MoneyballPort {
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 250;
     private static final int DEFAULT_SHORTLIST_LIMIT = 8;
@@ -972,18 +977,36 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
             Integer maxAge,
             Long maxAskingPrice,
             Integer maxWeeklySalary) {
+        MoneyballAnalysisResult result = moneyballCandidates(new MoneyballQuery(
+                managingClub, position, minCurrentAbility, minPotentialAbility, maxAge,
+                maxAskingPrice, maxWeeklySalary));
+        List<MoneyballRow> rows = result.rows().stream()
+                .map(FmAiAssistentTools::toMoneyballRow)
+                .toList();
+        return new MoneyballResult(rows, result.candidatePoolSize(), result.ratedCount(),
+                result.pricedPlayers(), result.bucketCount());
+    }
+
+    /** Domain-facing typed value-analysis seam used by the moneyball workspace. */
+    @Override
+    @Transactional(readOnly = true)
+    public MoneyballAnalysisResult moneyballCandidates(MoneyballQuery query) {
+        MoneyballQuery requested = query == null
+                ? new MoneyballQuery(null, null, null, null, null, null, null)
+                : query;
         List<PlayerEntity> allPlayers = allPlayers();
         MoneyballParameters params = resolveMoneyballParameters(
-                allPlayers, managingClub, position, null, null, null,
-                minCurrentAbility, minPotentialAbility, maxAge, maxAskingPrice, maxWeeklySalary,
+                allPlayers, requested.managingClub(), requested.position(), null, null, null,
+                requested.minCurrentAbility(), requested.minPotentialAbility(), requested.maxAge(),
+                requested.maxAskingPrice(), requested.maxWeeklySalary(),
                 null, null, null, null, null, null);
         MarketValuation market = MarketValuation.build(allPlayers);
         MoneyballRated rated = rateMoneyball(allPlayers, clubsByName(allClubs()), market, params);
-        List<MoneyballRow> rows = new ArrayList<>();
+        List<MoneyballCandidate> rows = new ArrayList<>();
         for (int index = 0; index < rated.rated().size(); index++) {
-            rows.add(toRow(index + 1, rated.rated().get(index)));
+            rows.add(toMoneyballCandidate(index + 1, rated.rated().get(index)));
         }
-        return new MoneyballResult(rows, rated.candidatePoolSize(), rows.size(),
+        return new MoneyballAnalysisResult(rows, rated.candidatePoolSize(), rows.size(),
                 market.pricedPlayers(), market.bucketCount());
     }
 
@@ -1072,10 +1095,11 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return new MoneyballRated(rated, pool.size());
     }
 
-    private static MoneyballRow toRow(int rank, DealCandidate dealCandidate) {
+    private static MoneyballCandidate toMoneyballCandidate(int rank, DealCandidate dealCandidate) {
         Candidate candidate = dealCandidate.candidate();
         PlayerEntity player = candidate.player();
-        return new MoneyballRow(
+        MarketValuation.Deal deal = dealCandidate.deal();
+        return new MoneyballCandidate(
                 rank,
                 player.getName(),
                 effectiveAge(player),
@@ -1090,9 +1114,24 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
                 candidate.freeAgent(),
                 candidate.freeAgent() ? 0 : value(candidate.player().getAskingPrice()),
                 value(candidate.player().getSalaryWeeklyRaw()),
-                dealCandidate.deal(),
+                new MoneyballDeal(
+                        deal.score(), deal.tier(), deal.market().price(), deal.market().wage(),
+                        deal.market().samples(), deal.totalCost(), deal.marketCost()),
                 dealCandidate.qualityScore(),
                 dealCandidate.signingRating());
+    }
+
+    private static MoneyballRow toMoneyballRow(MoneyballCandidate candidate) {
+        MoneyballDeal deal = candidate.deal();
+        MarketValuation.Market market = new MarketValuation.Market(
+                deal.marketPrice(), deal.marketWage(), deal.marketSamples());
+        MarketValuation.Deal mcpDeal = new MarketValuation.Deal(
+                deal.score(), deal.tier(), market, deal.totalCost(), deal.marketCost());
+        return new MoneyballRow(
+                candidate.rank(), candidate.name(), candidate.age(), candidate.nationality(), candidate.club(),
+                candidate.positionScore(), candidate.ca(), candidate.pa(), candidate.developmentUpside(),
+                candidate.ageCurve(), candidate.willingness(), candidate.freeAgent(), candidate.costFee(),
+                candidate.salaryWeekly(), mcpDeal, candidate.qualityScore(), candidate.signingRating());
     }
 
     private static List<Candidate> buildCandidatePool(
