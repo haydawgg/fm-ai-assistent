@@ -36,4 +36,8 @@ final class UiAsync {
                 });
         return task;
     }
+
+    static void access(UI ui, Runnable action) {
+        OpenRouterModelPicker.access(ui, action::run);
+    }
 }

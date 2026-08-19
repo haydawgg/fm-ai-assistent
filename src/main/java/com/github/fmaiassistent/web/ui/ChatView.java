@@ -69,7 +69,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1525,20 +1524,25 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         String fileName = name == null || name.isBlank() ? "pasted.png" : name;
         String base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
         UI ui = getUI().orElse(null);
-        CompletableFuture.supplyAsync(() -> {
-            try {
-                return (byte[]) Base64.getDecoder().decode(base64);
-            } catch (RuntimeException ex) {
-                return null;
-            }
-        }).thenAccept(bytes -> access(ui, () -> {
-            if (bytes == null) {
-                Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
-                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
-                return;
-            }
-            importChatTacticFiles(Map.of(fileName, bytes), "Pasted screenshot added as tactic context");
-        }));
+        UiAsync.submit(
+                ui,
+                () -> {
+                    try {
+                        return Base64.getDecoder().decode(base64);
+                    } catch (RuntimeException ex) {
+                        return null;
+                    }
+                },
+                bytes -> {
+                    if (bytes == null) {
+                        Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                                .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR);
+                        return;
+                    }
+                    importChatTacticFiles(Map.of(fileName, bytes), "Pasted screenshot added as tactic context");
+                },
+                error -> Notification.show("Could not read pasted image", 2500, Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(com.vaadin.flow.component.notification.NotificationVariant.LUMO_ERROR));
     }
 
     private void importChatTacticFiles(Map<String, byte[]> files, String successMessage) {
@@ -1550,23 +1554,23 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             return;
         }
         tacticPanel.setImportBusy(true);
-        Thread.ofVirtual().name("chat-tactic-context-import").start(() -> {
-            try {
-                tacticContexts.loadUploads(files);
-                access(ui, () -> {
+        UiAsync.submit(
+                ui,
+                () -> {
+                    tacticContexts.loadUploads(files);
+                    return null;
+                },
+                ignored -> {
                     tacticPanel.setImportBusy(false);
                     tacticPanel.refreshCurrent();
                     Notification.show(successMessage, 1800, Notification.Position.BOTTOM_CENTER)
                             .addClassName("app-toast");
-                });
-            } catch (RuntimeException ex) {
-                access(ui, () -> {
+                },
+                error -> {
                     tacticPanel.setImportBusy(false);
-                    Notification.show(ex.getMessage() == null ? "Tactic context update failed" : ex.getMessage(),
+                    Notification.show(error.getMessage() == null ? "Tactic context update failed" : error.getMessage(),
                             4000, Notification.Position.MIDDLE);
                 });
-            }
-        });
     }
 
     private void refreshPinnedButton() {

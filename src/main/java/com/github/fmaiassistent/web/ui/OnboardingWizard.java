@@ -19,8 +19,6 @@ import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.textfield.PasswordField;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
 final class OnboardingWizard {
     private OnboardingWizard() {
     }
@@ -65,13 +63,11 @@ final class OnboardingWizard {
             status.setText("Testing…");
             String key = apiKey.getValue();
             UI ui = UI.getCurrent();
-            CompletableFuture.supplyAsync(() -> catalog.probe(key))
-                    .whenComplete((result, error) -> OpenRouterModelPicker.access(ui, () -> {
-                        OpenRouterModelCatalog.ProbeResult probe = result != null
-                                ? result
-                                : new OpenRouterModelCatalog.ProbeResult(false, OpenRouterModelPicker.errorMessage(error));
-                        status.setText(probe.message());
-                    }));
+            UiAsync.submit(
+                    ui,
+                    () -> catalog.probe(key),
+                    result -> status.setText(result.message()),
+                    error -> status.setText(OpenRouterModelPicker.errorMessage(error)));
         });
 
         Button finish = new Button("Finish setup", event -> {

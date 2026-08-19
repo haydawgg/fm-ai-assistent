@@ -86,26 +86,30 @@ final class SettingsDialog {
         Span catalogStatus = new Span("Refreshing OpenRouter models…");
         catalogStatus.addClassName("settings-path");
         UI ui = UI.getCurrent();
-        catalog.refreshAsync().whenComplete((models, error) -> OpenRouterModelPicker.access(ui, () -> {
-            if (!dialog.isOpened()) {
-                return;
-            }
-            if (models != null && !models.isEmpty()) {
-                OpenRouterModelPicker.apply(model, labels, models,
-                        OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
-                OpenRouterModelPicker.apply(fallback, fallbackLabels, models, fallback.getValue());
-                catalogStatus.setText(models.size() + " OpenRouter models · live catalog");
-            } else {
-                OpenRouterModelPicker.apply(model, labels, catalog.cachedModels(),
-                        OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
-                OpenRouterModelPicker.apply(fallback, fallbackLabels, catalog.cachedModels(), fallback.getValue());
-                String detail = error == null ? catalog.lastError() : OpenRouterModelPicker.errorMessage(error);
-                catalogStatus.setText(detail == null || detail.isBlank()
-                        ? "Could not refresh OpenRouter models. Type a model id."
-                        : "Could not refresh OpenRouter models: " + detail);
-            }
-            refreshFallbacks.run();
-        }));
+        UiAsync.submit(
+                ui,
+                () -> catalog.refreshAsync().join(),
+                models -> {
+                    if (!dialog.isOpened()) {
+                        return;
+                    }
+                    if (models != null && !models.isEmpty()) {
+                        OpenRouterModelPicker.apply(model, labels, models,
+                                OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
+                        OpenRouterModelPicker.apply(fallback, fallbackLabels, models, fallback.getValue());
+                        catalogStatus.setText(models.size() + " OpenRouter models · live catalog");
+                    } else {
+                        applyCachedModels(model, fallback, labels, fallbackLabels, catalog, settings, catalogStatus);
+                    }
+                    refreshFallbacks.run();
+                },
+                error -> {
+                    if (!dialog.isOpened()) {
+                        return;
+                    }
+                    applyCachedModels(model, fallback, labels, fallbackLabels, catalog, settings, catalogStatus);
+                    refreshFallbacks.run();
+                });
 
         NumberField dailyCap = new NumberField("Daily spend cap (USD)");
         dailyCap.setWidthFull();
@@ -139,18 +143,12 @@ final class SettingsDialog {
         Button test = new Button("Test connection", VaadinIcon.CONNECT.create(), event -> {
             testStatus.setText("Testing…");
             String key = apiKey.getValue();
-            java.util.concurrent.CompletableFuture
-                    .supplyAsync(() -> catalog.probe(key))
-                    .whenComplete((result, error) -> OpenRouterModelPicker.access(ui, () -> {
-                        OpenRouterModelCatalog.ProbeResult probe = result != null
-                                ? result
-                                : new OpenRouterModelCatalog.ProbeResult(false, OpenRouterModelPicker.errorMessage(error));
-                        testStatus.setText(probe.message());
-                        Notification notice = Notification.show(probe.message(), 2800, Notification.Position.TOP_CENTER);
-                        notice.addThemeVariants(probe.ok()
-                                ? NotificationVariant.LUMO_SUCCESS
-                                : NotificationVariant.LUMO_ERROR);
-                    }));
+            UiAsync.submit(
+                    ui,
+                    () -> catalog.probe(key),
+                    probe -> showProbeResult(testStatus, probe),
+                    error -> showProbeResult(testStatus,
+                            new OpenRouterModelCatalog.ProbeResult(false, OpenRouterModelPicker.errorMessage(error))));
         });
         test.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
@@ -219,6 +217,29 @@ final class SettingsDialog {
         cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(cancel, save);
         dialog.open();
+    }
+
+    private static void applyCachedModels(
+            ComboBox<String> model,
+            ComboBox<String> fallback,
+            Map<String, String> labels,
+            Map<String, String> fallbackLabels,
+            OpenRouterModelCatalog catalog,
+            AppSettingsService settings,
+            Span catalogStatus) {
+        OpenRouterModelPicker.apply(model, labels, catalog.cachedModels(),
+                OpenRouterModelPicker.firstNonBlank(model.getValue(), settings.openRouterModel()));
+        OpenRouterModelPicker.apply(fallback, fallbackLabels, catalog.cachedModels(), fallback.getValue());
+        String detail = catalog.lastError();
+        catalogStatus.setText(detail == null || detail.isBlank()
+                ? "Could not refresh OpenRouter models. Type a model id."
+                : "Could not refresh OpenRouter models: " + detail);
+    }
+
+    private static void showProbeResult(Span status, OpenRouterModelCatalog.ProbeResult probe) {
+        status.setText(probe.message());
+        Notification notice = Notification.show(probe.message(), 2800, Notification.Position.TOP_CENTER);
+        notice.addThemeVariants(probe.ok() ? NotificationVariant.LUMO_SUCCESS : NotificationVariant.LUMO_ERROR);
     }
 
     private static void refreshFallbackList(Div list, List<String> models, Map<String, String> labels) {

@@ -20,7 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 final class RamLoadUi {
@@ -60,17 +59,17 @@ final class RamLoadUi {
         loadButton.setText("Loading...");
         loadingDialog.open();
 
-        CompletableFuture<DatabaseLoadAllService.LoadAllResult> future =
-                CompletableFuture.supplyAsync(() -> {
+        UiAsync.submit(
+                ui,
+                () -> {
                     try {
-                        return ramLoad.loadFromRam(progress -> access(ui, () -> apply(spinner, loadingTitle, loadingSubtitle, progress)));
+                        return ramLoad.loadFromRam(progress -> UiAsync.access(ui,
+                                () -> apply(spinner, loadingTitle, loadingSubtitle, progress)));
                     } catch (IOException ex) {
                         throw new CompletionException(ex);
                     }
-                });
-        ui.addDetachListener(event -> future.cancel(true));
-        future
-                .thenAccept(result -> access(ui, () -> {
+                },
+                result -> {
                     loadingDialog.close();
                     restore(loadButton);
                     Notification loaded = Notification.show(
@@ -82,24 +81,18 @@ final class RamLoadUi {
                     loaded.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                     loaded.addClassName("app-toast");
                     ui.getPage().reload();
-                }))
-                .exceptionally(ex -> {
-                    if (future.isCancelled()) {
-                        return null;
-                    }
-                    access(ui, () -> {
-                        loadingDialog.close();
-                        restore(loadButton);
-                        Throwable cause = unwrap(ex);
-                        LOGGER.error("Load from RAM failed", cause);
-                        Notification failed = Notification.show(
-                                "Load failed: " + message(cause),
-                                8000,
-                                Notification.Position.TOP_CENTER);
-                        failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
-                        failed.addClassName("app-toast");
-                    });
-                    return null;
+                },
+                error -> {
+                    loadingDialog.close();
+                    restore(loadButton);
+                    Throwable cause = unwrap(error);
+                    LOGGER.error("Load from RAM failed", cause);
+                    Notification failed = Notification.show(
+                            "Load failed: " + message(cause),
+                            8000,
+                            Notification.Position.TOP_CENTER);
+                    failed.addThemeVariants(NotificationVariant.LUMO_ERROR);
+                    failed.addClassName("app-toast");
                 });
     }
 
@@ -113,16 +106,6 @@ final class RamLoadUi {
     private static void restore(Button loadButton) {
         loadButton.setEnabled(true);
         loadButton.setText("Load");
-    }
-
-    private static void access(UI ui, Runnable action) {
-        if (ui == null || !ui.isAttached()) {
-            return;
-        }
-        try {
-            ui.access(action::run);
-        } catch (UIDetachedException ignored) {
-        }
     }
 
     private static Throwable unwrap(Throwable error) {
