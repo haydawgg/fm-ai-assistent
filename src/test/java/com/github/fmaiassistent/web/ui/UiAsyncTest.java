@@ -37,4 +37,11 @@ class UiAsyncTest {
         CompletionException failure = assertThrows(CompletionException.class, task::join);
         assertEquals("load failed", failure.getCause().getMessage());
     }
+
+    @Test
+    void observesAnExistingFutureWithoutChangingItsResult() {
+        CompletableFuture<String> source = CompletableFuture.completedFuture("ready");
+
+        assertEquals("ready", UiAsync.observe(null, source, ignored -> { }, ignored -> { }).join());
+    }
 }

@@ -56,6 +56,7 @@ public class MainView extends VerticalLayout {
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
+    private final PlayerWorkspaceQuery playerQuery;
 
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
     private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
@@ -81,9 +82,7 @@ public class MainView extends VerticalLayout {
     private CompetitionFilterCriteria competitionFilter = CompetitionFilterCriteria.empty();
     private MoneyCurrency currency;
     private boolean showAllPlayerColumns;
-    private PlayerEntity selectedPlayer;
-    private PlayerEntity compareAnchor;
-    private boolean awaitingCompareSelection;
+    private final PlayerWorkspaceSelection selection = new PlayerWorkspaceSelection();
     private boolean syncingQuickFilters;
     private boolean syncingSavedViews;
     private boolean playersColumnsBuilt;
@@ -101,6 +100,7 @@ public class MainView extends VerticalLayout {
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
+        this.playerQuery = PlayerWorkspaceQuery.database(players);
         this.currency = settings.currency();
 
         setSizeFull();
@@ -212,7 +212,7 @@ public class MainView extends VerticalLayout {
                     || event.getSelectedTab() == clubsTab
                     || event.getSelectedTab() == competitionsTab);
             if (!playersSelected) {
-                selectedPlayer = null;
+                selection.clear();
                 clearCompareState();
             }
             if (playersSelected) {
@@ -290,6 +290,7 @@ public class MainView extends VerticalLayout {
         if (tabs.getSelectedTab() != playersTab || visiblePlayers.isEmpty()) {
             return;
         }
+        PlayerEntity selectedPlayer = selection.selected();
         int index = indexOfVisiblePlayer(selectedPlayer);
         int next;
         if (index < 0) {
@@ -347,21 +348,15 @@ public class MainView extends VerticalLayout {
         String club = playerFilter.club() != null && !playerFilter.club().isBlank()
                 ? playerFilter.club()
                 : settings.sessionClub();
-        List<PlayerEntity> rows;
         if (club == null || club.isBlank()) {
-            rows = playerFilter.isEmpty()
-                    ? players.findAllPlayerEntities()
-                    : players.findPlayerEntities(playerFilter);
-        } else if (playerFilter.isEmpty() || playerFilter.isClubOnly()) {
-            rows = players.findPlayerEntities(PlayerFilterCriteria.clubOnly(club));
-        } else {
-            rows = players.findPlayerEntities(playerFilter.withClub(club));
+            club = settings.sessionClub();
         }
+        List<PlayerEntity> rows = playerQuery.find(playerFilter, club);
         syncQuickFiltersFromCriteria();
         setPlayerGrid(columns, rows);
         setFilterActive(!playerFilter.isEmpty());
         if (!playerFilter.isEmpty()) {
-            renderFilteredStatus("Players", rows.size(), players.countPlayers());
+            renderFilteredStatus("Players", rows.size(), playerQuery.count());
         } else {
             updateStatus(null);
         }
@@ -485,30 +480,16 @@ public class MainView extends VerticalLayout {
         }
         playersGrid.setItems(rows);
         visiblePlayers = List.copyOf(rows);
+        selection.reconcile(rows);
+        PlayerEntity selectedPlayer = selection.selected();
         if (selectedPlayer != null) {
-            PlayerEntity stillVisible = rows.stream()
-                    .filter(player -> Objects.equals(player.getId(), selectedPlayer.getId()))
-                    .findFirst()
-                    .orElse(null);
-            selectedPlayer = stillVisible;
-            if (stillVisible != null) {
-                playersGrid.select(stillVisible);
-                int index = indexOfVisiblePlayer(stillVisible);
-                if (index >= 0) {
-                    playersGrid.scrollToIndex(index);
-                }
-            } else {
-                playersGrid.deselectAll();
+            playersGrid.select(selectedPlayer);
+            int index = indexOfVisiblePlayer(selectedPlayer);
+            if (index >= 0) {
+                playersGrid.scrollToIndex(index);
             }
-        }
-        if (compareAnchor != null) {
-            compareAnchor = rows.stream()
-                    .filter(player -> Objects.equals(player.getId(), compareAnchor.getId()))
-                    .findFirst()
-                    .orElse(null);
-            if (compareAnchor == null) {
-                awaitingCompareSelection = false;
-            }
+        } else {
+            playersGrid.deselectAll();
         }
         showWorkspace(
                 "Players",
@@ -545,7 +526,7 @@ public class MainView extends VerticalLayout {
         Div toolbarRight = new Div();
         toolbarRight.addClassName("workspace-toolbar-right");
         if (playersMode) {
-            Span hintText = new Span(awaitingCompareSelection
+            Span hintText = new Span(selection.awaitingCompare()
                     ? "Select another row to compare · Esc to cancel"
                     : "Select a row · ↑ ↓ to move");
             hintText.addClassName("workspace-hint");
@@ -748,7 +729,7 @@ public class MainView extends VerticalLayout {
                     playerFilter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
                     showAllPlayerColumns = view.showAllColumns();
                     columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
-                    selectedPlayer = null;
+                    selection.clear();
                     clearCompareState();
                     showPlayers();
                 });
@@ -827,33 +808,25 @@ public class MainView extends VerticalLayout {
     }
 
     private void openPlayerDrawer(PlayerEntity player) {
-        if (awaitingCompareSelection && compareAnchor != null
-                && !Objects.equals(compareAnchor.getId(), player.getId())) {
-            selectedPlayer = player;
-            awaitingCompareSelection = false;
-            refreshPlayerDrawer();
-            return;
-        }
-        selectedPlayer = player;
+        selection.select(player);
         refreshPlayerDrawer();
     }
 
     private void closePlayerDrawer() {
-        if (selectedPlayer == null && compareAnchor == null && !awaitingCompareSelection) {
+        if (selection.selected() == null && selection.compareAnchor() == null && !selection.awaitingCompare()) {
             return;
         }
-        selectedPlayer = null;
-        clearCompareState();
+        selection.clear();
         refreshPlayerDrawer();
     }
 
     private void refreshPlayerDrawer() {
-        if (visiblePlayers.isEmpty() && selectedPlayer == null) {
+        if (visiblePlayers.isEmpty() && selection.selected() == null) {
             showPlayers();
             return;
         }
-        if (selectedPlayer != null) {
-            playersGrid.select(selectedPlayer);
+        if (selection.selected() != null) {
+            playersGrid.select(selection.selected());
         } else {
             playersGrid.deselectAll();
         }
@@ -868,16 +841,14 @@ public class MainView extends VerticalLayout {
     }
 
     private void clearCompareState() {
-        compareAnchor = null;
-        awaitingCompareSelection = false;
+        selection.clearCompare();
     }
 
     private void startCompare() {
-        if (selectedPlayer == null) {
+        if (selection.selected() == null) {
             return;
         }
-        compareAnchor = selectedPlayer;
-        awaitingCompareSelection = true;
+        selection.startCompare();
         Notification notice = Notification.show(
                 "Select another player to compare",
                 2500,
@@ -887,9 +858,9 @@ public class MainView extends VerticalLayout {
     }
 
     private Component buildSidePanel() {
-        if (compareAnchor != null && selectedPlayer != null
-                && !Objects.equals(compareAnchor.getId(), selectedPlayer.getId())) {
-            return buildCompareDrawer(compareAnchor, selectedPlayer);
+        if (selection.compareAnchor() != null && selection.selected() != null
+                && !Objects.equals(selection.compareAnchor().getId(), selection.selected().getId())) {
+            return buildCompareDrawer(selection.compareAnchor(), selection.selected());
         }
         return buildPlayerDrawer();
     }
@@ -964,10 +935,10 @@ public class MainView extends VerticalLayout {
     }
 
     private Component buildPlayerDrawer() {
-        if (selectedPlayer == null) {
+        if (selection.selected() == null) {
             return null;
         }
-        PlayerEntity player = selectedPlayer;
+        PlayerEntity player = selection.selected();
 
         Span title = new Span(display(player.getName()));
         title.addClassName("drawer-title");
@@ -984,12 +955,12 @@ public class MainView extends VerticalLayout {
         Button compare = new Button("Compare", event -> startCompare());
         compare.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         compare.addClassName("drawer-compare");
-        compare.setText(awaitingCompareSelection ? "Waiting…" : "Compare");
-        compare.setEnabled(!awaitingCompareSelection);
-        compare.getElement().setAttribute("aria-label", awaitingCompareSelection
+        compare.setText(selection.awaitingCompare() ? "Waiting…" : "Compare");
+        compare.setEnabled(!selection.awaitingCompare());
+        compare.getElement().setAttribute("aria-label", selection.awaitingCompare()
                 ? "Waiting for second player"
                 : "Compare with another player");
-        compare.setTooltipText(awaitingCompareSelection
+        compare.setTooltipText(selection.awaitingCompare()
                 ? "Waiting for second player"
                 : "Compare with another player");
         compare.getElement().setAttribute("aria-label", "Compare with another player");
@@ -1005,7 +976,7 @@ public class MainView extends VerticalLayout {
         nav.addClassName("drawer-actions");
         Div header = new Div(title, nav);
         header.addClassName("drawer-header");
-        Span navHint = new Span(awaitingCompareSelection
+        Span navHint = new Span(selection.awaitingCompare()
                 ? "Select another player to compare · Esc to cancel"
                 : "↑ ↓ to move · Esc to close");
         navHint.addClassName("drawer-nav-hint");

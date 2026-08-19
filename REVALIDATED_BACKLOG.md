@@ -4,10 +4,7 @@ This file records findings that were reviewed while hardening the Windows deskto
 
 ## Deferred medium/low follow-up
 
-- Replace remaining `lower(column)` filters with indexed search strategy where the query plan shows a measurable cost.
-- Split the largest UI modules (`MainView`, `ChatView`) further behind stable domain interfaces after the current behavior is covered by browser smoke tests.
-- Consolidate the remaining repeated asynchronous grid-loading paths onto `UiFeedback` and a shared loading seam.
-- Add bounded chat-message retention and a migration from floating-point cost storage to a decimal database column.
+- Replace remaining `lower(column)` filters with indexed search strategy only after a production-sized benchmark; the H2 query-plan check showed the current `lower(name)` predicate is not a clean equality seek.
 - Remove duplicate dependency references emitted by the Vaadin/Electron packaging graph.
 - Revisit native-image support only after Windows jar/Electron behavior is stable and native integration tests exist.
 

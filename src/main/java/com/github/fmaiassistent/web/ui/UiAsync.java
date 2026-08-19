@@ -37,6 +37,27 @@ final class UiAsync {
         return task;
     }
 
+    static <T> CompletableFuture<T> observe(
+            UI ui,
+            CompletableFuture<T> task,
+            Consumer<T> success,
+            Consumer<Throwable> failure) {
+        if (task == null) {
+            throw new IllegalArgumentException("task must not be null");
+        }
+        if (ui != null) {
+            ui.addDetachListener(event -> task.cancel(true));
+        }
+        task.thenAccept(result -> OpenRouterModelPicker.access(ui, () -> success.accept(result)))
+                .exceptionally(error -> {
+                    if (!task.isCancelled()) {
+                        OpenRouterModelPicker.access(ui, () -> failure.accept(error));
+                    }
+                    return null;
+                });
+        return task;
+    }
+
     static void access(UI ui, Runnable action) {
         OpenRouterModelPicker.access(ui, action::run);
     }

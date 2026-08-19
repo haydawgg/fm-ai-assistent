@@ -60,10 +60,8 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -134,11 +132,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private boolean applyingModel;
     private String conversationId;
     private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
-    private String pendingPrompt = "";
-    private String lastUserText = "";
-    private final Deque<String> queuedMessages = new ArrayDeque<>();
+    private final ChatComposerState composerState = new ChatComposerState();
     private final LinkedHashSet<String> triedModels = new LinkedHashSet<>();
-    private String pendingFallbackModel = "";
     private String currentModel = "";
     private int lastUserOrdinal = -1;
     private double sessionCostUsd;
@@ -208,10 +203,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
     @Override
     public void beforeEnter(BeforeEnterEvent event) {
-        pendingPrompt = event.getLocation().getQueryParameters().getSingleParameter("q").orElse("");
+        composerState.setPendingPrompt(event.getLocation().getQueryParameters().getSingleParameter("q").orElse(""));
         // Same-route navigation reuses the view instance, so onAttach never fires
         // again; consume the prompt here instead so ?q= prompts are not dropped.
-        if (!pendingPrompt.isBlank() && isAttached()) {
+        if (composerState.hasPendingPrompt() && isAttached()) {
             submitPendingPrompt(event.getUI());
         }
     }
@@ -239,7 +234,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                   }
                 });
                 """, getElement());
-        if (!pendingPrompt.isBlank() && chat.configured()) {
+        if (composerState.hasPendingPrompt() && chat.configured()) {
             submitPendingPrompt(event.getUI());
         } else if (input.getValue() == null || input.getValue().isBlank()) {
             String draft = ChatUiContext.draft();
@@ -563,8 +558,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         if (activeStream != null) {
             hint.append(" · sending queues until this reply finishes");
-            if (!queuedMessages.isEmpty()) {
-                hint.append(" (" + queuedMessages.size() + " queued)");
+            if (composerState.hasQueued()) {
+                hint.append(" (" + composerState.queuedCount() + " queued)");
             }
         }
         composerHint.setText(hint.toString());
@@ -612,10 +607,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         String message = ChatSlashCommands.expand(raw.trim(), sessionClubName()).orElse(raw.trim());
         if (activeStream != null) {
-            queuedMessages.add(message);
+            composerState.queue(message);
             input.clear();
             ChatUiContext.setDraft("");
-            int waiting = queuedMessages.size();
+            int waiting = composerState.queuedCount();
             String note = waiting > 1
                     ? "Queued — " + waiting + " messages waiting"
                     : "Queued — sending when this reply finishes";
@@ -651,7 +646,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         ensureSession();
         welcome.setVisible(false);
         unconfigured.setVisible(false);
-        lastUserText = message;
+        composerState.setLastUserText(message);
         String modelId = modelOverride == null || modelOverride.isBlank()
                 ? settings.openRouterModel()
                 : modelOverride;
@@ -671,7 +666,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (modelOverride == null || modelOverride.isBlank()) {
             triedModels.clear();
             triedModels.add(settings.openRouterModel());
-            pendingFallbackModel = "";
+            composerState.setPendingFallbackModel("");
         } else {
             triedModels.add(modelId);
         }
@@ -773,12 +768,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             });
                         },
                         error -> access(ui, () -> {
-                            if (!dailyCapBlocked(lastUserText) && tryFallback()) {
+                            if (!dailyCapBlocked(composerState.lastUserText()) && tryFallback()) {
                                 if (turn.close()) {
                                     turn.root.removeFromParent();
                                 }
                                 finishStream(false);
-                                streamUserMessage(lastUserText, false, pendingFallbackModel);
+                                streamUserMessage(composerState.lastUserText(), false, composerState.pendingFallbackModel());
                                 return;
                             }
                             if (!turn.close()) {
@@ -787,7 +782,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             if (first.get()) {
                                 turn.showContent();
                             }
-                            turn.setError("I couldn't complete that request. " + safeMessage(error), lastUserText, this::retryLast);
+                            turn.setError("I couldn't complete that request. " + safeMessage(error), composerState.lastUserText(), this::retryLast);
                             persist("error", turn.rawText(), modelId, extras(modelId, traces, usage[0], started.get(), firstToken.get(), reasoningBuffer.toString(), generationId[0]));
                             turn.finishStreaming();
                             finishStream();
@@ -880,8 +875,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (saved == null || generationId == null || generationId.isBlank()) {
             return;
         }
-        catalog.lookupGeneration(settings.openRouterApiKey(), generationId)
-                .thenAccept(lookup -> access(ui, () -> {
+        UiAsync.observe(ui, catalog.lookupGeneration(settings.openRouterApiKey(), generationId),
+                lookup -> {
                     if (lookup == null || lookup == OpenRouterModelCatalog.GenerationLookup.EMPTY) {
                         return;
                     }
@@ -908,7 +903,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                     if (updated != null && updated.getGenerationId() != null) {
                         turn.setGenerationId(updated.getGenerationId());
                     }
-                }));
+                }, error -> { });
     }
 
     private static String tracesJson(List<AssistantChatService.ToolTrace> traces) {
@@ -986,7 +981,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void retryLast() {
-        retry(lastUserText);
+        retry(composerState.lastUserText());
     }
 
     private void retry(String userText) {
@@ -1053,10 +1048,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         activeTurn = null;
         updateConfigurationState();
         updateComposerHint();
-        if (!drainQueue || !isAttached() || queuedMessages.isEmpty() || !chat.configured()) {
+        if (!drainQueue || !isAttached() || !composerState.hasQueued() || !chat.configured()) {
             return;
         }
-        String next = queuedMessages.poll();
+        String next = composerState.poll();
         Double estimate = catalog.estimateUsd(
                 settings.openRouterModel(),
                 catalog.estimatePromptTokens(next, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
@@ -1083,7 +1078,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (next == null) {
             return false;
         }
-        pendingFallbackModel = next;
+        composerState.setPendingFallbackModel(next);
         Notification.show("Retrying with " + next, 2200, Notification.Position.BOTTOM_CENTER)
                 .addClassName("app-toast");
         return true;
@@ -1199,12 +1194,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         history.clear();
         sessionCostUsd = 0;
         sessionCost.setText("");
-        lastUserText = "";
+        composerState.resetTransient();
         lastUserOrdinal = -1;
         pendingReplaceFrom = null;
-        queuedMessages.clear();
         triedModels.clear();
-        pendingFallbackModel = "";
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
         refreshStarters();
@@ -1227,7 +1220,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         stopStream(false);
         restoreQueuedText();
         pendingReplaceFrom = null;
-        lastUserText = "";
+        composerState.setLastUserText("");
         lastUserOrdinal = -1;
         conversationId = id;
         settings.saveLastChatSessionId(id);
@@ -1236,26 +1229,25 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void restoreQueuedText() {
-        String queued = queuedMessages.poll();
+        String queued = composerState.poll();
         if (queued != null && !queued.isBlank()
                 && (input.getValue() == null || input.getValue().isBlank())) {
             input.setValue(queued);
         }
-        if (!queuedMessages.isEmpty()) {
+        if (composerState.hasQueued()) {
             Notification.show(
-                    queuedMessages.size() + " queued message(s) were returned to the composer for review.",
+                    composerState.queuedCount() + " queued message(s) were returned to the composer for review.",
                     3500,
                     Notification.Position.BOTTOM_CENTER);
         }
-        queuedMessages.clear();
+        composerState.clearQueued();
     }
 
     private void submitPendingPrompt(UI ui) {
-        if (pendingPrompt.isBlank() || !chat.configured()) {
+        if (!composerState.hasPendingPrompt() || !chat.configured()) {
             return;
         }
-        String prompt = pendingPrompt;
-        pendingPrompt = "";
+        String prompt = composerState.consumePendingPrompt();
         if (ui != null) {
             ui.getPage().getHistory().replaceState(null, "chat");
         }
@@ -1266,7 +1258,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private void reloadTranscript() {
         history.clear();
         sessionCostUsd = 0;
-        lastUserText = "";
+        composerState.setLastUserText("");
         lastUserOrdinal = -1;
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
@@ -1279,7 +1271,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         int associatedUserOrdinal = -1;
         for (ChatMessageEntity row : rows) {
             if ("user".equals(row.getRole())) {
-                lastUserText = row.getBody();
+                composerState.setLastUserText(row.getBody());
                 lastUserOrdinal = row.getOrdinal();
                 associatedUserText = row.getBody();
                 associatedUserOrdinal = row.getOrdinal();
@@ -1924,13 +1916,16 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                 String value = sessions.setFeedback(conversationId, ordinal, "down");
                 paintFeedback(value);
                 if ("down".equals(value) && generationId != null && !generationId.isBlank()) {
-                    catalog.submitGenerationFeedback(settings.openRouterApiKey(), generationId, "incorrect_response")
-                            .whenComplete((result, error) -> getUI().ifPresent(ui -> access(ui, () -> {
+                    UI ui = getUI().orElse(null);
+                    UiAsync.observe(ui,
+                            catalog.submitGenerationFeedback(settings.openRouterApiKey(), generationId, "incorrect_response"),
+                            result -> {
                                 if (result != null && !result.ok() && (result.status() == 401 || result.status() == 403)) {
                                     stats.setText((stats.getText() == null || stats.getText().isBlank()
                                             ? "" : stats.getText() + " · ") + result.message());
                                 }
-                            })));
+                            },
+                            error -> { });
                 }
             });
         }

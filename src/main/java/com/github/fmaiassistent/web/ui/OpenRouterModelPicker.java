@@ -54,12 +54,14 @@ final class OpenRouterModelPicker {
             return;
         }
         UI ui = UI.getCurrent();
-        catalog.refreshAsync().whenComplete((models, error) -> access(ui, () -> apply(
-                model,
-                labels,
-                models == null || models.isEmpty() ? catalog.cachedModels() : models,
-                firstNonBlank(model.getValue(), selected),
-                pinned)));
+        UiAsync.observe(ui, catalog.refreshAsync(),
+                models -> apply(
+                        model,
+                        labels,
+                        models == null || models.isEmpty() ? catalog.cachedModels() : models,
+                        firstNonBlank(model.getValue(), selected),
+                        pinned),
+                error -> apply(model, labels, catalog.cachedModels(), firstNonBlank(model.getValue(), selected), pinned));
     }
 
     static void apply(
