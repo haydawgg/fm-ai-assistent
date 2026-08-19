@@ -122,13 +122,15 @@
 }
 
 .chat-toolbar {
+    position: relative;
     flex: 0 0 auto;
     flex-wrap: wrap;
     gap: 12px;
     padding: 10px 12px;
     border: 1px solid var(--fmai-border);
-    border-radius: var(--fmai-radius-l);
-    background: var(--fmai-surface);
+    border-left: 3px solid var(--fmai-accent);
+    border-radius: 4px 14px 4px 14px;
+    background: linear-gradient(110deg, rgba(67, 224, 154, 0.07), transparent 54%), var(--fmai-surface);
 }
 
 .chat-identity {
@@ -159,13 +161,21 @@
     border-color: rgba(229, 164, 75, 0.35);
 }
 
+.chat-snapshot[data-stale="true"] {
+    color: var(--fmai-warning, #e5a44b);
+    border-color: rgba(229, 164, 75, 0.55);
+    background: rgba(229, 164, 75, 0.08);
+}
+
 .chat-toolbar-actions {
+    flex: 1 1 28rem;
     flex-wrap: wrap;
     margin-left: auto;
+    justify-content: flex-end;
 }
 
 .chat-model {
-    width: 18rem;
+    width: 16rem;
     max-width: 100%;
 }
 
@@ -178,13 +188,14 @@
     overflow-y: auto;
     padding: var(--lumo-space-l);
     border: 1px solid var(--fmai-border);
-    border-radius: var(--fmai-radius-l);
-    background: var(--fmai-surface);
+    border-radius: 6px 14px 6px 14px;
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.02), transparent 42%), var(--fmai-surface);
     flex: 1 1 0;
 }
 
 .chat-welcome,
 .chat-unconfigured {
+    position: relative;
     margin: auto 0;
     padding: var(--lumo-space-xl);
     border: 1px solid var(--fmai-accent-soft);
@@ -193,14 +204,51 @@
 }
 
 .chat-unconfigured {
+    max-width: 44rem;
+    margin: auto;
+    padding: 28px 30px 30px 34px;
     border-color: var(--fmai-border-strong);
-    background: var(--fmai-surface-elevated);
+    border-left: 3px solid var(--fmai-warning);
+    border-radius: 5px 14px 5px 14px;
+    background: linear-gradient(120deg, rgba(243, 181, 98, 0.10), transparent 58%), var(--fmai-surface-elevated);
+    box-shadow: var(--fmai-shadow-m);
+}
+
+.chat-unconfigured::before {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    color: rgba(243, 181, 98, 0.58);
+    font-family: var(--fmai-font-display);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.13em;
+    content: "CHAT SETUP / 01";
 }
 
 .chat-welcome h3,
 .chat-unconfigured h3 {
     margin: 0 0 0.4em;
     color: var(--fmai-text);
+}
+
+.chat-unconfigured h3 {
+    font-family: var(--fmai-font-display);
+    font-size: 1.25rem;
+    letter-spacing: -0.03em;
+}
+
+.chat-local-note {
+    display: block;
+    margin-top: 0.7em;
+    color: var(--fmai-text-muted);
+    font-size: var(--lumo-font-size-s);
+    line-height: 1.45;
+}
+
+.chat-unconfigured-actions {
+    flex-wrap: wrap;
+    margin-top: 1.1rem;
 }
 
 .chat-welcome-copy,
@@ -484,7 +532,7 @@
     flex: 0 0 auto;
     padding: 10px 12px 8px;
     border: 1px solid var(--fmai-border-strong);
-    border-radius: var(--fmai-radius-l);
+    border-radius: 6px 14px 6px 14px;
     background: var(--fmai-surface);
     box-shadow: var(--fmai-shadow-m);
 }
@@ -503,56 +551,6 @@
 .chat-send,
 .chat-stop {
     min-width: 6.5em;
-}
-
-@media (max-width: 900px) {
-    .chat-message {
-        max-width: 92%;
-    }
-
-    .chat-starters {
-        grid-template-columns: 1fr;
-    }
-
-    .chat-model {
-        width: 100%;
-    }
-}
-
-@media (max-width: 650px) {
-    .chat-composer-row {
-        flex-wrap: wrap;
-    }
-
-    .chat-composer vaadin-text-area {
-        flex-basis: 100%;
-    }
-
-    .chat-welcome,
-    .chat-unconfigured {
-        padding: var(--lumo-space-m);
-    }
-}
-
-@media (max-width: 760px) {
-    .chat-body {
-        flex-direction: column;
-    }
-
-    .chat-sidebar {
-        width: 100% !important;
-        max-width: none;
-        min-width: 0;
-        max-height: 10.5rem;
-        flex: 0 0 auto !important;
-        border-right: 0;
-        border-bottom: 1px solid var(--fmai-border);
-    }
-
-    .chat-main {
-        min-height: 0;
-        flex: 1 1 0;
-    }
 }
 
 .tactic-context-panel {
@@ -623,22 +621,6 @@
 .chat-send,
 .chat-stop {
     min-width: 6.5em;
-}
-
-@media (max-width: 620px) {
-    .tactic-context-panel::part(summary),
-    .tactic-context-panel::part(content) {
-        padding-right: 10px;
-        padding-left: 10px;
-    }
-
-    .tactic-context-controls {
-        flex-wrap: wrap;
-    }
-
-    .tactic-context-location {
-        width: 100%;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {

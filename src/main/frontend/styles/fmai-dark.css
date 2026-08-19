@@ -348,6 +348,40 @@ body {
     font-size: 16px;
     font-weight: 700;
     letter-spacing: -0.02em;
+    white-space: nowrap;
+}
+
+.fmai-sidebar-status {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    margin: 8px 12px 14px;
+    padding: 12px;
+    border-top: 1px solid var(--fmai-border);
+    background: linear-gradient(135deg, rgba(67,224,154,.07), transparent 65%);
+}
+
+.fmai-sidebar-status-label {
+    margin-top: 5px;
+    color: var(--fmai-text-faint);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .12em;
+}
+
+.fmai-sidebar-status-value {
+    color: var(--fmai-text-muted);
+    font-size: 10px;
+}
+
+.fmai-sidebar-status-value::before {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin: 0 6px 1px 0;
+    border-radius: 50%;
+    background: var(--fmai-accent);
+    content: "";
 }
 
 .fmai-topbar-actions {
@@ -394,19 +428,54 @@ body {
     color: var(--fmai-text);
 }
 
-/* Responsive */
-@media (max-width: 900px) {
-    .fmai-main {
-        margin-left: 0;
-    }
-
-    .fmai-content {
-        padding: 12px;
-    }
+.fmai-global-search {
+    width: 220px;
+    --vaadin-input-field-background: rgba(255,255,255,.035);
+    --vaadin-input-field-border-width: 1px;
+    --vaadin-input-field-border-color: var(--fmai-border);
+    --vaadin-input-field-border-radius: 4px;
 }
+
+.fmai-global-search::part(input-field) {
+    min-height: 34px;
+}
+
+.fmai-global-search::part(input-field):focus-within {
+    border-color: var(--fmai-accent);
+    box-shadow: 0 0 0 2px rgba(67,224,154,.12);
+}
+
+.fmai-global-search::part(input-field) vaadin-icon {
+    color: var(--fmai-text-muted);
+}
+
+.global-search-dialog::part(content) {
+    background: linear-gradient(145deg, rgba(67,224,154,.07), transparent 45%), var(--fmai-surface);
+}
+
+.global-search-heading {
+    margin: 14px 0 6px;
+    color: var(--fmai-accent);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.global-search-result {
+    width: 100%;
+    justify-content: space-between;
+    padding: 10px 8px !important;
+    border-bottom: 1px solid var(--fmai-border);
+    color: var(--fmai-text);
+    text-align: left;
+}
+
+.global-search-result:hover { color: var(--fmai-accent); background: var(--fmai-surface-hover); }
+.global-search-empty { display: block; padding: 24px 8px; color: var(--fmai-text-muted); font-size: 12px; }
 
 /* Focus visible rings */
 .fmai-nav-item:focus-visible,
+.fmai-snapshot:focus-visible,
 .fmai-sidebar-toggle:focus-visible,
 vaadin-drawer-toggle.fmai-sidebar-toggle:focus-visible,
 .toolbar-button:focus-visible,
@@ -416,6 +485,7 @@ vaadin-drawer-toggle.fmai-sidebar-toggle:focus-visible,
 .drawer-close:focus-visible,
 .drawer-compare:focus-visible,
 .filter-chip-clear:focus-visible,
+.filter-chip-text:focus-visible,
 .chat-starter:focus-visible,
 .chat-send:focus-visible,
 .chat-stop:focus-visible,

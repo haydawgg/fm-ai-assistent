@@ -79,6 +79,8 @@ public class MoneyballView extends VerticalLayout {
         add(header(), filterBar(), summary, dealCards, grid);
         expand(grid);
         summary.addClassName("moneyball-summary");
+        summary.getElement().setAttribute("role", "status");
+        summary.getElement().setAttribute("aria-live", "polite");
 
         if (!clubs.hasClubs()) {
             grid.setVisible(false);
@@ -194,6 +196,9 @@ public class MoneyballView extends VerticalLayout {
         ChatUiContext.setFilters(moneyballContext(position));
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        summary.removeClassName("moneyball-empty");
+        summary.setText("Finding value signings…");
+        summary.getElement().setAttribute("aria-busy", "true");
         CompletableFuture.supplyAsync(() ->
                 tools.moneyballRows(
                         clubName,
@@ -211,12 +216,15 @@ public class MoneyballView extends VerticalLayout {
                     + " · market model: " + result.pricedPlayers() + " priced players in "
                     + result.bucketCount() + " buckets · sorted by signing_rating");
             summary.removeClassName("moneyball-empty");
+            summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
             OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                summary.setText("Value search failed — adjust the filters and try again.");
+                summary.getElement().setAttribute("aria-busy", "false");
                 runButton.setEnabled(true);
             });
             return null;

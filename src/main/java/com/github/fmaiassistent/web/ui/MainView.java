@@ -158,8 +158,11 @@ public class MainView extends VerticalLayout {
         filterButton.addClickListener(event -> openFilterDialog());
         filterButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         filterButton.addClassName("toolbar-button");
+        filterButton.getElement().setAttribute("aria-label", "Open filters");
 
         status.addClassName("app-status");
+        status.getElement().setAttribute("role", "status");
+        status.getElement().setAttribute("aria-live", "polite");
         HorizontalLayout appBar = new HorizontalLayout(status);
         appBar.setWidthFull();
         appBar.setAlignItems(Alignment.CENTER);
@@ -601,8 +604,11 @@ public class MainView extends VerticalLayout {
         Div toolbarRight = new Div();
         toolbarRight.addClassName("workspace-toolbar-right");
         if (playersMode) {
-            Span hintText = new Span("Select a row · ↑ ↓ to move");
+            Span hintText = new Span(awaitingCompareSelection
+                    ? "Select another row to compare · Esc to cancel"
+                    : "Select a row · ↑ ↓ to move");
             hintText.addClassName("workspace-hint");
+            hintText.getElement().setAttribute("aria-live", "polite");
             toolbarRight.add(hintText);
         }
         Div toolbar = new Div(titleBlock, toolbarRight);
@@ -685,7 +691,11 @@ public class MainView extends VerticalLayout {
         Span text = new Span(label + ": " + value);
         text.addClassName("filter-chip-text");
         text.getElement().setAttribute("title", "Edit filters");
+        text.getElement().setAttribute("role", "button");
+        text.getElement().setAttribute("tabindex", "0");
+        text.getElement().setAttribute("aria-label", "Edit " + label + " filter");
         text.addClickListener(event -> openFilterDialog());
+        text.getElement().executeJs("this.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.click(); } });");
         Button clear = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> clearAction.run());
         clear.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         clear.addClassName("filter-chip-clear");
@@ -807,7 +817,6 @@ public class MainView extends VerticalLayout {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Save player view");
         dialog.setWidth("420px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
 
         TextField name = new TextField("View name");
@@ -1034,6 +1043,11 @@ public class MainView extends VerticalLayout {
         Button compare = new Button("Compare", event -> startCompare());
         compare.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         compare.addClassName("drawer-compare");
+        compare.setText(awaitingCompareSelection ? "Waiting…" : "Compare");
+        compare.setEnabled(!awaitingCompareSelection);
+        compare.getElement().setAttribute("aria-label", awaitingCompareSelection
+                ? "Waiting for second player"
+                : "Compare with another player");
         compare.setTooltipText(awaitingCompareSelection
                 ? "Waiting for second player"
                 : "Compare with another player");
@@ -1041,6 +1055,7 @@ public class MainView extends VerticalLayout {
         Button argue = new Button("Ask FM AI", event ->
                 ChatLaunch.open(ChatLaunch.askAbout(player.getName(), settings.sessionClub())));
         argue.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
+        argue.getElement().setAttribute("aria-label", "Ask FM AI about " + display(player.getName()));
         Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         close.addClassName("drawer-close");
@@ -1205,8 +1220,6 @@ public class MainView extends VerticalLayout {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Player filter");
         dialog.setWidth("1280px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
         dialog.getElement().getThemeList().add("wide-dialog");
@@ -1261,9 +1274,7 @@ public class MainView extends VerticalLayout {
                 worldRepMin, worldRepMax,
                 nationality
                 );
-        basicFilters.setResponsiveSteps(
-                new FormLayout.ResponsiveStep("0", 1),
-                new FormLayout.ResponsiveStep("720px", 2));
+        basicFilters.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 2));
         basicFilters.addClassName("filter-form");
 
         Span filterIntro = new Span("Filter by identity, ability, contract, or reputation.");
@@ -1368,8 +1379,6 @@ public class MainView extends VerticalLayout {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Club filter");
         dialog.setWidth("1280px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
 
@@ -1393,9 +1402,7 @@ public class MainView extends VerticalLayout {
                 balanceMin.field(), balanceMax.field(),
                 transferMin.field(), transferMax.field(),
                 payrollMin.field(), payrollMax.field());
-        filters.setResponsiveSteps(
-                new FormLayout.ResponsiveStep("0", 1),
-                new FormLayout.ResponsiveStep("720px", 2));
+        filters.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 2));
         filters.addClassName("filter-form");
 
         Div dialogContent = new Div(filters);
@@ -1442,8 +1449,6 @@ public class MainView extends VerticalLayout {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Competition filter");
         dialog.setWidth("1280px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.setMaxHeight("calc(100vh - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("filter-dialog");
 
@@ -1457,9 +1462,7 @@ public class MainView extends VerticalLayout {
                 name, nation,
                 reputationMin, reputationMax,
                 gender);
-        filters.setResponsiveSteps(
-                new FormLayout.ResponsiveStep("0", 1),
-                new FormLayout.ResponsiveStep("720px", 2));
+        filters.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 2));
         filters.addClassName("filter-form");
 
         Div dialogContent = new Div(filters);
@@ -1846,9 +1849,7 @@ public class MainView extends VerticalLayout {
     private static FormLayout detailLayout(List<DetailField> fields) {
         FormLayout layout = new FormLayout();
         layout.addClassName("detail-grid");
-        layout.setResponsiveSteps(
-                new FormLayout.ResponsiveStep("0", 1),
-                new FormLayout.ResponsiveStep("720px", 2));
+        layout.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 2));
         fields.stream()
                 .map(field -> detailField(field.label(), field.value()))
                 .forEach(layout::add);

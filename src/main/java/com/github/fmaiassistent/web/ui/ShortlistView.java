@@ -68,6 +68,8 @@ public class ShortlistView extends VerticalLayout {
         add(header(), filterBar(), summary, grid);
         expand(grid);
         summary.addClassName("moneyball-summary");
+        summary.getElement().setAttribute("role", "status");
+        summary.getElement().setAttribute("aria-live", "polite");
         if (!clubs.hasClubs()) {
             grid.setVisible(false);
             summary.setText("Load from the top bar with FM26 running.");
@@ -176,6 +178,9 @@ public class ShortlistView extends VerticalLayout {
         Integer finalAgeCap = ageCap;
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        summary.removeClassName("moneyball-empty");
+        summary.setText("Ranking shortlist…");
+        summary.getElement().setAttribute("aria-busy", "true");
         CompletableFuture.supplyAsync(() ->
                 tools.transferShortlistRows(
                         club, position, role, finalAgeCap, value(minCa), value(minPa),
@@ -188,12 +193,15 @@ public class ShortlistView extends VerticalLayout {
                     + budgetSummary(club)
                     + " · same ranking as fm26_transfer_shortlist"
                     + (Boolean.TRUE.equals(wonderkids.getValue()) ? " with wonderkid age cap" : ""));
+            summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
             OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                summary.setText("Shortlist failed — adjust the filters and try again.");
+                summary.getElement().setAttribute("aria-busy", "false");
                 runButton.setEnabled(true);
             });
             return null;

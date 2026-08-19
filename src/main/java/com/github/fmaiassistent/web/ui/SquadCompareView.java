@@ -51,6 +51,8 @@ public class SquadCompareView extends VerticalLayout {
         add(header(), filterBar(), summary, grid);
         expand(grid);
         summary.addClassName("moneyball-summary");
+        summary.getElement().setAttribute("role", "status");
+        summary.getElement().setAttribute("aria-live", "polite");
         if (!clubs.hasClubs()) {
             grid.setVisible(false);
             summary.setText("Load from the top bar with FM26 running.");
@@ -117,18 +119,24 @@ public class SquadCompareView extends VerticalLayout {
         }
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        summary.removeClassName("moneyball-empty");
+        summary.setText("Comparing squads…");
+        summary.getElement().setAttribute("aria-busy", "true");
         CompletableFuture.supplyAsync(() -> tools.compareSquads(left, right))
                 .thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
                     @SuppressWarnings("unchecked")
                     List<SquadAdvice.SquadCompareRow> rows = (List<SquadAdvice.SquadCompareRow>) result.get("positions");
                     grid.setItems(rows == null ? List.of() : rows);
                     summary.setText(cardText("Left", result.get("left")) + "  ·  " + cardText("Right", result.get("right")));
+                    summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
                     OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        summary.setText("Squad comparison failed — choose two clubs and try again.");
+                        summary.getElement().setAttribute("aria-busy", "false");
                         runButton.setEnabled(true);
                     });
                     return null;

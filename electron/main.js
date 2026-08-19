@@ -18,6 +18,7 @@ try {
   BACKEND_URL = 'http://127.0.0.1:8080';
   BACKEND_ORIGIN = new URL(BACKEND_URL).origin;
 }
+const BACKEND_HEALTH_URL = new URL('/actuator/health', BACKEND_URL).toString();
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.github.fmaiassistent');
@@ -88,7 +89,7 @@ function waitForBackend(url, timeoutMs = 120_000) {
         reject(new Error(state.error || 'Backend failed to start'));
         return;
       }
-      fetch(url, { signal: AbortSignal.timeout(2000) })
+      fetch(BACKEND_HEALTH_URL, { signal: AbortSignal.timeout(2000) })
         .then(async (response) => {
           if (response.ok && await isExpectedBackendResponse(response)) {
             markBackendReady();

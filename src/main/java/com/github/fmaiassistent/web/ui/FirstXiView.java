@@ -57,7 +57,7 @@ public class FirstXiView extends VerticalLayout {
     private final String sessionClub;
     private final MoneyCurrency currency;
     private final Map<String, Object> metadata;
-    private final TextArea tactic = new TextArea("Tactic slots");
+    private final TextArea tactic = new TextArea();
     private final Button runButton = new Button("Pick XI", VaadinIcon.CLIPBOARD_TEXT.create());
     private final Span summary = new Span();
     private final PitchBoard pitch = new PitchBoard();
@@ -84,6 +84,7 @@ public class FirstXiView extends VerticalLayout {
         tactic.setWidthFull();
         tactic.setMinHeight("6em");
         tactic.setMaxHeight("12em");
+        tactic.setAriaLabel("Tactical role blueprint");
         String formation = display(metadata.get("tactic_formation"));
         tactic.setHelperText("One line per slot: " + String.join(", ", PositionCodes.CODES)
                 + " plus in-possession and out-of-possession roles."
@@ -100,9 +101,11 @@ public class FirstXiView extends VerticalLayout {
         Span unavailableHeading = new Span("Unavailable");
         unavailableHeading.addClassName("first-xi-heading");
         summary.addClassName("moneyball-summary");
+        summary.getElement().setAttribute("role", "status");
+        summary.getElement().setAttribute("aria-live", "polite");
         Div boards = new Div(recommendedHeading, grid, upgradesHeading, upgrades);
         boards.addClassName("first-xi-boards");
-        add(header(), new LiveSelectedXiPanel(metadata), filterBar(), tactic, summary,
+        add(header(), new LiveSelectedXiPanel(metadata), filterBar(), tacticEditor(), summary,
                 pitch, unavailableHeading, unavailable, boards);
         expand(boards);
         if (!clubs.hasClubs()) {
@@ -130,12 +133,25 @@ public class FirstXiView extends VerticalLayout {
 
     private HorizontalLayout filterBar() {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        runButton.setTooltipText("Recalculate the recommended XI from this role blueprint");
         runButton.addClickListener(event -> run());
         HorizontalLayout bar = new HorizontalLayout(runButton);
         bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");
         return bar;
+    }
+
+    private Component tacticEditor() {
+        Div panel = new Div();
+        panel.addClassName("first-xi-tactic-panel");
+
+        Span eyebrow = new Span("Tactical input");
+        eyebrow.addClassName("first-xi-panel-eyebrow");
+        Span title = new Span("Role blueprint");
+        title.addClassName("first-xi-panel-title");
+        panel.add(eyebrow, title, tactic);
+        return panel;
     }
 
     private void configureGrid() {
@@ -211,6 +227,9 @@ public class FirstXiView extends VerticalLayout {
         }
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        summary.removeClassName("moneyball-empty");
+        summary.setText("Evaluating role fit…");
+        summary.getElement().setAttribute("aria-busy", "true");
         String tacticText = tactic.getValue();
         CompletableFuture.supplyAsync(() -> {
             List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tacticText);
@@ -253,12 +272,15 @@ public class FirstXiView extends VerticalLayout {
             summary.removeClassName("moneyball-empty");
             summary.setText(holes.isEmpty() ? "XI filled" : "Holes: " + String.join(", ", holes)
                     + " — suggested buys from fm26_transfer_shortlist");
+            summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
         })).exceptionally(ex -> {
             OpenRouterModelPicker.access(ui, () -> {
                 Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                         5000, Notification.Position.MIDDLE)
                         .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                summary.setText("Evaluation failed — adjust the role blueprint and try again.");
+                summary.getElement().setAttribute("aria-busy", "false");
                 runButton.setEnabled(true);
             });
             return null;

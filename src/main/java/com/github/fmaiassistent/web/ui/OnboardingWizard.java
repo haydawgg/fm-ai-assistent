@@ -37,7 +37,6 @@ final class OnboardingWizard {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Welcome to FM AI");
         dialog.setWidth("480px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.setCloseOnOutsideClick(false);
 

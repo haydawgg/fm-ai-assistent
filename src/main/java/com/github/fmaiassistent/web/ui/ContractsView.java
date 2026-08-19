@@ -59,6 +59,8 @@ public class ContractsView extends VerticalLayout {
         Div health = new Div(healthLabel, healthBar);
         health.addClassName("contracts-health");
         summary.addClassName("moneyball-summary");
+        summary.getElement().setAttribute("role", "status");
+        summary.getElement().setAttribute("aria-live", "polite");
         add(header(), filterBar(), health, summary, grid);
         expand(grid);
         if (!clubs.hasClubs()) {
@@ -147,6 +149,9 @@ public class ContractsView extends VerticalLayout {
         }
         UI ui = UI.getCurrent();
         runButton.setEnabled(false);
+        summary.removeClassName("moneyball-empty");
+        summary.setText("Refreshing contract queue…");
+        summary.getElement().setAttribute("aria-busy", "true");
         CompletableFuture.supplyAsync(() -> new Result(
                         tools.contractRows(sessionClub),
                         tools.wageHealth(sessionClub)))
@@ -159,12 +164,15 @@ public class ContractsView extends VerticalLayout {
                     summary.removeClassName("moneyball-empty");
                     summary.setText(result.rows().size() + " contracts in 180 days · "
                             + renew + " renew · " + sell + " sell · " + loan + " loan");
+                    summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
                     OpenRouterModelPicker.access(ui, () -> {
                         Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
                                 5000, Notification.Position.MIDDLE)
                                 .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        summary.setText("Contract refresh failed — try again.");
+                        summary.getElement().setAttribute("aria-busy", "false");
                         runButton.setEnabled(true);
                     });
                     return null;

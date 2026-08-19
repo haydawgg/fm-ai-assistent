@@ -40,7 +40,6 @@ final class SettingsDialog {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Settings");
         dialog.setWidth("520px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("settings-dialog");
 

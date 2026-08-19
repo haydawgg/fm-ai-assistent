@@ -44,8 +44,6 @@ final class PlayerDossier {
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Player dossier");
         dialog.setWidth("720px");
-        dialog.setMaxWidth("calc(100vw - 32px)");
-        dialog.setMaxHeight("calc(100vh - 48px)");
         dialog.getElement().getThemeList().add("professional-dialog");
         dialog.getElement().getThemeList().add("player-dossier-dialog");
 

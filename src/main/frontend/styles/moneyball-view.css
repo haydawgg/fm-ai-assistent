@@ -1,6 +1,8 @@
 .moneyball-view {
-    background: var(--fmai-bg);
-    padding: 0;
+    background:
+        radial-gradient(circle at 100% 0, rgba(67, 224, 154, 0.08), transparent 28rem),
+        var(--fmai-bg);
+    padding: 2px;
     margin: 0;
     width: 100%;
     height: 100%;
@@ -17,8 +19,13 @@
     min-width: 0;
     flex: 0 0 auto;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 4px 2px;
+    gap: 6px;
+    padding: 14px 18px 13px;
+    border: 1px solid var(--fmai-border);
+    border-left: 3px solid var(--fmai-accent);
+    border-radius: 4px 12px 4px 12px;
+    background: linear-gradient(110deg, rgba(67, 224, 154, 0.07), transparent 56%), rgba(17, 26, 37, 0.72);
+    box-shadow: var(--fmai-shadow-s);
 }
 
 .workspace-eyebrow {
@@ -32,7 +39,7 @@
 .workspace-title {
     color: var(--fmai-text);
     font-family: var(--fmai-font-display);
-    font-size: clamp(22px, 2.3vw, 30px);
+    font-size: 34px;
     font-weight: 760;
     letter-spacing: -0.045em;
     line-height: 1.1;
@@ -62,10 +69,11 @@
     align-items: flex-end;
     gap: 10px 12px;
     width: 100%;
-    padding: 12px;
-    background: var(--fmai-surface);
+    padding: 14px 16px 16px;
+    background: linear-gradient(120deg, rgba(255, 255, 255, 0.035), transparent 58%), var(--fmai-surface);
     border: 1px solid var(--fmai-border);
-    border-radius: var(--fmai-radius-l);
+    border-radius: 6px 14px 6px 14px;
+    box-shadow: var(--fmai-shadow-s);
     flex: 0 0 auto;
     box-sizing: border-box;
     min-width: 0;
@@ -95,11 +103,17 @@
 .moneyball-summary {
     color: var(--fmai-text-muted);
     font-size: var(--lumo-font-size-s);
-    padding: 0 var(--lumo-space-s);
+    padding: 4px 12px;
+    border-left: 2px solid var(--fmai-accent);
     flex: 0 0 auto;
     line-height: 1.45;
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+.moneyball-summary[aria-busy="true"] {
+    color: var(--fmai-info);
+    border-left-color: var(--fmai-info);
 }
 
 .moneyball-summary.moneyball-empty {
@@ -111,7 +125,7 @@
     margin: 0;
     padding: 48px 24px;
     border: 1px dashed var(--fmai-border);
-    border-radius: var(--fmai-radius-l);
+    border-radius: 6px 14px 6px 14px;
     background: var(--fmai-surface);
     color: var(--fmai-text-muted);
     font-size: 14px;
@@ -172,10 +186,47 @@
     width: 100%;
     min-width: 0;
     min-height: 0;
+    border-radius: 6px 14px 6px 14px;
+    box-shadow: var(--fmai-shadow-s);
 }
 
 .first-xi-view vaadin-text-area {
     flex: 0 0 auto;
+}
+
+.first-xi-tactic-panel {
+    display: flex;
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+    flex-direction: column;
+    gap: 5px;
+    padding: 14px 16px 12px;
+    border: 1px solid var(--fmai-border);
+    border-left: 3px solid var(--fmai-info);
+    border-radius: 5px 14px 5px 14px;
+    background: linear-gradient(120deg, rgba(117, 199, 255, 0.07), transparent 56%), var(--fmai-surface);
+    box-shadow: var(--fmai-shadow-s);
+}
+
+.first-xi-panel-eyebrow {
+    color: var(--fmai-info);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.first-xi-panel-title {
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: 15px;
+    font-weight: 760;
+    letter-spacing: -0.03em;
+}
+
+.first-xi-tactic-panel vaadin-text-area {
+    margin-top: 2px;
 }
 
 .live-selected-xi {
@@ -188,7 +239,7 @@
 
 .live-selected-xi .moneyball-grid {
     flex: 0 0 auto;
-    max-height: 28vh;
+    max-height: 280px;
 }
 
 .first-xi-boards {
@@ -207,7 +258,7 @@
 .first-xi-upgrades {
     flex: 0 1 14em;
     min-height: 8em;
-    max-height: 32vh;
+    max-height: 320px;
 }
 
 .first-xi-heading {
@@ -217,36 +268,4 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-}
-
-@media (max-width: 900px) {
-    .moneyball-filters vaadin-integer-field,
-    .moneyball-filters vaadin-combo-box {
-        width: 100%;
-        min-width: 0;
-    }
-
-    .first-xi-upgrades {
-        max-height: none;
-        flex: 1 1 12em;
-    }
-}
-
-@media (max-width: 620px) {
-    .moneyball-view {
-        gap: 8px;
-    }
-
-    .workspace-header {
-        padding: 4px 2px 0;
-    }
-
-    .moneyball-filters {
-        padding: 10px;
-    }
-
-    .moneyball-summary.moneyball-empty {
-        min-height: 9em;
-        padding: 32px 18px;
-    }
 }

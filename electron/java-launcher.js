@@ -129,11 +129,15 @@ function backendArguments() {
   }
 }
 
+function backendHealthUrl() {
+  return new URL('/actuator/health', BACKEND_URL).toString();
+}
+
 function isBackendAlreadyRunning() {
   return new Promise((resolve) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2000);
-    fetch(BACKEND_URL, { signal: controller.signal })
+    fetch(backendHealthUrl(), { signal: controller.signal })
       .then(async (response) => {
         clearTimeout(timer);
         resolve(await isExpectedBackendResponse(response));
@@ -146,8 +150,11 @@ function isBackendAlreadyRunning() {
 }
 
 export async function isExpectedBackendResponse(response) {
-  const text = await response.clone().text().catch(() => '');
-  return /fm[\s-]*ai[\s-]*assistent/i.test(text);
+  if (!response.ok) {
+    return false;
+  }
+  const payload = await response.clone().json().catch(() => null);
+  return payload?.status === 'UP';
 }
 
 function killProcessTree(pid) {

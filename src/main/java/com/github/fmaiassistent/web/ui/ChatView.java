@@ -281,6 +281,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         Span title = new Span("FM AI chat");
         title.addClassName("chat-title");
         snapshot.addClassName("chat-snapshot");
+        snapshot.getElement().setAttribute("role", "status");
+        snapshot.getElement().setAttribute("aria-live", "polite");
         sessionCost.addClassName("chat-session-cost");
 
         model.setLabel("");
@@ -403,6 +405,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         H3 title = new H3("Add an OpenRouter key");
         Span copy = new Span("In-app chat needs an OpenRouter API key. It is stored locally and protected by your operating system.");
         copy.addClassName("chat-welcome-copy");
+        Span localNote = new Span("Player Desk, Shortlist, First XI, and the other local workspaces remain available without a key.");
+        localNote.addClassName("chat-local-note");
         Button openSettings = new Button("Open Settings", VaadinIcon.COG.create(), event -> SettingsDialog.open(
                 settings, catalog, settings.currency(), ignored -> {
                     applyingModel = true;
@@ -416,7 +420,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                      submitPendingPrompt(UI.getCurrent());
                  }));
         openSettings.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        unconfigured.add(title, copy, openSettings);
+        Button openDesk = new Button("Use Player Desk", VaadinIcon.USERS.create(), event -> UI.getCurrent().navigate("desk"));
+        openDesk.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        HorizontalLayout actions = new HorizontalLayout(openSettings, openDesk);
+        actions.addClassName("chat-unconfigured-actions");
+        unconfigured.add(title, copy, localNote, actions);
     }
 
     private Component composer() {
@@ -533,6 +541,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         snapshot.setText(status.label());
         snapshot.getElement().setAttribute("data-empty", status.empty());
         snapshot.getElement().setAttribute("data-stale", status.stale());
+        snapshot.getElement().setAttribute("aria-label", status.title());
         staleBanner.setVisible(status.empty() || status.stale());
         staleBanner.setText(status.empty()
                 ? "No RAM snapshot loaded — answers will be thin until you load from the top bar."
@@ -1323,8 +1332,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             Button open = new Button(session.getTitle() == null ? ChatSessionService.DEFAULT_TITLE : session.getTitle());
             open.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             open.addClassName("chat-session-item");
+            open.getElement().setAttribute("aria-label", "Open chat: " + open.getText());
             if (session.getId().equals(conversationId)) {
                 open.addClassName("chat-session-active");
+                open.getElement().setAttribute("aria-current", "page");
             }
             open.addClickListener(event -> openSession(session.getId()));
             Button rename = iconButton(VaadinIcon.EDIT, "Rename", () -> renameSession(session));
