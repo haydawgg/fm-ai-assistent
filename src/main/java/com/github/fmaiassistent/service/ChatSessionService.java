@@ -63,20 +63,20 @@ public class ChatSessionService {
 
     @Transactional
     public ChatMessageEntity append(String sessionId, String role, String body, String model, MessageExtras extras) {
+        ChatContentLimits.requireMessage(body);
+        MessageExtras safeExtras = extras == null ? MessageExtras.NONE : extras.validated();
         ChatSessionEntity session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("chat session not found"));
         int ordinal = messages.maxOrdinalBySessionId(sessionId) + 1;
         ChatMessageEntity row = new ChatMessageEntity(sessionId, ordinal, role, body, model);
-        if (extras != null) {
-            row.setToolsJson(extras.toolsJson());
-            row.setPromptTokens(extras.promptTokens());
-            row.setCompletionTokens(extras.completionTokens());
-            row.setCostUsd(extras.costUsd());
-            row.setTtftMs(extras.ttftMs());
-            row.setDurationMs(extras.durationMs());
-            row.setReasoning(extras.reasoning());
-            row.setGenerationId(extras.generationId());
-        }
+        row.setToolsJson(safeExtras.toolsJson());
+        row.setPromptTokens(safeExtras.promptTokens());
+        row.setCompletionTokens(safeExtras.completionTokens());
+        row.setCostUsd(safeExtras.costUsd());
+        row.setTtftMs(safeExtras.ttftMs());
+        row.setDurationMs(safeExtras.durationMs());
+        row.setReasoning(safeExtras.reasoning());
+        row.setGenerationId(safeExtras.generationId());
         messages.save(row);
         pruneMessages(sessionId);
         if (!session.isTitleLocked() && "user".equals(role) && DEFAULT_TITLE.equals(session.getTitle())) {
@@ -189,7 +189,8 @@ public class ChatSessionService {
         if (reasoningAppend != null && !reasoningAppend.isBlank()) {
             String current = row.getReasoning() == null ? "" : row.getReasoning();
             if (!current.contains(reasoningAppend.strip())) {
-                row.setReasoning(current.isBlank() ? reasoningAppend.strip() : current + reasoningAppend);
+                String next = current.isBlank() ? reasoningAppend.strip() : current + reasoningAppend;
+                row.setReasoning(ChatContentLimits.requireReasoning(next));
             }
         }
         return messages.save(row);
@@ -233,5 +234,17 @@ public class ChatSessionService {
             String reasoning,
             String generationId) {
         public static final MessageExtras NONE = new MessageExtras(null, null, null, null, null, null, null, null);
+
+        MessageExtras validated() {
+            return new MessageExtras(
+                    ChatContentLimits.requireToolsJson(toolsJson),
+                    promptTokens,
+                    completionTokens,
+                    costUsd,
+                    ttftMs,
+                    durationMs,
+                    ChatContentLimits.requireReasoning(reasoning),
+                    generationId);
+        }
     }
 }

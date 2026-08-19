@@ -11,6 +11,7 @@ import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.AssistantChatService;
 import com.github.fmaiassistent.service.ChatTone;
 import com.github.fmaiassistent.service.ChatSessionService;
+import com.github.fmaiassistent.service.ChatContentLimits;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
@@ -432,6 +433,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         input.setWidthFull();
         input.setMinHeight("4.5em");
         input.setMaxHeight("12em");
+        input.setMaxLength(ChatContentLimits.MAX_MESSAGE_CHARACTERS);
         input.setAriaLabel("Message");
         input.setValueChangeMode(ValueChangeMode.EAGER);
         input.addValueChangeListener(event -> {

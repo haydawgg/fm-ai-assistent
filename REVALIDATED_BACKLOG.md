@@ -11,6 +11,7 @@ This file records findings that were reviewed while hardening the Windows deskto
 ## Completed in the current hardening pass
 
 - Consolidate desktop-view notifications behind `UiFeedback`, preserving existing duration, position, and severity variants.
+- Bound chat message, reasoning, and tool-trace CLOB inputs at both the Vaadin composer and persistence/update boundaries; regression coverage is in `ChatContentLimitsTest`.
 
 ## Revalidation rule
 
