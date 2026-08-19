@@ -464,4 +464,8 @@
         <modifyDataType tableName="chat_session" columnName="updated_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
         <modifyDataType tableName="chat_message" columnName="created_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
     </changeSet>
+
+    <changeSet id="009-chat-cost-decimal" author="codex">
+        <modifyDataType tableName="chat_message" columnName="cost_usd" newDataType="DECIMAL(20,8)"/>
+    </changeSet>
 </databaseChangeLog>

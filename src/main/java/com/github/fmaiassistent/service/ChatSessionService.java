@@ -8,6 +8,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +18,7 @@ import java.util.UUID;
 @Service
 public class ChatSessionService {
     public static final String DEFAULT_TITLE = "New chat";
+    public static final int MAX_RETAINED_MESSAGES_PER_SESSION = 1000;
 
     private final ChatSessionRepository sessions;
     private final ChatMessageRepository messages;
@@ -75,6 +78,7 @@ public class ChatSessionService {
             row.setGenerationId(extras.generationId());
         }
         messages.save(row);
+        pruneMessages(sessionId);
         if (!session.isTitleLocked() && "user".equals(role) && DEFAULT_TITLE.equals(session.getTitle())) {
             session.setTitle(autoTitle(body));
         }
@@ -117,8 +121,13 @@ public class ChatSessionService {
     public void pruneOldSessions() {
         OffsetDateTime cutoff = OffsetDateTime.now().minusDays(90);
         sessions.findAllByOrderByUpdatedAtDesc().stream()
-                .filter(s -> s.getUpdatedAt() != null && s.getUpdatedAt().isBefore(cutoff))
-                .forEach(s -> delete(s.getId()));
+                .forEach(session -> {
+                    if (session.getUpdatedAt() != null && session.getUpdatedAt().isBefore(cutoff)) {
+                        delete(session.getId());
+                    } else {
+                        pruneMessages(session.getId());
+                    }
+                });
     }
 
     @Transactional(readOnly = true)
@@ -126,7 +135,19 @@ public class ChatSessionService {
         if (from == null) {
             return 0;
         }
-        return Math.round(messages.sumCostUsdSince(from) * 1e6) / 1e6;
+        BigDecimal total = messages.sumCostUsdSince(from);
+        if (total == null) {
+            return 0;
+        }
+        return total.setScale(6, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    private void pruneMessages(String sessionId) {
+        int maxOrdinal = messages.maxOrdinalBySessionId(sessionId);
+        int firstRetainedOrdinal = maxOrdinal - MAX_RETAINED_MESSAGES_PER_SESSION + 1;
+        if (firstRetainedOrdinal > 0) {
+            messages.deleteBySessionIdAndOrdinalLessThan(sessionId, firstRetainedOrdinal);
+        }
     }
 
     @Transactional

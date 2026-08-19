@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, Long> {
@@ -15,6 +16,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, 
     List<ChatMessageEntity> findBySessionIdOrderByOrdinalAsc(String sessionId, Pageable pageable);
 
     void deleteBySessionIdAndOrdinalGreaterThanEqual(String sessionId, int ordinal);
+
+    long deleteBySessionIdAndOrdinalLessThan(String sessionId, int ordinal);
 
     void deleteBySessionId(String sessionId);
 
@@ -26,5 +29,5 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, 
     ChatMessageEntity findBySessionIdAndOrdinal(String sessionId, int ordinal);
 
     @Query("select coalesce(sum(m.costUsd), 0) from ChatMessageEntity m where m.createdAt >= :from and m.costUsd is not null")
-    double sumCostUsdSince(@Param("from") OffsetDateTime from);
+    BigDecimal sumCostUsdSince(@Param("from") OffsetDateTime from);
 }

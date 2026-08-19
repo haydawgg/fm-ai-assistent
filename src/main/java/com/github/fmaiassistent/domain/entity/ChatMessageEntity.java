@@ -49,8 +49,8 @@ public class ChatMessageEntity {
     @Column(name = "completion_tokens")
     private Integer completionTokens;
 
-    @Column(name = "cost_usd")
-    private Double costUsd;
+    @Column(name = "cost_usd", precision = 20, scale = 8)
+    private BigDecimal costUsd;
 
     @Column(name = "ttft_ms")
     private Integer ttftMs;
@@ -137,6 +137,10 @@ public class ChatMessageEntity {
     }
 
     public Double getCostUsd() {
+        return costUsd == null ? null : costUsd.doubleValue();
+    }
+
+    public BigDecimal getCostUsdDecimal() {
         return costUsd;
     }
 
@@ -146,8 +150,7 @@ public class ChatMessageEntity {
             return;
         }
         this.costUsd = BigDecimal.valueOf(costUsd)
-                .setScale(8, RoundingMode.HALF_UP)
-                .doubleValue();
+                .setScale(8, RoundingMode.HALF_UP);
     }
 
     public Integer getTtftMs() {
