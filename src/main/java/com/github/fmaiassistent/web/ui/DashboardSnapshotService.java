@@ -169,37 +169,31 @@ public class DashboardSnapshotService {
     }
 
     private List<FmAiAssistentTools.TransferShortlistRow> safeShortlist(String clubName) {
-        try {
-            return tools.transferShortlistRows(clubName, null, null, 24, null, null, null, null).stream()
-                    .sorted(Comparator.comparingDouble(FmAiAssistentTools.TransferShortlistRow::score).reversed())
-                    .toList();
-        } catch (RuntimeException ignored) {
-            return List.of();
-        }
+        DashboardSectionState<List<FmAiAssistentTools.TransferShortlistRow>> state = DashboardSectionLoader.load(
+                () -> tools.transferShortlistRows(clubName, null, null, 24, null, null, null, null).stream()
+                        .sorted(Comparator.comparingDouble(FmAiAssistentTools.TransferShortlistRow::score).reversed())
+                        .toList(),
+                List::isEmpty,
+                "Shortlist unavailable");
+        return DashboardSectionLoader.or(state, List.of());
     }
 
     private List<SquadAdvice.ContractRow> safeContracts(String clubName) {
-        try {
-            return tools.contractRows(clubName);
-        } catch (RuntimeException ignored) {
-            return List.of();
-        }
+        DashboardSectionState<List<SquadAdvice.ContractRow>> state = DashboardSectionLoader.load(
+                () -> tools.contractRows(clubName), List::isEmpty, "Contracts unavailable");
+        return DashboardSectionLoader.or(state, List.of());
     }
 
     private List<SquadAdvice.SellRow> safeSellRows(String clubName) {
-        try {
-            return tools.sellRows(clubName);
-        } catch (RuntimeException ignored) {
-            return List.of();
-        }
+        DashboardSectionState<List<SquadAdvice.SellRow>> state = DashboardSectionLoader.load(
+                () -> tools.sellRows(clubName), List::isEmpty, "Squad trim unavailable");
+        return DashboardSectionLoader.or(state, List.of());
     }
 
     private List<SquadAdvice.AcademyRow> safeAcademyRows(String clubName) {
-        try {
-            return tools.academyRows(clubName, null);
-        } catch (RuntimeException ignored) {
-            return List.of();
-        }
+        DashboardSectionState<List<SquadAdvice.AcademyRow>> state = DashboardSectionLoader.load(
+                () -> tools.academyRows(clubName, null), List::isEmpty, "Academy unavailable");
+        return DashboardSectionLoader.or(state, List.of());
     }
 
     static List<DashboardSnapshot.Depth> depth(List<PlayerEntity> squad) {
