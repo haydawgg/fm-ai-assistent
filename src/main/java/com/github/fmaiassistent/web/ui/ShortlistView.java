@@ -2,8 +2,10 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.TransferShortlistCandidate;
+import com.github.fmaiassistent.football.TransferShortlistPort;
+import com.github.fmaiassistent.football.TransferShortlistQuery;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools.TransferShortlistRow;
 import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
@@ -25,6 +27,7 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,7 +41,8 @@ import java.util.stream.Collectors;
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class ShortlistView extends VerticalLayout {
-    private final PlayerAnalysisPort tools;
+    private final PlayerAnalysisPort dossierTools;
+    private final TransferShortlistPort shortlist;
     private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
     private final ComboBox<String> roleFilter = new ComboBox<>("In-possession role");
@@ -50,12 +54,22 @@ public class ShortlistView extends VerticalLayout {
     private final Checkbox wonderkids = new Checkbox("Wonderkids (max age 21)");
     private final Button runButton = new Button("Shortlist", VaadinIcon.SEARCH.create());
     private final Span summary = new Span();
-    private final Grid<TransferShortlistRow> grid = new Grid<>();
+    private final Grid<TransferShortlistCandidate> grid = new Grid<>();
     private final MoneyCurrency currency;
     private Map<String, ClubEntity> clubsByName = Map.of();
 
     public ShortlistView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
-        this.tools = tools;
+        this(tools, requireTransferShortlistPort(tools), clubs, settings);
+    }
+
+    @Autowired
+    public ShortlistView(
+            PlayerAnalysisPort dossierTools,
+            TransferShortlistPort shortlist,
+            ClubDatabaseService clubs,
+            AppSettingsService settings) {
+        this.dossierTools = dossierTools;
+        this.shortlist = shortlist;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
@@ -127,25 +141,25 @@ public class ShortlistView extends VerticalLayout {
             if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
                 return;
             }
-            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+            PlayerDossier.openNamed(dossierTools, event.getItem().name(), currency, sessionClub);
         });
         grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
                 .setHeader("")
                 .setKey("ask")
                 .setWidth("3.5em")
                 .setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(row -> String.format(Locale.ROOT, "%.1f", row.score())).setHeader("Score").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(TransferShortlistRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::positionScore).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::name).setHeader("Name").setAutoWidth(true);
+        grid.addColumn(TransferShortlistCandidate::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::positionScore).setHeader("Pos").setWidth("4em").setFlexGrow(0);
         grid.addColumn(row -> row.roleFit() == null ? "" : String.format(Locale.ROOT, "%.1f", row.roleFit()))
                 .setHeader("Role fit").setWidth("6em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::developmentUpside).setHeader("Upside").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(TransferShortlistRow::club).setHeader("Club");
-        grid.addColumn(TransferShortlistRow::nationality).setHeader("Nation");
+        grid.addColumn(TransferShortlistCandidate::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::developmentUpside).setHeader("Upside").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(TransferShortlistCandidate::club).setHeader("Club");
+        grid.addColumn(TransferShortlistCandidate::nationality).setHeader("Nation");
         grid.addColumn(row -> row.freeAgent() ? "Free" : row.askingPrice() == null ? "Unknown"
                 : MoneyDisplay.format(row.askingPrice(), currency)).setHeader("Fee");
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
@@ -182,12 +196,12 @@ public class ShortlistView extends VerticalLayout {
         summary.setText("Ranking shortlist…");
         summary.getElement().setAttribute("aria-busy", "true");
         UiAsync.submit(ui, () ->
-                tools.transferShortlistRows(
+                shortlist.transferShortlistCandidates(new TransferShortlistQuery(
                         club, position, role, finalAgeCap, value(minCa), value(minPa),
-                        feePounds(), wagePounds()), rows -> {
+                        feePounds(), wagePounds())), rows -> {
             grid.setItems(rows);
-            long listed = rows.stream().filter(TransferShortlistRow::transferListed).count();
-            long injured = rows.stream().filter(TransferShortlistRow::injured).count();
+            long listed = rows.stream().filter(TransferShortlistCandidate::transferListed).count();
+            long injured = rows.stream().filter(TransferShortlistCandidate::injured).count();
             summary.setText(rows.size() + " candidates · " + listed + " listed · " + injured + " injured"
                     + budgetSummary(club)
                     + " · same ranking as fm26_transfer_shortlist"
@@ -233,5 +247,12 @@ public class ShortlistView extends VerticalLayout {
     private static String capitalize(String value) {
         return value == null || value.isEmpty() ? value
                 : Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    private static TransferShortlistPort requireTransferShortlistPort(PlayerAnalysisPort tools) {
+        if (tools instanceof TransferShortlistPort port) {
+            return port;
+        }
+        throw new IllegalArgumentException("Player analysis adapter does not provide transfer shortlist queries");
     }
 }
