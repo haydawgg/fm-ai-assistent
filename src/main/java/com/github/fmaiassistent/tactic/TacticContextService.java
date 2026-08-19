@@ -280,6 +280,9 @@ public class TacticContextService implements AiPromptContext {
     }
 
     private List<Path> selectedFile(Path requested) {
+        if (Files.isSymbolicLink(requested)) {
+            throw new IllegalArgumentException("Tactic import path must not be a symbolic link: " + requested);
+        }
         if (!Files.isRegularFile(requested) || !supported(requested.getFileName().toString())) {
             throw new IllegalArgumentException("Unsupported tactic file: " + requested);
         }

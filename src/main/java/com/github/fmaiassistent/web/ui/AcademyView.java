@@ -136,9 +136,7 @@ public class AcademyView extends VerticalLayout {
                     runButton.setEnabled(true);
                 })).exceptionally(ex -> {
                     OpenRouterModelPicker.access(ui, () -> {
-                        Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
-                                5000, Notification.Position.MIDDLE)
-                                .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        UiFeedback.error(ex, "Academy refresh failed — try again.");
                         summary.setText("Academy refresh failed — try again.");
                         summary.getElement().setAttribute("aria-busy", "false");
                         runButton.setEnabled(true);

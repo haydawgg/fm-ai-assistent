@@ -3,7 +3,6 @@ package com.github.fmaiassistent.service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
-import com.github.fmaiassistent.FmAiAssistentApplication;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.web.ui.SavedChatPrompt;
@@ -15,20 +14,17 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URISyntaxException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Properties;
 
 @Service
@@ -151,7 +147,7 @@ public class AppSettingsService {
     }
 
     public static Path dataDirectory() {
-        return applicationDirectory();
+        return DataDirectoryManager.dataDirectory();
     }
 
     public String openRouterApiKey() {
@@ -655,63 +651,6 @@ public class AppSettingsService {
         if (explicitPath != null && !explicitPath.isBlank()) {
             return Path.of(explicitPath);
         }
-        return applicationDirectory().resolve(SETTINGS_FILE);
-    }
-
-    private static Path applicationDirectory() {
-        Optional<Path> nativeExecutable = currentProcessCommand()
-                .filter(command -> !isJavaLauncher(command));
-        if (nativeExecutable.isPresent()) {
-            return nativeExecutable.get().getParent();
-        }
-        Optional<Path> jar = jarFromJavaCommand();
-        if (jar.isPresent()) {
-            return jar.get().getParent();
-        }
-        try {
-            CodeSource codeSource = FmAiAssistentApplication.class.getProtectionDomain().getCodeSource();
-            if (codeSource != null && codeSource.getLocation() != null) {
-                Path location = Path.of(codeSource.getLocation().toURI()).toAbsolutePath();
-                if (Files.isRegularFile(location)) {
-                    return location.getParent();
-                }
-                Path home = Path.of(System.getProperty("user.home")).resolve(".fm-ai-assistent");
-                Files.createDirectories(home);
-                return home;
-            }
-        } catch (URISyntaxException | RuntimeException | IOException ignored) {
-        }
-        return Path.of(System.getProperty("user.home")).resolve(".fm-ai-assistent").toAbsolutePath();
-    }
-
-    private static Optional<Path> currentProcessCommand() {
-        try {
-            return ProcessHandle.current()
-                    .info()
-                    .command()
-                    .filter(value -> !value.isBlank())
-                    .map(value -> Path.of(value).toAbsolutePath())
-                    .filter(Files::isRegularFile);
-        } catch (RuntimeException ex) {
-            return Optional.empty();
-        }
-    }
-
-    private static boolean isJavaLauncher(Path command) {
-        String fileName = command.getFileName() == null ? "" : command.getFileName().toString();
-        return fileName.equals("java") || fileName.equals("java.exe") || fileName.equals("javaw") || fileName.equals("javaw.exe");
-    }
-
-    private static Optional<Path> jarFromJavaCommand() {
-        String command = System.getProperty("sun.java.command");
-        if (command == null || command.isBlank()) {
-            return Optional.empty();
-        }
-        String firstToken = command.trim().split("\\s+", 2)[0];
-        if (!firstToken.endsWith(".jar")) {
-            return Optional.empty();
-        }
-        Path jar = Path.of(firstToken).toAbsolutePath().normalize();
-        return Files.isRegularFile(jar) ? Optional.of(jar) : Optional.empty();
+        return DataDirectoryManager.dataDirectory().resolve(SETTINGS_FILE);
     }
 }

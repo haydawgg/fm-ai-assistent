@@ -60,9 +60,7 @@ public class LinuxProcessReader implements ProcessMemoryReader {
     }
 
     public byte[] readBytes(long address, int size) throws IOException {
-        if (size < 0) {
-            throw new IllegalArgumentException("size must be non-negative");
-        }
+        ProcessMemoryReader.validateAddressRange(address, size);
         ByteBuffer buffer = ByteBuffer.allocate(size);
         int total = 0;
         while (total < size) {

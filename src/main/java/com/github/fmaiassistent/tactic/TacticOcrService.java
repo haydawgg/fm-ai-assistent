@@ -13,6 +13,8 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 class TacticOcrService implements TacticImageTextExtractor {
     private static final Logger log = LoggerFactory.getLogger(TacticOcrService.class);
     private static final long MAX_IMAGE_PIXELS = 12_000_000L;
+    private static final int MAX_PROCESS_OUTPUT_BYTES = 1_048_576;
 
     private final TacticContextProperties properties;
 
@@ -208,11 +211,26 @@ class TacticOcrService implements TacticImageTextExtractor {
     private static CompletableFuture<String> read(java.io.InputStream input) {
         return CompletableFuture.supplyAsync(() -> {
             try (input) {
-                return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                return new String(readLimited(input), StandardCharsets.UTF_8);
             } catch (IOException exception) {
                 throw new IllegalStateException(exception);
             }
         });
+    }
+
+    private static byte[] readLimited(InputStream input) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            total += read;
+            if (total > MAX_PROCESS_OUTPUT_BYTES) {
+                throw new IOException("Tesseract output exceeded the safety limit");
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
     }
 
     private static String clean(String raw, ImageKind kind) {

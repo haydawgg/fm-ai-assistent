@@ -30,6 +30,20 @@ public interface ProcessMemoryReader extends AutoCloseable {
 
     byte[] readBytes(long address, int size) throws IOException;
 
+    /** Rejects invalid native ranges before they reach a platform adapter. */
+    static void validateAddressRange(long address, int size) throws IOException {
+        if (size < 0) {
+            throw new IOException("Read size must be non-negative");
+        }
+        if (size == 0) {
+            return;
+        }
+        if (address <= 0 || address > MAX_USER_ADDRESS
+                || (long) size - 1 > MAX_USER_ADDRESS - address) {
+            throw new IOException("Read range is outside the user address space");
+        }
+    }
+
     List<MemoryRegion> maps() throws IOException;
 
     private static void throttle() {

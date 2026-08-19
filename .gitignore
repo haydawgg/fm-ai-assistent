@@ -20,6 +20,7 @@ src/main/frontend/js/highlight.min.js
 
 # Electron build output and bundled JAR
 electron/dist/
+electron/dist-retry*/
 electron/resources/
 # Legacy build output from pre-config builds
 dist/

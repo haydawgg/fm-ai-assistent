@@ -2,16 +2,20 @@ package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
+import com.github.fmaiassistent.domain.entity.LoadMetadataEntity;
 import com.github.fmaiassistent.exporter.ClubExporter;
 import com.github.fmaiassistent.exporter.CompetitionExporter;
 import com.github.fmaiassistent.exporter.PlayerExporter;
 import com.github.fmaiassistent.repository.DatabaseService;
+import com.github.fmaiassistent.repository.LoadMetadataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Caching;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StopWatch;
 
 import java.io.IOException;
@@ -20,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Service
 public class SnapshotPersistService {
@@ -28,16 +34,22 @@ public class SnapshotPersistService {
     private final CompetitionDatabaseService competitions;
     private final ClubDatabaseService clubs;
     private final PlayerDatabaseService players;
+    private final LoadMetadataRepository metadata;
+    private final CacheManager cacheManager;
 
     public SnapshotPersistService(
             DatabaseService databaseService,
             CompetitionDatabaseService competitions,
             ClubDatabaseService clubs,
-            PlayerDatabaseService players) {
+            PlayerDatabaseService players,
+            LoadMetadataRepository metadata,
+            CacheManager cacheManager) {
         this.databaseService = databaseService;
         this.competitions = competitions;
         this.clubs = clubs;
         this.players = players;
+        this.metadata = metadata;
+        this.cacheManager = cacheManager;
     }
 
     @FunctionalInterface
@@ -45,17 +57,8 @@ public class SnapshotPersistService {
         PlayerExporter.ExportResult export(Consumer<List<Map<String, Object>>> chunkSink) throws IOException;
     }
 
-    @Caching(evict = {
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
-    })
     @Transactional
-    public DatabaseLoadAllService.LoadAllResult persist(
+    public synchronized DatabaseLoadAllService.LoadAllResult persist(
             int pid,
             CompetitionExporter.ExportResult competitionRows,
             ClubExporter.ExportResult clubRows,
@@ -68,17 +71,8 @@ public class SnapshotPersistService {
         }
     }
 
-    @Caching(evict = {
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.NATIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.COMPETITIONS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_NAMES_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.CLUB_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE, allEntries = true)
-    })
     @Transactional
-    public DatabaseLoadAllService.LoadAllResult persist(
+    public synchronized DatabaseLoadAllService.LoadAllResult persist(
             int pid,
             CompetitionExporter.ExportResult competitionRows,
             ClubExporter.ExportResult clubRows,
@@ -90,6 +84,8 @@ public class SnapshotPersistService {
         Map<Long, ClubEntity> clubsByAddress = new HashMap<>();
         AtomicLong saved = new AtomicLong();
         boolean[] snapshotReplaced = {false};
+        String snapshotId = UUID.randomUUID().toString();
+        registerCacheEvictionAfterCommit();
         persistWatch.start("players-export");
         PlayerExporter.ExportResult playerRows = playerExport.export(chunk -> {
             if (!snapshotReplaced[0]) {
@@ -99,6 +95,9 @@ public class SnapshotPersistService {
                 persistWatch.start("clear");
                 databaseService.clearAllTables();
                 persistWatch.stop();
+                metadata.save(new LoadMetadataEntity("snapshot_state", "staging"));
+                metadata.save(new LoadMetadataEntity("snapshot_id", snapshotId));
+                metadata.save(new LoadMetadataEntity("snapshot_started_at", OffsetDateTime.now().toString()));
                 persistWatch.start("competitions");
                 competitions.saveExported(competitionRows);
                 persistWatch.stop();
@@ -124,6 +123,9 @@ public class SnapshotPersistService {
         }
         if (!snapshotReplaced[0]) {
             databaseService.clearAllTables();
+            metadata.save(new LoadMetadataEntity("snapshot_state", "staging"));
+            metadata.save(new LoadMetadataEntity("snapshot_id", snapshotId));
+            metadata.save(new LoadMetadataEntity("snapshot_started_at", OffsetDateTime.now().toString()));
             competitions.saveExported(competitionRows);
             clubs.saveExported(clubRows);
             snapshotReplaced[0] = true;
@@ -135,6 +137,8 @@ public class SnapshotPersistService {
             players.finishSnapshot(playerRows);
             savedCount = saved.get();
         }
+        metadata.save(new LoadMetadataEntity("snapshot_state", "published"));
+        metadata.save(new LoadMetadataEntity("snapshot_published_at", OffsetDateTime.now().toString()));
         persistWatch.stop();
         LOGGER.info("RAM persist timings:\n{}", persistWatch.prettyPrint());
         PlayerExporter.SkipSnapshot skips = playerRows.skips() == null
@@ -149,5 +153,29 @@ public class SnapshotPersistService {
                 clubs.countClubs(),
                 competitions.countCompetitions(),
                 skips.toastFragment());
+    }
+
+    private void registerCacheEvictionAfterCommit() {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Snapshot persistence requires an active transaction");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (String cacheName : List.of(
+                        CaffeineCacheConfiguration.PLAYERS_CACHE,
+                        CaffeineCacheConfiguration.PLAYERS_WITH_CLUBS_CACHE,
+                        CaffeineCacheConfiguration.NATIONS_CACHE,
+                        CaffeineCacheConfiguration.COMPETITIONS_CACHE,
+                        CaffeineCacheConfiguration.CLUB_NAMES_CACHE,
+                        CaffeineCacheConfiguration.CLUB_CACHE,
+                        CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE)) {
+                    Cache cache = cacheManager.getCache(cacheName);
+                    if (cache != null) {
+                        cache.clear();
+                    }
+                }
+            }
+        });
     }
 }

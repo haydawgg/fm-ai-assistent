@@ -119,9 +119,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     @Override
     public byte[] readBytes(long address, int size) throws IOException {
-        if (size < 0) {
-            throw new IllegalArgumentException("size must be non-negative");
-        }
+        ProcessMemoryReader.validateAddressRange(address, size);
         if (size == 0) {
             return new byte[0];
         }

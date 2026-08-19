@@ -18,13 +18,15 @@ The app also includes a frontend where you can search and filter the data yourse
 
 You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring. Status fields that fail to read are shown as unknown rather than false.
 
-Display currency is chosen in Settings. RAM snapshots persist in a local H2 file (`fm-ai-assistent-db`) next to `fm-ai-assistent.properties`.
+Display currency is chosen in Settings. RAM snapshots persist in a local H2 file (`fm-ai-assistent-db`) under `%USERPROFILE%\\.fm-ai-assistent` on Windows (or `~/.fm-ai-assistent` on Linux). Existing files beside an older jar or executable are migrated there with a retained backup on first launch.
 
 ## How To Install
 
-### Option 1: Native Image
+### Native Image (deferred)
 
-Build (GraalVM native-image required):
+Native-image packaging is intentionally deferred for the Windows desktop release. Use the Java jar or Electron build below; the native profile is not part of the supported acceptance path yet.
+
+If you are working on the deferred native profile, the historical command is:
 
 ```bash
 mvn.cmd -Pnative -DskipTests native:compile
@@ -42,9 +44,9 @@ Start it from a terminal:
 ./target/fm-ai-assistent
 ```
 
-There is no published prebuilt native image; build locally with GraalVM as above.
+There is no published prebuilt native image.
 
-### Option 2: Java Jar
+### Option 1: Java Jar
 
 Minimum requirement: Java 25.
 
@@ -70,7 +72,7 @@ http://127.0.0.1:8080
 
 After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. In-app chat uses an OpenRouter key from Settings. You can also connect an MCP client such as Claude Desktop to `/mcp`.
 
-### Option 3: Run from source (development)
+### Option 2: Run from source (development)
 
 Requirements: JDK 25 and Maven 3.9+ (on Windows use `mvn.cmd`, not the `mvn` shell script).
 

@@ -8,6 +8,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 import java.time.OffsetDateTime;
 
 @Entity
@@ -138,7 +141,13 @@ public class ChatMessageEntity {
     }
 
     public void setCostUsd(Double costUsd) {
-        this.costUsd = costUsd;
+        if (costUsd == null || !Double.isFinite(costUsd)) {
+            this.costUsd = null;
+            return;
+        }
+        this.costUsd = BigDecimal.valueOf(costUsd)
+                .setScale(8, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     public Integer getTtftMs() {
