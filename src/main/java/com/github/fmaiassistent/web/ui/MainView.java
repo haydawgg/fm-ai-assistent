@@ -40,7 +40,6 @@ import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteAlias;
 
 import java.util.*;
-import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,30 +52,6 @@ import org.slf4j.LoggerFactory;
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class MainView extends VerticalLayout {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
-    private static final Set<String> NUMERIC_SORT_COLUMNS = Set.of(
-            "ID", "CLUB_ID", "PLAYING_CLUB_ID", "CURRENT_REPUTATION", "HOME_REPUTATION", "WORLD_REPUTATION",
-            "CA", "PA", "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW", "AGE", "HEIGHT_CM",
-            "REPUTATION", "TRANSFER_BUDGET", "PAYROLL_BUDGET",
-            "GOALKEEPER", "DEFENDER_LEFT", "DEFENDER_CENTRAL", "DEFENDER_RIGHT", "WING_BACK_LEFT",
-            "DEFENSIVE_MIDFIELDER", "WING_BACK_RIGHT", "MIDFIELDER_LEFT", "MIDFIELDER_CENTRAL",
-            "MIDFIELDER_RIGHT", "ATTACKING_MIDFIELDER_LEFT", "ATTACKING_MIDFIELDER_CENTRAL",
-            "ATTACKING_MIDFIELDER_RIGHT", "STRIKER",
-            "CROSSING", "DRIBBLING", "FINISHING", "HEADING", "LONG_SHOTS", "MARKING", "OFF_THE_BALL",
-            "PASSING", "PENALTIES", "TACKLING", "VISION", "HANDLING", "AERIAL_ABILITY", "COMMAND_OF_AREA",
-            "COMMUNICATION", "KICKING", "THROWING", "ANTICIPATION", "DECISIONS", "ONE_ON_ONES",
-            "POSITIONING", "REFLEXES", "FIRST_TOUCH", "TECHNIQUE", "LEFT_FOOT", "RIGHT_FOOT", "FLAIR",
-            "CORNERS", "TEAMWORK", "WORK_RATE", "LONG_THROWS", "ECCENTRICITY", "RUSHING_OUT",
-            "TENDENCY_TO_PUNCH", "ACCELERATION", "FREE_KICKS", "STRENGTH", "STAMINA", "PACE",
-            "JUMPING_REACH", "LEADERSHIP", "DIRTINESS", "BALANCE", "BRAVERY", "CONSISTENCY",
-            "AGGRESSION", "AGILITY", "IMPORTANT_MATCHES", "INJURY_PRONENESS", "VERSATILITY",
-            "NATURAL_FITNESS", "DETERMINATION", "COMPOSURE", "CONCENTRATION");
-    private static final Set<String> MONEY_COLUMNS = Set.of(
-            "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW",
-            "BALANCE", "TRANSFER_BUDGET", "PAYROLL_BUDGET");
-    private static final Set<String> DEFAULT_PLAYER_COLUMN_KEYS = Set.of(
-            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA",
-            "SALARY_WEEKLY_RAW", "ASKING_PRICE", "CONTRACT_END_DATE");
-
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
@@ -368,10 +343,7 @@ public class MainView extends VerticalLayout {
     private void showPlayers() {
         ChatUiContext.setView("Desk");
         ChatUiContext.setFilters(playerFilter.chatSummary());
-        List<PlayerColumn> allColumns = allPlayerColumns();
-        List<PlayerColumn> columns = showAllPlayerColumns
-                ? allColumns
-                : allColumns.stream().filter(column -> DEFAULT_PLAYER_COLUMN_KEYS.contains(column.key())).toList();
+        List<PlayerWorkspaceColumns.Column> columns = PlayerWorkspaceColumns.visible(showAllPlayerColumns);
         String club = playerFilter.club() != null && !playerFilter.club().isBlank()
                 ? playerFilter.club()
                 : settings.sessionClub();
@@ -393,37 +365,6 @@ public class MainView extends VerticalLayout {
         } else {
             updateStatus(null);
         }
-    }
-
-    private List<PlayerColumn> allPlayerColumns() {
-        return List.of(
-                new PlayerColumn("NAME", "Name", PlayerEntity::getName),
-                new PlayerColumn("AGE", "Age", PlayerEntity::getAge),
-                new PlayerColumn("HEIGHT_CM", "Height (cm)", PlayerEntity::getHeightCm),
-                new PlayerColumn("NATIONALITY", "Nationality", PlayerEntity::getNationality),
-                new PlayerColumn("CLUB", "Club", PlayerEntity::getClub),
-                new PlayerColumn("PLAYING_CLUB", "Playing Club", PlayerEntity::getPlayingClub),
-                new PlayerColumn("POSITION", "Position", PositionTextFormatter::format),
-                new PlayerColumn("CA", "CA", PlayerEntity::getCa),
-                new PlayerColumn("PA", "PA", PlayerEntity::getPa),
-                new PlayerColumn("SALARY_WEEKLY_RAW", "Wage", PlayerEntity::getSalaryWeeklyRaw),
-                new PlayerColumn("ASKING_PRICE", "Asking", PlayerEntity::getAskingPrice),
-                new PlayerColumn("CONTRACT_END_DATE", "Contract", PlayerEntity::getContractEndDate),
-                new PlayerColumn("TRANSFER_LISTED", "Transfer Listed", PlayerEntity::getTransferListed),
-                new PlayerColumn("LISTED_FOR_LOAN", "Listed For Loan", PlayerEntity::getListedForLoan),
-                new PlayerColumn("TRANSFER_AGREED", "Transfer Agreed", PlayerEntity::getTransferAgreed),
-                new PlayerColumn("FUTURE_TRANSFER_CLUB", "Future Transfer Club", PlayerEntity::getFutureTransferClub),
-                new PlayerColumn("FUTURE_TRANSFER_DATE", "Future Transfer Date", PlayerEntity::getFutureTransferDate),
-                new PlayerColumn("FUTURE_TRANSFER_CONTRACT_END_DATE", "Future Contract End", PlayerEntity::getFutureTransferContractEndDate),
-                new PlayerColumn("INJURED", "Injured", PlayerEntity::getInjured),
-                new PlayerColumn("INJURY", "Injury", PlayerEntity::getInjury),
-                new PlayerColumn("INJURY_LIGHT_TRAINING_DAYS_REMAINING", "Light Training Days", PlayerEntity::getInjuryLightTrainingDaysRemaining),
-                new PlayerColumn("INJURY_FULL_TRAINING_DAYS_REMAINING", "Full Training Days", PlayerEntity::getInjuryFullTrainingDaysRemaining),
-                new PlayerColumn("INJURY_EXPECTED_RETURN", "Expected Return", PlayerEntity::getInjuryExpectedReturn),
-                new PlayerColumn("TRAITS", "Traits", PlayerEntity::getTraits),
-                new PlayerColumn("CURRENT_REPUTATION", "Current Reputation", PlayerEntity::getCurrentReputation),
-                new PlayerColumn("HOME_REPUTATION", "Home Reputation", PlayerEntity::getHomeReputation),
-                new PlayerColumn("WORLD_REPUTATION", "World Reputation", PlayerEntity::getWorldReputation));
     }
 
     private void showClubs() {
@@ -511,12 +452,12 @@ public class MainView extends VerticalLayout {
                 "Clear filters or load RAM data to populate competitions.");
     }
 
-    private void setPlayerGrid(List<PlayerColumn> columns, List<PlayerEntity> rows) {
+    private void setPlayerGrid(List<PlayerWorkspaceColumns.Column> columns, List<PlayerEntity> rows) {
         boolean mode = showAllPlayerColumns;
         if (!playersColumnsBuilt || playersColumnsAllMode != mode) {
             playersGrid.removeAllColumns();
             playersGrid.setPartNameGenerator(this::playerRowPartName);
-            for (PlayerColumn column : columns) {
+            for (PlayerWorkspaceColumns.Column column : columns) {
                 Grid.Column<PlayerEntity> gridColumn;
                 if ("NAME".equals(column.key())) {
                     gridColumn = playersGrid.addColumn(new ComponentRenderer<>(this::playerNameCell))
@@ -1817,7 +1758,7 @@ public class MainView extends VerticalLayout {
         if ("SALARY_WEEKLY_RAW".equals(column)) {
             return salaryWeeklyDisplay(value);
         }
-        return MONEY_COLUMNS.contains(column) ? moneyDisplay(value) : display(value);
+        return PlayerWorkspaceColumns.MONEY_COLUMNS.contains(column) ? moneyDisplay(value) : display(value);
     }
 
     private String salaryWeeklyDisplay(Object value) {
@@ -2221,8 +2162,8 @@ public class MainView extends VerticalLayout {
         return goalkeeper != null && goalkeeper >= 15;
     }
 
-    private int comparePlayerColumn(PlayerEntity left, PlayerEntity right, PlayerColumn column) {
-        if (NUMERIC_SORT_COLUMNS.contains(column.key())) {
+    private int comparePlayerColumn(PlayerEntity left, PlayerEntity right, PlayerWorkspaceColumns.Column column) {
+        if (PlayerWorkspaceColumns.NUMERIC_SORT_COLUMNS.contains(column.key())) {
             if ("SALARY_WEEKLY_RAW".equals(column.key())) {
                 return compareLongs(
                         displayedWeeklySalary(column.value(left)),
@@ -2239,14 +2180,14 @@ public class MainView extends VerticalLayout {
     }
 
     private static int compareClubColumn(ClubEntity left, ClubEntity right, String column) {
-        if (NUMERIC_SORT_COLUMNS.contains(column)) {
+        if (PlayerWorkspaceColumns.NUMERIC_SORT_COLUMNS.contains(column)) {
             return compareLongs(sortableLong(clubColumnValue(left, column)), sortableLong(clubColumnValue(right, column)));
         }
         return display(clubColumnValue(left, column)).compareToIgnoreCase(display(clubColumnValue(right, column)));
     }
 
     private static int compareCompetitionColumn(CompetitionEntity left, CompetitionEntity right, String column) {
-        if (NUMERIC_SORT_COLUMNS.contains(column)) {
+        if (PlayerWorkspaceColumns.NUMERIC_SORT_COLUMNS.contains(column)) {
             return compareLongs(sortableLong(competitionColumnValue(left, column)), sortableLong(competitionColumnValue(right, column)));
         }
         return display(competitionColumnValue(left, column)).compareToIgnoreCase(display(competitionColumnValue(right, column)));
@@ -2496,12 +2437,6 @@ public class MainView extends VerticalLayout {
                 .set("background", level.color)
                 .set("color", level.textColor)
                 .set("border", "1px solid var(--lumo-contrast-20pct)");
-    }
-
-    private record PlayerColumn(String key, String header, Function<PlayerEntity, Object> valueProvider) {
-        private Object value(PlayerEntity player) {
-            return valueProvider.apply(player);
-        }
     }
 
     private record GridColumn(String key, String header) {
