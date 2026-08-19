@@ -37,6 +37,7 @@ public class OverviewView extends VerticalLayout {
     private final AppSettingsService settings;
     private final RamLoadCoordinator ramLoad;
     private final DemoDataService demoData;
+    private DashboardViewState viewState = DashboardViewState.loading();
     private DashboardSnapshot snapshot;
 
     public OverviewView(
@@ -56,26 +57,36 @@ public class OverviewView extends VerticalLayout {
         setPadding(false);
         setSpacing(false);
         addClassName("overview-view");
-        renderLoading();
+        render();
         refresh();
     }
 
     private void refresh() {
+        viewState = DashboardViewState.loading();
+        render();
         String club = SessionClub.resolved(settings, SessionClub.names(clubs));
         UI ui = UI.getCurrent();
         UiAsync.submit(ui, () -> dashboard.load(club), result -> {
-            snapshot = result;
+            viewState = DashboardViewState.from(result);
             render();
-        }, this::renderError);
+        }, error -> {
+            viewState = DashboardViewState.failure(error);
+            render();
+        });
     }
 
     private void render() {
         removeAll();
-        if (snapshot == null) {
+        if (viewState.status() == DashboardViewState.Status.LOADING) {
             renderLoading();
             return;
         }
-        if (snapshot.heartbeat().empty()) {
+        if (viewState.status() == DashboardViewState.Status.FAILURE) {
+            renderError(viewState.message());
+            return;
+        }
+        snapshot = viewState.snapshot();
+        if (viewState.status() == DashboardViewState.Status.EMPTY) {
             add(emptySnapshot());
             return;
         }
@@ -422,18 +433,17 @@ public class OverviewView extends VerticalLayout {
         add(state);
     }
 
-    private void renderError(Throwable error) {
+    private void renderError(String message) {
         removeAll();
         Div state = new Div();
         state.addClassName("overview-empty");
         state.add(new Span("FM AI ASSISTENT / ERROR"), new H2("The command center could not load"),
-                new Paragraph(error.getMessage() == null ? "Try refreshing the board." : error.getMessage()));
+                new Paragraph(message));
         Button retry = new Button("Retry", VaadinIcon.REFRESH.create(), event -> refresh());
         retry.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         state.add(retry);
         add(state);
-        UiFeedback.error("Dashboard refresh failed", 4000, Notification.Position.TOP_CENTER)
-                .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        UiFeedback.error("Dashboard refresh failed", 4000, Notification.Position.TOP_CENTER);
     }
 
     private Component footerNote() {
