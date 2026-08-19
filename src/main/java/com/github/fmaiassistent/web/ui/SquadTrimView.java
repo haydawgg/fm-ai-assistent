@@ -64,10 +64,8 @@ public class SquadTrimView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Sell, loan or keep: depth, CA vs first team, wages and contracts. Same ranking as fm26_sell_shortlist.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Squad trim",
+                "Sell, loan or keep using depth, first-team CA, wages and contracts — the same ranking as fm26_sell_shortlist.");
     }
 
     private HorizontalLayout filterBar() {

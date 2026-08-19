@@ -1,25 +1,25 @@
 :root {
-    --fmai-bg: #0b0f0e;
-    --fmai-surface: #121816;
-    --fmai-surface-elevated: #1a221f;
-    --fmai-surface-hover: #222b28;
+    --fmai-bg: #0a0f16;
+    --fmai-surface: #111a25;
+    --fmai-surface-elevated: #182536;
+    --fmai-surface-hover: #213147;
     --fmai-border: rgba(255, 255, 255, 0.08);
     --fmai-border-strong: rgba(255, 255, 255, 0.14);
-    --fmai-text: #e8f0ec;
-    --fmai-text-muted: #9aa8a1;
-    --fmai-text-faint: #85948c;
-    --fmai-accent: #2ad18a;
-    --fmai-accent-hover: #4ae0a0;
-    --fmai-accent-soft: rgba(42, 209, 138, 0.12);
-    --fmai-accent-strong: #0f9b68;
-    --fmai-danger: #e5484d;
-    --fmai-danger-soft: rgba(229, 72, 77, 0.12);
-    --fmai-warning: #f5a524;
-    --fmai-warning-soft: rgba(245, 165, 36, 0.12);
-    --fmai-info: #4a9eff;
-    --fmai-info-soft: rgba(74, 158, 255, 0.12);
-    --fmai-success: #30a46c;
-    --fmai-success-soft: rgba(48, 164, 108, 0.12);
+    --fmai-text: #f1f5f3;
+    --fmai-text-muted: #91a0ae;
+    --fmai-text-faint: #718091;
+    --fmai-accent: #43e09a;
+    --fmai-accent-hover: #74edb6;
+    --fmai-accent-soft: rgba(67, 224, 154, 0.13);
+    --fmai-accent-strong: #19ad70;
+    --fmai-danger: #ee6b73;
+    --fmai-danger-soft: rgba(238, 107, 115, 0.13);
+    --fmai-warning: #f3b562;
+    --fmai-warning-soft: rgba(243, 181, 98, 0.13);
+    --fmai-info: #75c7ff;
+    --fmai-info-soft: rgba(117, 199, 255, 0.13);
+    --fmai-success: #43e09a;
+    --fmai-success-soft: rgba(67, 224, 154, 0.13);
     --fmai-font-display: "Sora", "Avenir Next", "Segoe UI", sans-serif;
     --fmai-font-body: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
     --fmai-radius-s: 6px;
@@ -228,6 +228,89 @@ body {
     white-space: nowrap;
     opacity: 1;
     transition: opacity var(--fmai-transition);
+}
+
+.fmai-nav-section {
+    margin: 18px 10px 6px;
+    color: var(--fmai-text-faint);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.fmai-demo-badge {
+    padding: 5px 8px;
+    border: 1px solid rgba(243, 181, 98, 0.48);
+    border-radius: 999px;
+    background: var(--fmai-warning-soft);
+    color: var(--fmai-warning);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    white-space: nowrap;
+}
+
+.onboarding-progress {
+    color: var(--fmai-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+}
+
+.onboarding-step-title {
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: 18px;
+    font-weight: 750;
+    line-height: 1.55;
+}
+
+.onboarding-step-title::first-line {
+    color: var(--fmai-accent);
+}
+
+.player-dossier-dialog::part(content) {
+    background: linear-gradient(150deg, rgba(117, 199, 255, 0.08), transparent 35%), var(--fmai-surface);
+}
+
+.dossier-hero {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px;
+    border: 1px solid var(--fmai-border);
+    border-radius: 12px;
+    background: var(--fmai-surface-elevated);
+}
+
+.dossier-hero-title {
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: 25px;
+    font-weight: 780;
+    letter-spacing: -0.04em;
+}
+
+.dossier-hero-meta {
+    color: var(--fmai-text-muted);
+    font-size: 13px;
+}
+
+.dossier-availability {
+    margin-top: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--fmai-success-soft);
+    color: var(--fmai-success);
+    font-size: 11px;
+    font-weight: 750;
+}
+
+.dossier-availability.is-unavailable {
+    background: var(--fmai-danger-soft);
+    color: var(--fmai-danger);
 }
 
 .fmai-sidebar.collapsed .fmai-nav-label {

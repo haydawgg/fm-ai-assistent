@@ -79,10 +79,8 @@ public class ContractsView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Renew, sell or loan anyone out of contract in 180 days. Wage bill vs payroll is the club health bar.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Contracts",
+                "Renew, sell or loan anyone out of contract in 180 days. Wage bill versus payroll is the club health bar.");
     }
 
     private HorizontalLayout filterBar() {

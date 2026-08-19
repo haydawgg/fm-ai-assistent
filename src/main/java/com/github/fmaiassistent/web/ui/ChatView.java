@@ -82,7 +82,7 @@ import tools.jackson.databind.ObjectMapper;
 @CssImport("./styles/chat-view.css")
 @CssImport("./styles/highlight-github-dark.css")
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")
-@JavaScript("./js/highlight.min.js")
+@JavaScript("./js/highlight-browser.js")
 public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("d MMM");
@@ -401,7 +401,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private void buildUnconfigured() {
         unconfigured.addClassName("chat-unconfigured");
         H3 title = new H3("Add an OpenRouter key");
-        Span copy = new Span("In-app chat needs an OpenRouter API key. It stays in fm-ai-assistent.properties on this machine.");
+        Span copy = new Span("In-app chat needs an OpenRouter API key. It is stored locally and protected by your operating system.");
         copy.addClassName("chat-welcome-copy");
         Button openSettings = new Button("Open Settings", VaadinIcon.COG.create(), event -> SettingsDialog.open(
                 settings, catalog, settings.currency(), ignored -> {

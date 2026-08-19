@@ -117,7 +117,15 @@ final class ChatMarkdown {
             }
             return true;
         }
-        return false;
+        // Chat output is rendered inside the desktop webview. Keep navigation
+        // on web links (and harmless relative links) so file:, blob:, ftp: and
+        // custom application schemes cannot reach the renderer.
+        if (scheme.startsWith("http://") || scheme.startsWith("https://")
+                || scheme.startsWith("mailto:") || scheme.startsWith("//")
+                || !scheme.contains(":")) {
+            return false;
+        }
+        return true;
     }
 
     private static String decodeRemainingEntities(String text) {

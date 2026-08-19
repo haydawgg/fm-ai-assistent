@@ -95,11 +95,8 @@ public class MoneyballView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span(
-                "signing_rating (0-100) = quality \u00d7 value: half CA, half age-adjusted PA, adjusted by fee + 3 years of wages against the market median");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Moneyball",
+                "Signing rating (0–100) balances quality, age-adjusted potential, fee and three years of wages against the market median.");
     }
 
     private HorizontalLayout filterBar() {

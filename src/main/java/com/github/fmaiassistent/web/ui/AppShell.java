@@ -5,6 +5,7 @@ import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
+import com.github.fmaiassistent.service.DemoDataService;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.HasElement;
@@ -40,6 +41,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     private final RamLoadCoordinator ramLoad;
     private final ClubDatabaseService clubs;
     private final PlayerDatabaseService players;
+    private final DemoDataService demoData;
     private final Map<String, NavItem> navItems = new LinkedHashMap<>();
     private final Span pageTitle = new Span();
     private final Div contentWrapper = new Div();
@@ -54,12 +56,14 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
             ClubDatabaseService clubs,
             PlayerDatabaseService players,
             RamLoadCoordinator ramLoad,
-            OpenRouterModelCatalog catalog) {
+            OpenRouterModelCatalog catalog,
+            DemoDataService demoData) {
         this.settings = settings;
         this.catalog = catalog;
         this.ramLoad = ramLoad;
         this.clubs = clubs;
         this.players = players;
+        this.demoData = demoData;
         setPrimarySection(Section.DRAWER);
         addClassName("fmai-shell");
 
@@ -93,18 +97,29 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         sidebarNav.setPadding(false);
         sidebarNav.setSpacing(false);
 
-        addNavItem("Desk", VaadinIcon.GRID, "");
+        addNavSection("Overview");
+        addNavItem("Overview", VaadinIcon.DASHBOARD, "");
+        addNavSection("Scouting");
+        addNavItem("Player desk", VaadinIcon.USERS, "desk");
         addNavItem("Shortlist", VaadinIcon.SEARCH, "shortlist");
         addNavItem("Moneyball", VaadinIcon.TRENDING_UP, "moneyball");
+        addNavSection("Squad");
         addNavItem("Squad trim", VaadinIcon.MINUS, "squad-trim");
         addNavItem("First XI", VaadinIcon.CLIPBOARD_TEXT, "first-xi");
         addNavItem("Contracts", VaadinIcon.WALLET, "contracts");
         addNavItem("Academy", VaadinIcon.ACADEMY_CAP, "academy");
         addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
+        addNavSection("Assistant");
         addNavItem("Chat", VaadinIcon.CHAT, "chat");
 
         sidebar.add(sidebarNav);
         addToDrawer(sidebar);
+    }
+
+    private void addNavSection(String label) {
+        Span heading = new Span(label);
+        heading.addClassName("fmai-nav-section");
+        sidebarNav.add(heading);
     }
 
     private void buildTopbar(ClubDatabaseService clubs, PlayerDatabaseService players) {
@@ -177,7 +192,10 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
                     }
                 }));
 
-        HorizontalLayout actions = new HorizontalLayout(snapshot, currency, club, loadButton, settingsButton);
+        Span demo = new Span("DEMO DATA — NOT FROM FM26");
+        demo.addClassName("fmai-demo-badge");
+        demo.setVisible(demoData.enabled());
+        HorizontalLayout actions = new HorizontalLayout(demo, snapshot, currency, club, loadButton, settingsButton);
         actions.setAlignItems(FlexComponent.Alignment.CENTER);
         actions.setSpacing(true);
         actions.addClassName("fmai-topbar-actions");

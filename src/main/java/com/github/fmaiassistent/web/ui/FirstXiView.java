@@ -124,10 +124,8 @@ public class FirstXiView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Live RAM XI on the pitch — injured greyscale with return dates. Injured players are left out of the recommended XI. Paste roles if you want fit scoring.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("First XI",
+                "Live RAM XI on the pitch, with unavailable players separated from the recommended role-fit selection.");
     }
 
     private HorizontalLayout filterBar() {

@@ -69,10 +69,8 @@ public class AcademyView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Your club's U21s vs first-team CA. Dual positions are natural ratings (15+). This is your intake, not a world wonderkid shop.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Academy",
+                "Your club’s U21s versus first-team CA. This is your intake view, not a world wonderkid shop.");
     }
 
     private HorizontalLayout filterBar() {

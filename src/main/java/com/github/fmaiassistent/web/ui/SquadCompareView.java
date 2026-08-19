@@ -69,10 +69,8 @@ public class SquadCompareView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span("Best player per position by CA. Same numbers as fm26_compare_squads.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Compare squads",
+                "Compare the best player per position by CA, with the same numbers as fm26_compare_squads.");
     }
 
     private HorizontalLayout filterBar() {

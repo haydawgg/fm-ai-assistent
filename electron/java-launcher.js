@@ -46,12 +46,6 @@ function javaCandidates() {
         }
       }
     }
-    const pathEntries = (process.env.PATH || '').split(';');
-    for (const entry of pathEntries) {
-      if (/java/i.test(entry)) {
-        addIfExists(path.join(entry, 'java.exe'));
-      }
-    }
   } else {
     addIfExists('/usr/bin/java');
     addIfExists('/usr/local/bin/java');
@@ -59,6 +53,12 @@ function javaCandidates() {
     addIfExists('/opt/jdk-25/bin/java');
     addIfExists('/usr/lib/jvm/default-java/bin/java');
     addIfExists('/usr/lib/jvm/java-25-openjdk/bin/java');
+  }
+  const pathEntries = (process.env.PATH || '').split(path.delimiter);
+  for (const entry of pathEntries) {
+    if (entry) {
+      addIfExists(path.join(entry, process.platform === 'win32' ? 'java.exe' : 'java'));
+    }
   }
   return candidates;
 }
@@ -71,11 +71,22 @@ function findJava() {
 function findJar() {
   try {
     if (app.isPackaged) {
-      const matches = fs
-        .readdirSync(process.resourcesPath)
-        .filter((file) => /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(file));
+      const entries = fs.readdirSync(process.resourcesPath, { withFileTypes: true });
+      const matches = entries
+        .filter((entry) => entry.isFile() && /^fm-ai-assistent-[\d.]+(-SNAPSHOT)?\.jar$/.test(entry.name))
+        .map((entry) => entry.name);
       if (matches.length > 0) {
         return path.join(process.resourcesPath, selectJar(matches));
+      }
+      const packagedCandidates = [
+        path.join(process.resourcesPath, 'fm-ai-assistent.jar'),
+        ...entries
+          .filter((entry) => entry.isFile() && entry.name.endsWith('.jar'))
+          .map((entry) => path.join(process.resourcesPath, entry.name)),
+      ];
+      const bundled = packagedCandidates.find((candidate) => fs.existsSync(candidate));
+      if (bundled) {
+        return bundled;
       }
     }
     const dev = path.join(__dirname, '..', 'target');
@@ -107,6 +118,15 @@ function selectJar(matches) {
     };
     return compareVersion(b[1], a[1]) || (a[2] ? 1 : 0) - (b[2] ? 1 : 0) || left.localeCompare(right);
   })[0];
+}
+
+function backendArguments() {
+  try {
+    const port = new URL(BACKEND_URL).port;
+    return port ? [`--server.port=${port}`] : [];
+  } catch {
+    return [];
+  }
 }
 
 function isBackendAlreadyRunning() {
@@ -228,7 +248,7 @@ async function doStartBackend() {
   backendState = { state: 'starting', external: false, error: null };
 
   return new Promise((resolve) => {
-    javaProcess = spawn(java, [...JVM_ARGS, '-jar', jar, ...SPRING_ARGS], {
+    javaProcess = spawn(java, [...JVM_ARGS, '-jar', jar, ...SPRING_ARGS, ...backendArguments()], {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

@@ -1,0 +1,225 @@
+.overview-view {
+    min-height: 0;
+    gap: 24px;
+    padding: 30px 34px 38px;
+    overflow-y: auto;
+    background:
+        radial-gradient(circle at 76% -10%, rgba(117, 199, 255, 0.09), transparent 32rem),
+        radial-gradient(circle at 18% 0%, rgba(67, 224, 154, 0.08), transparent 28rem),
+        var(--fmai-bg);
+}
+
+.overview-header {
+    display: flex;
+    width: 100%;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.overview-eyebrow {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--fmai-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+}
+
+.overview-header h2,
+.overview-empty h2 {
+    margin: 0;
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: clamp(28px, 3vw, 42px);
+    letter-spacing: -0.05em;
+}
+
+.overview-header p,
+.overview-empty p {
+    max-width: 46rem;
+    margin: 8px 0 0;
+    color: var(--fmai-text-muted);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.overview-header-actions,
+.overview-empty-actions {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.overview-insights {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.overview-insight {
+    display: flex;
+    min-height: 148px;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 18px;
+    border: 1px solid var(--fmai-border);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.035), transparent 55%), var(--fmai-surface);
+}
+
+.overview-insight[data-tone="health"] { border-top: 2px solid var(--fmai-accent); }
+.overview-insight[data-tone="ability"] { border-top: 2px solid var(--fmai-info); }
+.overview-insight[data-tone="contract"] { border-top: 2px solid var(--fmai-warning); }
+.overview-insight[data-tone="wage"] { border-top: 2px solid #b695ff; }
+
+.overview-insight-label,
+.overview-section-title {
+    color: var(--fmai-text-muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.overview-insight-value {
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: 25px;
+    font-weight: 750;
+    letter-spacing: -0.045em;
+}
+
+.overview-insight-copy,
+.overview-section-hint,
+.overview-player-meta {
+    color: var(--fmai-text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.overview-section {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.overview-section-hint {
+    display: block;
+    margin-top: 4px;
+}
+
+.overview-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.overview-action-card {
+    display: flex;
+    min-width: 0;
+    min-height: 112px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 16px !important;
+    border: 1px solid var(--fmai-border);
+    border-radius: 12px;
+    background: var(--fmai-surface-elevated);
+    color: var(--fmai-text);
+    text-align: left;
+}
+
+.overview-action-card:hover {
+    border-color: rgba(67, 224, 154, 0.55);
+    background: var(--fmai-surface-hover);
+}
+
+.overview-action-card vaadin-icon {
+    margin-right: 10px;
+    color: var(--fmai-accent);
+}
+
+.overview-action-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.overview-action-copy span:first-child,
+.overview-player-name {
+    color: var(--fmai-text);
+    font-size: 13px;
+    font-weight: 750;
+}
+
+.overview-action-copy span:last-child {
+    color: var(--fmai-text-muted);
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.overview-pulse {
+    max-width: 760px;
+}
+
+.overview-player-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.overview-player-row {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px !important;
+    border: 1px solid var(--fmai-border);
+    border-radius: 10px;
+    background: var(--fmai-surface);
+}
+
+.overview-player-row:hover {
+    background: var(--fmai-surface-hover);
+}
+
+.overview-empty {
+    display: flex;
+    min-height: 100%;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    padding: 80px 24px;
+    text-align: center;
+}
+
+@media (max-width: 1180px) {
+    .overview-insights,
+    .overview-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
+    .overview-view {
+        padding: 22px 18px 28px;
+    }
+
+    .overview-insights,
+    .overview-actions,
+    .overview-player-list {
+        grid-template-columns: 1fr;
+    }
+
+    .overview-header-actions,
+    .overview-header-actions vaadin-button {
+        width: 100%;
+    }
+}

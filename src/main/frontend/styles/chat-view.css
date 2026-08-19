@@ -534,6 +534,27 @@
     }
 }
 
+@media (max-width: 760px) {
+    .chat-body {
+        flex-direction: column;
+    }
+
+    .chat-sidebar {
+        width: 100% !important;
+        max-width: none;
+        min-width: 0;
+        max-height: 10.5rem;
+        flex: 0 0 auto !important;
+        border-right: 0;
+        border-bottom: 1px solid var(--fmai-border);
+    }
+
+    .chat-main {
+        min-height: 0;
+        flex: 1 1 0;
+    }
+}
+
 .tactic-context-panel {
     flex: 0 0 auto;
     border: 1px solid var(--fmai-border);

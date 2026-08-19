@@ -9,6 +9,39 @@
     flex-direction: column;
     gap: 10px;
     box-sizing: border-box;
+    overflow: hidden;
+}
+
+.workspace-header {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 4px 2px;
+}
+
+.workspace-eyebrow {
+    color: var(--fmai-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.workspace-title {
+    color: var(--fmai-text);
+    font-family: var(--fmai-font-display);
+    font-size: clamp(22px, 2.3vw, 30px);
+    font-weight: 760;
+    letter-spacing: -0.045em;
+    line-height: 1.1;
+}
+
+.workspace-header .moneyball-hint {
+    max-width: 62rem;
+    margin-top: 2px;
+    line-height: 1.5;
 }
 
 .moneyball-hint {
@@ -34,6 +67,12 @@
     border: 1px solid var(--fmai-border);
     border-radius: var(--fmai-radius-l);
     flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.moneyball-filters > * {
+    min-width: 0;
 }
 
 .moneyball-filters vaadin-integer-field {
@@ -59,6 +98,8 @@
     padding: 0 var(--lumo-space-s);
     flex: 0 0 auto;
     line-height: 1.45;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .moneyball-summary.moneyball-empty {
@@ -128,6 +169,7 @@
 
 .moneyball-grid {
     flex: 1 1 0;
+    width: 100%;
     min-width: 0;
     min-height: 0;
 }
@@ -187,5 +229,24 @@
     .first-xi-upgrades {
         max-height: none;
         flex: 1 1 12em;
+    }
+}
+
+@media (max-width: 620px) {
+    .moneyball-view {
+        gap: 8px;
+    }
+
+    .workspace-header {
+        padding: 4px 2px 0;
+    }
+
+    .moneyball-filters {
+        padding: 10px;
+    }
+
+    .moneyball-summary.moneyball-empty {
+        min-height: 9em;
+        padding: 32px 18px;
     }
 }

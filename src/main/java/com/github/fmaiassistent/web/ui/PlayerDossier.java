@@ -42,11 +42,12 @@ final class PlayerDossier {
             return;
         }
         Dialog dialog = new Dialog();
-        dialog.setHeaderTitle(player.getName() == null ? "Player" : player.getName());
-        dialog.setWidth("640px");
+        dialog.setHeaderTitle("Player dossier");
+        dialog.setWidth("720px");
         dialog.setMaxWidth("calc(100vw - 32px)");
         dialog.setMaxHeight("calc(100vh - 48px)");
         dialog.getElement().getThemeList().add("professional-dialog");
+        dialog.getElement().getThemeList().add("player-dossier-dialog");
 
         Button chat = new Button("Ask FM AI about " + (player.getName() == null ? "player" : player.getName()),
                 VaadinIcon.CHAT.create());
@@ -63,6 +64,7 @@ final class PlayerDossier {
         body.setPadding(false);
         body.setSpacing(true);
         body.addClassName("player-dossier");
+        body.add(hero(player, currency));
         body.add(summary(player, currency));
         body.add(note("Morale, form and match stats are not read from RAM yet. Asking price 0 is unknown, not free."));
         body.add(section("Profile", List.of(
@@ -85,6 +87,21 @@ final class PlayerDossier {
         body.add(attributes(player));
         dialog.add(body);
         dialog.open();
+    }
+
+    private static Div hero(PlayerEntity player, MoneyCurrency currency) {
+        String name = blank(player.getName()) ? "Unknown player" : player.getName();
+        Span title = new Span(name);
+        title.addClassName("dossier-hero-title");
+        String club = blank(player.getPlayingClub()) ? player.getClub() : player.getPlayingClub();
+        Span meta = new Span((blank(club) ? "Club unknown" : club) + " · " + PositionTextFormatter.format(player));
+        meta.addClassName("dossier-hero-meta");
+        Span status = new Span(player.getInjured() == null ? "Availability unknown"
+                : Boolean.TRUE.equals(player.getInjured()) ? injured(player) : "Available");
+        status.addClassName(Boolean.TRUE.equals(player.getInjured()) ? "dossier-availability is-unavailable" : "dossier-availability");
+        Div hero = new Div(title, meta, status);
+        hero.addClassName("dossier-hero");
+        return hero;
     }
 
     private static Div summary(PlayerEntity player, MoneyCurrency currency) {

@@ -59,6 +59,20 @@ class ChatMarkdownTest {
     }
 
     @Test
+    void nonWebSchemesAreBlocked() {
+        assertTrue(ChatMarkdown.sanitize("[file](file:///C:/secret.txt)").contains("[file](#blocked-)"));
+        assertTrue(ChatMarkdown.sanitize("[ftp](ftp://example.test/file)").contains("[ftp](#blocked-)"));
+        assertTrue(ChatMarkdown.sanitize("[blob](blob:https://example.test/id)").contains("[blob](#blocked-)"));
+        assertTrue(ChatMarkdown.renderInline("[x](https://example.test/path)")
+                .contains("<a href=\"https://example.test/path\">"));
+    }
+
+    @Test
+    void namedColonEntityCannotRebuildJavascriptScheme() {
+        assertTrue(ChatMarkdown.sanitize("[x](java&colon;script:alert(1))").contains("[x](#blocked-)"));
+    }
+
+    @Test
     void tableCellsRenderBoldItalicCodeAndLinks() {
         String html = ChatMarkdown.sanitize("""
                 | Player | Age | CA | Fee | Notes |

@@ -40,6 +40,7 @@ public class AppSettingsService {
     private static final String SESSION_CLUB_KEY = "session.club";
     private static final String PLAYER_VIEWS_KEY = "player.views";
     private static final String OPENROUTER_API_KEY = "openrouter.api.key";
+    private static final String OPENROUTER_API_KEY_DPAPI = "openrouter.api.key.dpapi";
     private static final String OPENROUTER_MODEL_KEY = "openrouter.model";
     private static final String CHAT_SESSION_KEY = "chat.session.id";
     private static final String CHAT_PROMPTS_KEY = "chat.prompts";
@@ -156,7 +157,10 @@ public class AppSettingsService {
     public String openRouterApiKey() {
         synchronized (settingsLock) {
             Properties properties = load();
+            String protectedValue = WindowsSecretStore.unprotect(
+                    properties.getProperty(OPENROUTER_API_KEY_DPAPI, "")).orElse("");
             String value = firstNonBlank(
+                    protectedValue,
                     properties.getProperty(OPENROUTER_API_KEY, ""),
                     properties.getProperty(LEGACY_OPENAI_API_KEY, ""),
                     System.getenv("OPENROUTER_API_KEY"),
@@ -183,8 +187,14 @@ public class AppSettingsService {
             Properties properties = load();
             if (apiKey == null || apiKey.isBlank()) {
                 properties.remove(OPENROUTER_API_KEY);
+                properties.remove(OPENROUTER_API_KEY_DPAPI);
+            } else if (WindowsSecretStore.supported()) {
+                properties.setProperty(OPENROUTER_API_KEY_DPAPI,
+                        WindowsSecretStore.protect(apiKey.trim()));
+                properties.remove(OPENROUTER_API_KEY);
             } else {
                 properties.setProperty(OPENROUTER_API_KEY, apiKey.trim());
+                properties.remove(OPENROUTER_API_KEY_DPAPI);
             }
             properties.setProperty(OPENROUTER_MODEL_KEY,
                     model == null || model.isBlank() ? OpenRouterModelCatalog.DEFAULT_MODEL : model.trim());

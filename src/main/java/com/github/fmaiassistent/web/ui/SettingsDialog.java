@@ -157,7 +157,8 @@ final class SettingsDialog {
 
         Span intro = new Span("Display currency and optional in-app chat via OpenRouter. Chat is unused if the key is empty.");
         intro.addClassName("settings-intro");
-        Span file = new Span("Stored in " + settings.settingsPath());
+        Span file = new Span("Preferences stored in " + settings.settingsPath()
+                + ". On Windows, the API key is protected with Windows DPAPI.");
         file.addClassName("settings-path");
 
         TextField promptName = new TextField("Saved prompt name");

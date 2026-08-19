@@ -37,14 +37,16 @@ import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.router.RouteAlias;
 
 import java.util.*;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@Route(value = "", layout = AppShell.class)
-@PageTitle("FM AI Assistent")
+@Route(value = "desk", layout = AppShell.class)
+@RouteAlias(value = "players", layout = AppShell.class)
+@PageTitle("Player Desk")
 @CssImport("./styles/main-view.css")
 @CssImport("./styles/chat-view.css")
 @CssImport(value = "./styles/chat-messages.css", themeFor = "vaadin-message")

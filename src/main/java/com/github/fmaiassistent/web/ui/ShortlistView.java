@@ -86,11 +86,8 @@ public class ShortlistView extends VerticalLayout {
     }
 
     private Component header() {
-        Span hint = new Span(
-                "Tactical buys ranked like fm26_transfer_shortlist. Tick wonderkids to use the fm26_wonderkid_shortlist age cap.");
-        hint.addClassName("moneyball-hint");
-        hint.setWidthFull();
-        return hint;
+        return new WorkspaceHeader("Transfer shortlist",
+                "Tactical buys ranked like fm26_transfer_shortlist. Add the wonderkid cap when age and upside matter most.");
     }
 
     private HorizontalLayout filterBar() {
