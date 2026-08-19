@@ -209,5 +209,22 @@
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <configuration>
+                            <buildArgs>
+                                <buildArg>--initialize-at-run-time=com.sun.jna</buildArg>
+                                <buildArg>--initialize-at-run-time=com.github.fmaiassistent.windows.WindowsProcessReader$Kernel32</buildArg>
+                            </buildArgs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>

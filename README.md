@@ -22,15 +22,15 @@ Display currency is chosen in Settings. RAM snapshots persist in a local H2 file
 
 ## How To Install
 
-### Native Image (deferred)
+### Native Image
 
-Native-image packaging is intentionally deferred for the Windows desktop release. Use the Java jar or Electron build below; the native profile is not part of the supported acceptance path yet.
-
-If you are working on the deferred native profile, the historical command is:
+The project includes a Spring AOT/native-image profile. Build it with GraalVM for JDK 25 and the Native Image component installed. The native image is an optional deployment form; the Java jar and Electron build remain the supported Windows desktop paths.
 
 ```bash
 mvn.cmd -Pnative -DskipTests native:compile
 ```
+
+After compiling a Windows image, run the native smoke test with `npm run smoke-native`. Set `FM_AI_NATIVE_PATH` when the executable is stored outside `target\fm-ai-assistent.exe`.
 
 The binary is written to `target/fm-ai-assistent`. Make it executable on Linux:
 
@@ -44,7 +44,7 @@ Start it from a terminal:
 ./target/fm-ai-assistent
 ```
 
-There is no published prebuilt native image.
+On Windows, the command writes `target\fm-ai-assistent.exe`. Native-image compilation is platform-specific, so a Windows image must be built on Windows and is not committed to the repository.
 
 ### Option 1: Java Jar
 

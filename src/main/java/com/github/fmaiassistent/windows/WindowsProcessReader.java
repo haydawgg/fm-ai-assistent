@@ -377,7 +377,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
         public Pointer EntryPoint;
     }
 
-    private interface Kernel32 extends StdCallLibrary {
+    public interface Kernel32 extends StdCallLibrary {
         Kernel32 INSTANCE = Native.load("kernel32", Kernel32.class, W32APIOptions.DEFAULT_OPTIONS);
 
         Pointer OpenProcess(int desiredAccess, boolean inheritHandle, int processId);

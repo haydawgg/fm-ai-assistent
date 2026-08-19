@@ -12,6 +12,8 @@ import com.github.fmaiassistent.web.ui.SavedPlayerView;
 import com.github.fmaiassistent.windows.WindowsProcessReader;
 import liquibase.change.ColumnConfig;
 import liquibase.change.core.*;
+import org.apache.coyote.AbstractProtocol;
+import org.apache.coyote.http11.AbstractHttp11Protocol;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -45,6 +47,14 @@ public class NativeHintsConfig {
             WindowsProcessReader.MemoryBasicInformation.class,
             WindowsProcessReader.ModuleEntry32.class,
             WindowsProcessReader.ModuleInfo.class
+    );
+
+    private static final List<String> CAFFEINE_GENERATED_CACHES = List.of(
+            "SSMSA", "SSSMSW"
+    );
+
+    private static final List<String> CAFFEINE_GENERATED_NODES = List.of(
+            "PSAMS"
     );
 
     static class LiquibaseNativeHints implements RuntimeHintsRegistrar {
@@ -88,9 +98,20 @@ public class NativeHintsConfig {
             hints.reflection().registerType(com.sun.jna.ptr.LongByReference.class, REFLECT_CATEGORIES);
             hints.reflection().registerType(com.sun.jna.ptr.IntByReference.class, REFLECT_CATEGORIES);
             hints.reflection().registerType(com.sun.jna.win32.W32APIOptions.class, REFLECT_CATEGORIES);
+            hints.reflection().registerType(AbstractProtocol.class, MemberCategory.INVOKE_PUBLIC_METHODS);
+            hints.reflection().registerType(AbstractHttp11Protocol.class, MemberCategory.INVOKE_PUBLIC_METHODS);
+            CAFFEINE_GENERATED_CACHES.forEach(cacheType -> hints.reflection().registerType(
+                    org.springframework.aot.hint.TypeReference.of("com.github.benmanes.caffeine.cache." + cacheType),
+                    builder -> builder.withField("FACTORY")
+                            .withMembers(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS)));
+            CAFFEINE_GENERATED_NODES.forEach(nodeType -> hints.reflection().registerType(
+                    org.springframework.aot.hint.TypeReference.of("com.github.benmanes.caffeine.cache." + nodeType),
+                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS));
+            hints.proxies().registerJdkProxy(WindowsProcessReader.Kernel32.class);
 
             hints.resources().registerPattern("db/changelog/**");
             hints.resources().registerPattern("db/data/**");
+            hints.resources().registerPattern("com/sun/jna/**");
         }
     }
 }
