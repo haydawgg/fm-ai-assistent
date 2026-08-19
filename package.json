@@ -25,6 +25,7 @@
     "electron-build": "electron-builder --config electron-builder.config.cjs",
     "smoke-desktop": "node electron/desktop-smoke.mjs",
     "smoke-native": "powershell -NoProfile -ExecutionPolicy Bypass -File electron/native-smoke.ps1",
+    "build-native-win": "powershell -NoProfile -ExecutionPolicy Bypass -File electron/package-native-win.ps1",
     "build-all": "npm run build-jar && electron-builder --config electron-builder.config.cjs",
     "build-win": "npm run build-jar && electron-builder --win --config electron-builder.config.cjs",
     "build-mac": "npm run build-jar && electron-builder --mac --config electron-builder.config.cjs",

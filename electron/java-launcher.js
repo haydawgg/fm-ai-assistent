@@ -17,7 +17,7 @@ const SPRING_ARGS = [
   '--management.endpoints.web.exposure.include=health,info,shutdown',
 ];
 
-let javaProcess = null;
+let backendProcess = null;
 let stopping = false;
 let startPromise = null;
 let backendState = { state: 'idle', external: false, error: null };
@@ -129,6 +129,29 @@ function backendArguments() {
   }
 }
 
+function findNativeExecutable() {
+  const candidates = [];
+  const addIfExists = (candidate) => {
+    if (candidate && fs.existsSync(candidate)) {
+      candidates.push(candidate);
+    }
+  };
+  const nativeName = process.platform === 'win32' ? 'fm-ai-assistent.exe' : 'fm-ai-assistent';
+  addIfExists(process.env.FM_AI_NATIVE_PATH);
+  if (app.isPackaged) {
+    addIfExists(path.join(process.resourcesPath, 'native', nativeName));
+    addIfExists(path.join(process.resourcesPath, nativeName));
+  } else {
+    addIfExists(path.join(__dirname, '..', 'target', nativeName));
+  }
+  return candidates[0] || null;
+}
+
+function backendMode() {
+  const requested = (process.env.FM_AI_BACKEND_MODE || 'auto').trim().toLowerCase();
+  return ['auto', 'native', 'java'].includes(requested) ? requested : 'auto';
+}
+
 function backendHealthUrl() {
   return new URL('/actuator/health', BACKEND_URL).toString();
 }
@@ -179,7 +202,7 @@ export function getBackendState() {
 
 export function markBackendReady() {
   if (backendState.state === 'starting') {
-    backendState = { state: 'ready', external: false, error: null };
+    backendState = { ...backendState, state: 'ready', external: false, error: null };
   }
 }
 
@@ -201,7 +224,7 @@ function javaMajorVersion(java) {
 }
 
 export async function startBackend() {
-  if (javaProcess) {
+  if (backendProcess) {
     return true;
   }
   if (startPromise) {
@@ -214,7 +237,7 @@ export async function startBackend() {
 }
 
 async function doStartBackend() {
-  if (javaProcess) {
+  if (backendProcess) {
     return true;
   }
   stopping = false;
@@ -223,59 +246,75 @@ async function doStartBackend() {
     return false;
   }
 
-  const java = findJava();
-  if (!java) {
-    backendState = { state: 'error', external: false, error: 'Java 25 was not found. Install Eclipse Temurin JDK 25.' };
-    return false;
-  }
-
-  const major = javaMajorVersion(java);
-  if (major !== null && major < 25) {
+  const mode = backendMode();
+  const native = findNativeExecutable();
+  let backend = null;
+  if (mode !== 'java' && native) {
+    backend = { kind: 'native', executable: native };
+  } else if (mode === 'native') {
     backendState = {
       state: 'error',
       external: false,
-      error: `Java ${major} was found, but FM AI Assistent requires Java 25. Install Eclipse Temurin JDK 25.`,
+      error: 'Native backend executable not found. Build it with the native-image profile or set FM_AI_NATIVE_PATH.',
     };
     return false;
+  } else {
+    const java = findJava();
+    if (!java) {
+      backendState = { state: 'error', external: false, error: 'Neither the native backend nor Java 25 was found.' };
+      return false;
+    }
+    const major = javaMajorVersion(java);
+    if (major !== null && major < 25) {
+      backendState = {
+        state: 'error',
+        external: false,
+        error: `Java ${major} was found, but FM AI Assistent requires Java 25. Install Eclipse Temurin JDK 25.`,
+      };
+      return false;
+    }
+    const jar = findJar();
+    if (!jar) {
+      backendState = {
+        state: 'error',
+        external: false,
+        error: 'Backend JAR not found. Run "mvn package" (or "mvn -Pelectron package") first.',
+      };
+      return false;
+    }
+    backend = { kind: 'java', executable: java, jar };
   }
 
-  const jar = findJar();
-  if (!jar) {
-    backendState = {
-      state: 'error',
-      external: false,
-      error: 'Backend JAR not found. Run "mvn package" (or "mvn -Pelectron package") first.',
-    };
-    return false;
-  }
-
-  backendState = { state: 'starting', external: false, error: null };
+  backendState = { state: 'starting', external: false, backend: backend.kind, error: null };
 
   return new Promise((resolve) => {
-    javaProcess = spawn(java, [...JVM_ARGS, '-jar', jar, ...SPRING_ARGS, ...backendArguments()], {
+    const args = backend.kind === 'native'
+      ? [...SPRING_ARGS, ...backendArguments()]
+      : [...JVM_ARGS, '-jar', backend.jar, ...SPRING_ARGS, ...backendArguments()];
+    backendProcess = spawn(backend.executable, args, {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
 
-    javaProcess.stdout.on('data', (data) => {
-      process.stdout.write(`[java] ${data}`);
+    backendProcess.stdout.on('data', (data) => {
+      process.stdout.write(`[${backend.kind}] ${data}`);
     });
-    javaProcess.stderr.on('data', (data) => {
-      process.stderr.write(`[java] ${data}`);
+    backendProcess.stderr.on('data', (data) => {
+      process.stderr.write(`[${backend.kind}] ${data}`);
     });
 
-    javaProcess.on('error', (error) => {
-      backendState = { state: 'error', external: false, error: `Failed to launch Java: ${error.message}` };
-      javaProcess = null;
+    backendProcess.on('error', (error) => {
+      backendState = { state: 'error', external: false, error: `Failed to launch ${backend.kind} backend: ${error.message}` };
+      backendProcess = null;
       resolve(false);
     });
 
-    javaProcess.on('exit', (code) => {
+    backendProcess.on('exit', (code) => {
       if (!stopping) {
-        backendState = { state: 'error', external: false, error: `Java backend exited unexpectedly (code ${code})` };
+        backendState = { state: 'error', external: false, error: `${backend.kind} backend exited unexpectedly (code ${code})` };
       }
-      javaProcess = null;
+      backendProcess = null;
     });
 
     resolve(true);
@@ -284,7 +323,7 @@ async function doStartBackend() {
 
 export function stopBackend() {
   stopping = true;
-  const proc = javaProcess;
+  const proc = backendProcess;
   if (!proc || !proc.pid || proc.exitCode !== null) {
     return Promise.resolve();
   }

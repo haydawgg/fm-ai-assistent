@@ -20,6 +20,11 @@ module.exports = {
       to: '.',
       filter: ['**/*.jar'],
     },
+    {
+      from: 'electron/resources/native',
+      to: 'native',
+      filter: ['**/*'],
+    },
   ],
   win: {
     target: [

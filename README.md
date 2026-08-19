@@ -24,7 +24,7 @@ Display currency is chosen in Settings. RAM snapshots persist in a local H2 file
 
 ### Native Image
 
-The project includes a Spring AOT/native-image profile. Build it with GraalVM for JDK 25 and the Native Image component installed. The native image is an optional deployment form; the Java jar and Electron build remain the supported Windows desktop paths.
+The project includes a Spring AOT/native-image profile. Build it with GraalVM for JDK 25 and the Native Image component installed. The native image is an optional Windows deployment form; the standard Electron build continues to use the Java fallback when no native artifact is present.
 
 ```bash
 mvn.cmd -Pnative -DskipTests native:compile
@@ -45,6 +45,16 @@ Start it from a terminal:
 ```
 
 On Windows, the command writes `target\fm-ai-assistent.exe`. Native-image compilation is platform-specific, so a Windows image must be built on Windows and is not committed to the repository.
+
+### Option 3: Native-backed Windows desktop installer
+
+After building the native executable, package it with Electron:
+
+```powershell
+npm run build-native-win
+```
+
+The packaged app prefers the bundled native backend and includes its generated runtime DLLs. Set `FM_AI_BACKEND_MODE=java` to force the Java backend, or use `FM_AI_BACKEND_MODE=auto` to prefer native and fall back to Java when the native artifact is unavailable.
 
 ### Option 1: Java Jar
 

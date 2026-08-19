@@ -91,7 +91,7 @@ function createWindow() {
 
 function waitForBackend(url, timeoutMs = 120_000) {
   const started = Date.now();
-  updateSplashStatus('Starting Java backend…');
+  updateSplashStatus('Starting backend…');
   return new Promise((resolve, reject) => {
     const poll = () => {
       const state = getBackendState();
