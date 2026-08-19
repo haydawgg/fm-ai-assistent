@@ -6,7 +6,7 @@ import com.github.fmaiassistent.service.OpenRouterModelCatalog;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.github.fmaiassistent.service.DemoDataService;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.HasElement;
@@ -47,7 +47,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     private final ClubDatabaseService clubs;
     private final PlayerDatabaseService players;
     private final DemoDataService demoData;
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final GlobalSearchService search;
     private final Map<String, NavItem> navItems = new LinkedHashMap<>();
     private final Span pageTitle = new Span();
@@ -67,7 +67,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
             RamLoadCoordinator ramLoad,
             OpenRouterModelCatalog catalog,
             DemoDataService demoData,
-            FmAiAssistentTools tools,
+            PlayerAnalysisPort tools,
             GlobalSearchService search) {
         this.settings = settings;
         this.catalog = catalog;

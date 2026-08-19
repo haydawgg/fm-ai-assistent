@@ -2,6 +2,7 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.Positions;
 import com.github.fmaiassistent.player.AttributeDefinitions;
@@ -24,7 +25,7 @@ final class PlayerDossier {
     private PlayerDossier() {
     }
 
-    static void openNamed(FmAiAssistentTools tools, String name, MoneyCurrency currency, String sessionClub) {
+    static void openNamed(PlayerAnalysisPort tools, String name, MoneyCurrency currency, String sessionClub) {
         if (name == null || name.isBlank()) {
             return;
         }

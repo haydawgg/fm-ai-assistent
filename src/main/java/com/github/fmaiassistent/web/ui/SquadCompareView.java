@@ -1,7 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
@@ -32,7 +32,7 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class SquadCompareView extends VerticalLayout {
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final ComboBox<String> leftClub = new ComboBox<>("Your club");
     private final ComboBox<String> rightClub = new ComboBox<>("Other club");
     private final Button runButton = new Button("Compare", VaadinIcon.SPLIT.create());
@@ -40,7 +40,7 @@ public class SquadCompareView extends VerticalLayout {
     private final Grid<SquadAdvice.SquadCompareRow> grid = new Grid<>();
     private final MoneyCurrency currency;
 
-    public SquadCompareView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public SquadCompareView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         setSizeFull();

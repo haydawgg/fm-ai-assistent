@@ -2,7 +2,7 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.TransferShortlistRow;
 import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.service.AppSettingsService;
@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class ShortlistView extends VerticalLayout {
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
     private final ComboBox<String> roleFilter = new ComboBox<>("In-possession role");
@@ -54,7 +54,7 @@ public class ShortlistView extends VerticalLayout {
     private final MoneyCurrency currency;
     private Map<String, ClubEntity> clubsByName = Map.of();
 
-    public ShortlistView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public ShortlistView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));

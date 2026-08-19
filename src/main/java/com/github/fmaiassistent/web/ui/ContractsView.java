@@ -1,7 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
@@ -35,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/pitch-board.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class ContractsView extends VerticalLayout {
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final String sessionClub;
     private final MoneyCurrency currency;
     private final Button runButton = new Button("Refresh queue", VaadinIcon.WALLET.create());
@@ -44,7 +44,7 @@ public class ContractsView extends VerticalLayout {
     private final ProgressBar healthBar = new ProgressBar();
     private final Grid<SquadAdvice.ContractRow> grid = new Grid<>();
 
-    public ContractsView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public ContractsView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));

@@ -1,6 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
+import com.github.fmaiassistent.chat.ChatProviderPort;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.linux.GameDateFinder;
@@ -94,7 +95,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             "Who should I sell or loan out?",
             "Compare my squad with another named club");
 
-    private final AssistantChatService chat;
+    private final ChatProviderPort chat;
     private final AppSettingsService settings;
     private final OpenRouterModelCatalog catalog;
     private final PlayerDatabaseService players;
@@ -147,7 +148,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private List<String> cachedClubNames = List.of();
 
     public ChatView(
-            AssistantChatService chat,
+            ChatProviderPort chat,
             AppSettingsService settings,
             OpenRouterModelCatalog catalog,
             PlayerDatabaseService players,

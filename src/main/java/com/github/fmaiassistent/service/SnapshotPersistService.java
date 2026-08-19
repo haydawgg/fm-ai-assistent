@@ -2,12 +2,9 @@ package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
-import com.github.fmaiassistent.domain.entity.LoadMetadataEntity;
 import com.github.fmaiassistent.exporter.ClubExporter;
 import com.github.fmaiassistent.exporter.CompetitionExporter;
 import com.github.fmaiassistent.exporter.PlayerExporter;
-import com.github.fmaiassistent.repository.DatabaseService;
-import com.github.fmaiassistent.repository.LoadMetadataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
@@ -24,31 +21,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Service
 public class SnapshotPersistService {
     private static final Logger LOGGER = LoggerFactory.getLogger(SnapshotPersistService.class);
-    private final DatabaseService databaseService;
     private final CompetitionDatabaseService competitions;
     private final ClubDatabaseService clubs;
     private final PlayerDatabaseService players;
-    private final LoadMetadataRepository metadata;
+    private final SnapshotPublicationPort publication;
     private final CacheManager cacheManager;
 
     public SnapshotPersistService(
-            DatabaseService databaseService,
             CompetitionDatabaseService competitions,
             ClubDatabaseService clubs,
             PlayerDatabaseService players,
-            LoadMetadataRepository metadata,
+            SnapshotPublicationPort publication,
             CacheManager cacheManager) {
-        this.databaseService = databaseService;
         this.competitions = competitions;
         this.clubs = clubs;
         this.players = players;
-        this.metadata = metadata;
+        this.publication = publication;
         this.cacheManager = cacheManager;
     }
 
@@ -93,11 +86,8 @@ public class SnapshotPersistService {
                     persistWatch.stop();
                 }
                 persistWatch.start("clear");
-                databaseService.clearAllTables();
+                publication.stage(snapshotId);
                 persistWatch.stop();
-                metadata.save(new LoadMetadataEntity("snapshot_state", "staging"));
-                metadata.save(new LoadMetadataEntity("snapshot_id", snapshotId));
-                metadata.save(new LoadMetadataEntity("snapshot_started_at", OffsetDateTime.now().toString()));
                 persistWatch.start("competitions");
                 competitions.saveExported(competitionRows);
                 persistWatch.stop();
@@ -122,10 +112,7 @@ public class SnapshotPersistService {
                     "RAM export found no players. Previous snapshot was not replaced. Is FM26 running with a save loaded?");
         }
         if (!snapshotReplaced[0]) {
-            databaseService.clearAllTables();
-            metadata.save(new LoadMetadataEntity("snapshot_state", "staging"));
-            metadata.save(new LoadMetadataEntity("snapshot_id", snapshotId));
-            metadata.save(new LoadMetadataEntity("snapshot_started_at", OffsetDateTime.now().toString()));
+            publication.stage(snapshotId);
             competitions.saveExported(competitionRows);
             clubs.saveExported(clubRows);
             snapshotReplaced[0] = true;
@@ -137,8 +124,7 @@ public class SnapshotPersistService {
             players.finishSnapshot(playerRows);
             savedCount = saved.get();
         }
-        metadata.save(new LoadMetadataEntity("snapshot_state", "published"));
-        metadata.save(new LoadMetadataEntity("snapshot_published_at", OffsetDateTime.now().toString()));
+        publication.publish(snapshotId);
         persistWatch.stop();
         LOGGER.info("RAM persist timings:\n{}", persistWatch.prettyPrint());
         PlayerExporter.SkipSnapshot skips = playerRows.skips() == null

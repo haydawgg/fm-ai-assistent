@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
@@ -31,7 +32,7 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/overview-view.css")
 public class OverviewView extends VerticalLayout {
     private final DashboardSnapshotService dashboard;
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final ClubDatabaseService clubs;
     private final AppSettingsService settings;
     private final RamLoadCoordinator ramLoad;
@@ -40,7 +41,7 @@ public class OverviewView extends VerticalLayout {
 
     public OverviewView(
             DashboardSnapshotService dashboard,
-            FmAiAssistentTools tools,
+            PlayerAnalysisPort tools,
             ClubDatabaseService clubs,
             AppSettingsService settings,
             RamLoadCoordinator ramLoad,

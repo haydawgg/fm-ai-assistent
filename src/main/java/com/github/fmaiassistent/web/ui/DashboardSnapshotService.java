@@ -2,6 +2,7 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.Positions;
 import com.github.fmaiassistent.mcp.SquadAdvice;
@@ -36,13 +37,13 @@ public class DashboardSnapshotService {
 
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final AppSettingsService settings;
 
     public DashboardSnapshotService(
             PlayerDatabaseService players,
             ClubDatabaseService clubs,
-            FmAiAssistentTools tools,
+            PlayerAnalysisPort tools,
             AppSettingsService settings) {
         this.players = players;
         this.clubs = clubs;

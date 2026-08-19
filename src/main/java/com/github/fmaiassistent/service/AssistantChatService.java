@@ -1,6 +1,7 @@
 package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.ai.AiPromptContext;
+import com.github.fmaiassistent.chat.ChatProviderPort;
 import com.openai.client.OpenAIClient;
 import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -33,7 +34,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 @Service
-public class AssistantChatService {
+public class AssistantChatService implements ChatProviderPort {
     public static final int MAX_HISTORY_MESSAGES = 20;
     static final String DEFAULT_CONVERSATION_KEY = "openrouter-chat";
     private static final String THINK_OPEN_LONG = "<thinking>";

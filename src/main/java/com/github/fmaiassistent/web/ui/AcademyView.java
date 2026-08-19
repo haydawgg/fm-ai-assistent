@@ -1,7 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
@@ -30,7 +30,7 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class AcademyView extends VerticalLayout {
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final String sessionClub;
     private final MoneyCurrency currency;
     private final IntegerField maxAge = new IntegerField("Max age");
@@ -38,7 +38,7 @@ public class AcademyView extends VerticalLayout {
     private final Span summary = new Span();
     private final Grid<SquadAdvice.AcademyRow> grid = new Grid<>();
 
-    public AcademyView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public AcademyView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));

@@ -1,6 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballResult;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballRow;
@@ -47,7 +48,7 @@ public class MoneyballView extends VerticalLayout {
     private static final List<String> POSITIONS = List.of(
             "GK", "DL", "DC", "DR", "WBL", "DMC", "WBR", "ML", "MC", "MR", "AML", "AMC", "AMR", "ST");
 
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
 
     private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
@@ -62,7 +63,7 @@ public class MoneyballView extends VerticalLayout {
     private final Grid<MoneyballRow> grid = new Grid<>();
     private final MoneyCurrency currency;
 
-    public MoneyballView(FmAiAssistentTools tools, ClubDatabaseService clubs, AppSettingsService settings) {
+    public MoneyballView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));

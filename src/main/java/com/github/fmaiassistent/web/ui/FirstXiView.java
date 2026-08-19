@@ -1,6 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.PositionCodes;
 import com.github.fmaiassistent.mcp.SquadAdvice;
@@ -53,7 +54,7 @@ public class FirstXiView extends VerticalLayout {
             ST,Deep Lying Forward,Tracking Centre Forward
             """.stripIndent().trim();
 
-    private final FmAiAssistentTools tools;
+    private final PlayerAnalysisPort tools;
     private final String sessionClub;
     private final MoneyCurrency currency;
     private final Map<String, Object> metadata;
@@ -66,7 +67,7 @@ public class FirstXiView extends VerticalLayout {
     private final Grid<UpgradeRow> upgrades = new Grid<>();
 
     public FirstXiView(
-            FmAiAssistentTools tools,
+            PlayerAnalysisPort tools,
             ClubDatabaseService clubs,
             PlayerDatabaseService players,
             AppSettingsService settings) {

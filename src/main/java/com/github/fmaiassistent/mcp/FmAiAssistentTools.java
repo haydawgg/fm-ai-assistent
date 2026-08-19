@@ -1,5 +1,6 @@
 package com.github.fmaiassistent.mcp;
 
+import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.linux.GameDateFinder;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
@@ -37,7 +38,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 @Service
-public class FmAiAssistentTools {
+public class FmAiAssistentTools implements PlayerAnalysisPort {
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 250;
     private static final int DEFAULT_SHORTLIST_LIMIT = 8;
