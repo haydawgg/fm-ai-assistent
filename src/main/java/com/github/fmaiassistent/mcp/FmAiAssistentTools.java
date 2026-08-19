@@ -10,6 +10,10 @@ import com.github.fmaiassistent.football.MoneyballCandidate;
 import com.github.fmaiassistent.football.MoneyballDeal;
 import com.github.fmaiassistent.football.MoneyballPort;
 import com.github.fmaiassistent.football.MoneyballQuery;
+import com.github.fmaiassistent.football.SquadAdvicePort;
+import com.github.fmaiassistent.football.SquadSellCandidate;
+import com.github.fmaiassistent.football.SquadWageHealth;
+import com.github.fmaiassistent.football.ContractRecommendation;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
@@ -44,7 +48,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 @Service
-public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlistPort, MoneyballPort {
+public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlistPort, MoneyballPort, SquadAdvicePort {
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 250;
     private static final int DEFAULT_SHORTLIST_LIMIT = 8;
@@ -710,23 +714,73 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
 
     @Transactional(readOnly = true)
     public List<SquadAdvice.SellRow> sellRows(String managingClub) {
+        return squadSellCandidates(managingClub).stream()
+                .map(FmAiAssistentTools::toSellRow)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SquadSellCandidate> squadSellCandidates(String managingClub) {
         ClubEntity club = requireClub(managingClub);
-        return SquadAdvice.sellShortlist(
-                ownedSquad(squadPlayers(club.getName()), club.getName()), club);
+        return SquadAdvice.sellShortlist(ownedSquad(squadPlayers(club.getName()), club.getName()), club)
+                .stream()
+                .map(FmAiAssistentTools::toSellCandidate)
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public List<SquadAdvice.ContractRow> contractRows(String managingClub) {
+        return contractRecommendations(managingClub).stream()
+                .map(FmAiAssistentTools::toContractRow)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ContractRecommendation> contractRecommendations(String managingClub) {
         ClubEntity club = requireClub(managingClub);
-        return SquadAdvice.contractQueue(
-                ownedSquad(squadPlayers(club.getName()), club.getName()), club);
+        return SquadAdvice.contractQueue(ownedSquad(squadPlayers(club.getName()), club.getName()), club)
+                .stream()
+                .map(FmAiAssistentTools::toContractRecommendation)
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public SquadAdvice.WageHealth wageHealth(String managingClub) {
+        SquadWageHealth health = squadWageHealth(managingClub);
+        return new SquadAdvice.WageHealth(health.wageBillWeekly(), health.payrollBudget(), health.usedFraction());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public SquadWageHealth squadWageHealth(String managingClub) {
         ClubEntity club = requireClub(managingClub);
-        return SquadAdvice.wageHealth(
+        SquadAdvice.WageHealth health = SquadAdvice.wageHealth(
                 ownedSquad(squadPlayers(club.getName()), club.getName()), club);
+        return new SquadWageHealth(health.wageBillWeekly(), health.payrollBudget(), health.usedFraction());
+    }
+
+    private static SquadSellCandidate toSellCandidate(SquadAdvice.SellRow row) {
+        return new SquadSellCandidate(row.rank(), row.name(), row.age(), row.position(), row.ca(), row.pa(),
+                row.salaryWeekly(), row.askingPrice(), row.contractEnd(), row.depthAtPosition(),
+                row.caVsFirstTeam(), row.recommendation(), row.sellScore(), row.reasons());
+    }
+
+    private static SquadAdvice.SellRow toSellRow(SquadSellCandidate row) {
+        return new SquadAdvice.SellRow(row.rank(), row.name(), row.age(), row.position(), row.ca(), row.pa(),
+                row.salaryWeekly(), row.askingPrice(), row.contractEnd(), row.depthAtPosition(),
+                row.caVsFirstTeam(), row.recommendation(), row.sellScore(), row.reasons());
+    }
+
+    private static ContractRecommendation toContractRecommendation(SquadAdvice.ContractRow row) {
+        return new ContractRecommendation(row.name(), row.position(), row.age(), row.ca(), row.salaryWeekly(),
+                row.contractEnd(), row.daysUntilExpiry(), row.action(), row.reasons());
+    }
+
+    private static SquadAdvice.ContractRow toContractRow(ContractRecommendation row) {
+        return new SquadAdvice.ContractRow(row.name(), row.position(), row.age(), row.ca(), row.salaryWeekly(),
+                row.contractEnd(), row.daysUntilExpiry(), row.action(), row.reasons());
     }
 
     @Transactional(readOnly = true)
