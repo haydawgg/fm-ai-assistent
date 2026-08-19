@@ -56,7 +56,7 @@ public class MainView extends VerticalLayout {
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
-    private final PlayerWorkspaceQuery playerQuery;
+    private final PlayerWorkspaceLoader playerLoader;
 
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
     private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
@@ -100,7 +100,7 @@ public class MainView extends VerticalLayout {
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
-        this.playerQuery = PlayerWorkspaceQuery.database(players);
+        this.playerLoader = PlayerWorkspaceLoader.database(players);
         this.currency = settings.currency();
 
         setSizeFull();
@@ -351,12 +351,13 @@ public class MainView extends VerticalLayout {
         if (club == null || club.isBlank()) {
             club = settings.sessionClub();
         }
-        List<PlayerEntity> rows = playerQuery.find(playerFilter, club);
+        PlayerWorkspaceLoader.Result loaded = playerLoader.load(playerFilter, club);
+        List<PlayerEntity> rows = loaded.rows();
         syncQuickFiltersFromCriteria();
         setPlayerGrid(columns, rows);
         setFilterActive(!playerFilter.isEmpty());
         if (!playerFilter.isEmpty()) {
-            renderFilteredStatus("Players", rows.size(), playerQuery.count());
+            renderFilteredStatus("Players", rows.size(), loaded.totalCount());
         } else {
             updateStatus(null);
         }

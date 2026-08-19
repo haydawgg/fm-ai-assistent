@@ -1,7 +1,7 @@
 package com.github.fmaiassistent.mcp;
 
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.linux.GameDateFinder;
+import com.github.fmaiassistent.football.PlayerAnalysisRules;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
@@ -22,9 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.text.Normalizer;
-import java.time.LocalDate;
 import java.time.Period;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1391,28 +1389,15 @@ public class FmAiAssistentTools implements PlayerAnalysisPort {
     }
 
     static boolean dropUnwillingCandidate(boolean dropUnwilling, boolean lowWillingness, boolean priceKnown, boolean freeAgent) {
-        return lowWillingness && (dropUnwilling || (!priceKnown && !freeAgent));
+        return PlayerAnalysisRules.dropUnwillingCandidate(dropUnwilling, lowWillingness, priceKnown, freeAgent);
     }
 
     static boolean inClubFamily(String playerClub, String managingClub) {
-        String playerStem = clubFamilyStem(playerClub);
-        String managingStem = clubFamilyStem(managingClub);
-        return !playerStem.isEmpty() && playerStem.equals(managingStem);
+        return PlayerAnalysisRules.inClubFamily(playerClub, managingClub);
     }
 
     static String clubFamilyStem(String name) {
-        String normalized = normalize(name);
-        if (normalized.isEmpty()) {
-            return "";
-        }
-        List<String> tokens = new ArrayList<>(List.of(normalized.split("\\s+")));
-        Set<String> suffixes = Set.of(
-                "u18", "u19", "u20", "u21", "u23", "ii", "iii", "2", "b",
-                "reserve", "reserves", "amateur", "amateurs", "youth");
-        while (tokens.size() > 1 && suffixes.contains(tokens.getLast())) {
-            tokens.removeLast();
-        }
-        return String.join(" ", tokens);
+        return PlayerAnalysisRules.clubFamilyStem(name);
     }
 
     private static boolean sameGender(String playerGender, String clubGender) {
@@ -2074,12 +2059,7 @@ public class FmAiAssistentTools implements PlayerAnalysisPort {
     }
 
     static boolean recentlyJoinedCurrentClub(PlayerEntity player, Period minimumTimeAtCurrentClub) {
-        LocalDate joined = parseDate(player.getJoinedClubDate());
-        LocalDate gameDate = parseDate(player.getAgeAsOf());
-        if (joined == null || gameDate == null) {
-            return false;
-        }
-        return joined.isAfter(gameDate.minus(minimumTimeAtCurrentClub));
+        return PlayerAnalysisRules.recentlyJoinedCurrentClub(player, minimumTimeAtCurrentClub);
     }
 
     private static Period parsePeriod(String value, Period defaultValue) {
@@ -2100,17 +2080,6 @@ public class FmAiAssistentTools implements PlayerAnalysisPort {
             return Period.parse(trimmed);
         } catch (RuntimeException ex) {
             return defaultValue;
-        }
-    }
-
-    private static LocalDate parseDate(String value) {
-        if (blank(value)) {
-            return null;
-        }
-        try {
-            return LocalDate.parse(value);
-        } catch (DateTimeParseException ex) {
-            return null;
         }
     }
 
@@ -2144,82 +2113,48 @@ public class FmAiAssistentTools implements PlayerAnalysisPort {
     }
 
     static boolean inRange(Integer value, Integer min, Integer max) {
-        if (min == null && max == null) {
-            return true;
-        }
-        if (value == null) {
-            return false;
-        }
-        return (min == null || value >= min) && (max == null || value <= max);
+        return PlayerAnalysisRules.inRange(value, min, max);
     }
 
     /** Unknown asking prices are not free. Free agents (no club) still pass a max-price filter. */
     static boolean askingPriceWithinMax(Long askingPrice, String club, Long max) {
-        if (max == null) {
-            return true;
-        }
-        if (askingPrice == null || askingPrice <= 0) {
-            return blank(club);
-        }
-        return askingPrice <= max;
+        return PlayerAnalysisRules.askingPriceWithinMax(askingPrice, club, max);
     }
 
     static boolean salaryWithinMax(Integer salaryWeekly, Integer max) {
-        if (max == null) {
-            return true;
-        }
-        if (salaryWeekly == null) {
-            return false;
-        }
-        return salaryWeekly <= max;
+        return PlayerAnalysisRules.salaryWithinMax(salaryWeekly, max);
     }
 
     static boolean wageFits(Integer salaryWeekly, long wageCeiling) {
-        return salaryWeekly != null && salaryWeekly <= wageCeiling;
+        return PlayerAnalysisRules.wageFits(salaryWeekly, wageCeiling);
     }
 
     static long resolvePriceCap(Long maxAskingPrice, Long budget) {
-        if (maxAskingPrice != null) {
-            return Math.max(0L, maxAskingPrice);
-        }
-        if (budget == null) {
-            return Long.MAX_VALUE;
-        }
-        return Math.max(0L, budget);
+        return PlayerAnalysisRules.resolvePriceCap(maxAskingPrice, budget);
     }
 
     static boolean priceCapKnown(long priceCap) {
-        return priceCap != Long.MAX_VALUE;
+        return PlayerAnalysisRules.priceCapKnown(priceCap);
     }
 
     static boolean rolesMatch(String catalogName, String query) {
-        if (blank(query)) {
-            return true;
-        }
-        String catalog = roleKey(catalogName);
-        String needle = roleKey(query);
-        return !catalog.isEmpty() && !needle.isEmpty()
-                && (catalog.equals(needle) || catalog.contains(needle) || needle.contains(catalog));
+        return PlayerAnalysisRules.rolesMatch(catalogName, query);
     }
 
     static boolean roleKeysEqual(String left, String right) {
-        return roleKey(left).equals(roleKey(right));
+        return PlayerAnalysisRules.roleKeysEqual(left, right);
     }
 
     static String roleKey(String value) {
-        String normalized = normalize(value).replaceAll("\\bgk\\b", "goalkeeper");
-        return normalized.replaceAll("[^a-z0-9]", "");
+        return PlayerAnalysisRules.roleKey(value);
     }
 
     static boolean matchesBoolean(Boolean value, Boolean expected) {
-        return expected == null || (value != null && value.equals(expected));
+        return PlayerAnalysisRules.matchesBoolean(value, expected);
     }
 
     static Integer effectiveAge(PlayerEntity player) {
-        if (player == null) {
-            return null;
-        }
-        return GameDateFinder.effectiveAge(player.getAge(), player.getDateOfBirth(), player.getAgeAsOf());
+        return PlayerAnalysisRules.effectiveAge(player);
     }
 
     private static Integer asInteger(String value) {

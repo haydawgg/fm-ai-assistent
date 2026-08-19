@@ -2,6 +2,7 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
 import com.github.fmaiassistent.chat.ChatProviderPort;
+import com.github.fmaiassistent.chat.ChatHistoryPolicy;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.linux.GameDateFinder;
@@ -660,7 +661,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             transcript.add(userCard(message, lastUserOrdinal));
             history.add(new AssistantChatService.ChatTurn(true, message));
         } else if (!history.isEmpty() && history.getLast().user()) {
-            prior = historyForModel(history.subList(0, history.size() - 1));
+            prior = ChatHistoryPolicy.withoutTrailingUserTurn(history);
         }
         refreshSessions();
         updateOmitted();
@@ -838,11 +839,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private List<AssistantChatService.ChatTurn> historyForModel() {
-        return historyForModel(history);
+        return ChatHistoryPolicy.snapshot(history);
     }
 
     private static List<AssistantChatService.ChatTurn> historyForModel(List<AssistantChatService.ChatTurn> turns) {
-        return List.copyOf(turns);
+        return ChatHistoryPolicy.snapshot(turns);
     }
 
     private ChatSessionService.MessageExtras extras(

@@ -30,6 +30,19 @@ public interface ProcessMemoryReader extends AutoCloseable {
 
     byte[] readBytes(long address, int size) throws IOException;
 
+    /**
+     * Result-oriented read seam for exporters that must preserve unknown and
+     * failed fields instead of manufacturing a numeric default.
+     */
+    default MemoryReadResult<byte[]> readBytesResult(long address, int size) {
+        try {
+            byte[] bytes = readBytes(address, size);
+            return bytes == null ? MemoryReadResult.unknown("Reader returned no bytes") : MemoryReadResult.known(bytes);
+        } catch (IOException | RuntimeException ex) {
+            return MemoryReadResult.error(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+        }
+    }
+
     /** Rejects invalid native ranges before they reach a platform adapter. */
     static void validateAddressRange(long address, int size) throws IOException {
         if (size < 0) {
