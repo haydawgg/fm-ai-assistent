@@ -4,6 +4,7 @@ import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.repository.ChatMessageRepository;
 import com.github.fmaiassistent.repository.ChatSessionRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import java.util.UUID;
 public class ChatSessionService {
     public static final String DEFAULT_TITLE = "New chat";
     public static final int MAX_RETAINED_MESSAGES_PER_SESSION = 1000;
+    public static final int MAX_SEARCH_RESULTS = 200;
 
     private final ChatSessionRepository sessions;
     private final ChatMessageRepository messages;
@@ -40,7 +42,7 @@ public class ChatSessionService {
         if (query == null || query.isBlank()) {
             return list();
         }
-        return sessions.search(escapeLike(query.strip()));
+        return sessions.search(escapeLike(query.strip()), PageRequest.of(0, MAX_SEARCH_RESULTS));
     }
 
     @Transactional(readOnly = true)

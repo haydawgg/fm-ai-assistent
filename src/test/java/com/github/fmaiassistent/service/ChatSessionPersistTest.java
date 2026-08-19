@@ -70,6 +70,16 @@ class ChatSessionPersistTest {
     }
 
     @Test
+    void searchIsDatabaseBoundedAndFindsMatchingTitles() {
+        ChatSessionEntity match = sessions.create("test-model");
+        sessions.rename(match.getId(), "Unique tactical search title");
+        List<ChatSessionEntity> results = sessions.search("tactical search");
+        assertTrue(results.stream().anyMatch(row -> match.getId().equals(row.getId())));
+        assertTrue(results.size() <= ChatSessionService.MAX_SEARCH_RESULTS);
+        sessions.delete(match.getId());
+    }
+
+    @Test
     void feedbackTogglesOnSameVote() {
         ChatSessionEntity session = sessions.create("openai/gpt-4.1-mini");
         sessions.append(session.getId(), "assistant", "Here is the XI.", "openai/gpt-4.1-mini",

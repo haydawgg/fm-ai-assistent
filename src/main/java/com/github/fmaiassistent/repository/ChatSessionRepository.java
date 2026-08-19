@@ -2,6 +2,7 @@ package com.github.fmaiassistent.repository;
 
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -24,5 +25,5 @@ public interface ChatSessionRepository extends JpaRepository<ChatSessionEntity, 
                 or lower(substring(m.body, 1, 4096)) like lower(concat('%', :query, '%')) escape '\\'
             order by s.updated_at desc
             """, nativeQuery = true)
-    List<ChatSessionEntity> search(@Param("query") String query);
+    List<ChatSessionEntity> search(@Param("query") String query, Pageable pageable);
 }
