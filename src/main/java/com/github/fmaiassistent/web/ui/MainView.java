@@ -1751,40 +1751,24 @@ public class MainView extends VerticalLayout {
     }
 
     private static String display(Object value) {
-        return value == null ? "" : Objects.toString(value);
+        return PlayerWorkspaceFormatting.display(value);
     }
 
     private String displayColumn(String column, Object value) {
-        if ("SALARY_WEEKLY_RAW".equals(column)) {
-            return salaryWeeklyDisplay(value);
-        }
-        return PlayerWorkspaceColumns.MONEY_COLUMNS.contains(column) ? moneyDisplay(value) : display(value);
+        return PlayerWorkspaceFormatting.column(column, value, currency);
     }
 
     private String salaryWeeklyDisplay(Object value) {
-        Long pounds = sortableLong(value);
-        if (pounds == null) {
-            return "";
-        }
-        return MoneyDisplay.format(pounds, currency);
+        return PlayerWorkspaceFormatting.money(value, currency);
     }
 
     private String moneyDisplay(Object value) {
-        Long pounds = sortableLong(value);
-        if (pounds == null) {
-            return "";
-        }
-        return MoneyDisplay.format(pounds, currency);
+        return PlayerWorkspaceFormatting.money(value, currency);
     }
 
 
     private static String heightDisplay(PlayerEntity player) {
-        Integer cm = player.getHeightCm();
-        if (cm == null || cm <= 0) {
-            return "";
-        }
-        int totalInches = (int) Math.round(cm / 2.54);
-        return cm + " cm (" + (totalInches / 12) + "'" + (totalInches % 12) + "\")";
+        return PlayerWorkspaceFormatting.height(player);
     }
 
     private static FormLayout detailLayout(List<DetailField> fields) {
@@ -2194,27 +2178,11 @@ public class MainView extends VerticalLayout {
     }
 
     private static int compareLongs(Long left, Long right) {
-        if (left == null && right == null) {
-            return 0;
-        }
-        if (left == null) {
-            return 1;
-        }
-        if (right == null) {
-            return -1;
-        }
-        return Long.compare(left, right);
+        return PlayerWorkspaceFormatting.compareLongs(left, right);
     }
 
     private static Long sortableLong(Object value) {
-        if (value == null || String.valueOf(value).isBlank()) {
-            return null;
-        }
-        try {
-            return Long.valueOf(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return PlayerWorkspaceFormatting.sortableLong(value);
     }
 
     private static String nullSafeValue(String value) {
