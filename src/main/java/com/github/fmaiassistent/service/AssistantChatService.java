@@ -2,6 +2,7 @@ package com.github.fmaiassistent.service;
 
 import com.github.fmaiassistent.ai.AiPromptContext;
 import com.github.fmaiassistent.chat.ChatProviderPort;
+import com.github.fmaiassistent.chat.ChatStreamEvent;
 import com.openai.client.OpenAIClient;
 import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -79,24 +80,6 @@ public class AssistantChatService implements ChatProviderPort {
 
         private static Integer tokenCount(Integer value) {
             return value == null || value <= 0 ? null : value;
-        }
-    }
-
-    public record ChatStreamEvent(Kind kind, String text, ToolTrace trace, UsageSnapshot usage, String generationId) {
-        public ChatStreamEvent(Kind kind, String text) {
-            this(kind, text, null, null, null);
-        }
-
-        public ChatStreamEvent(Kind kind, String text, ToolTrace trace, UsageSnapshot usage) {
-            this(kind, text, trace, usage, null);
-        }
-
-        public enum Kind {
-            TOKEN,
-            TOOL,
-            TOOL_TRACE,
-            USAGE,
-            REASONING
         }
     }
 

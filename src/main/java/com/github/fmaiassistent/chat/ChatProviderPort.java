@@ -15,7 +15,7 @@ import java.util.List;
 public interface ChatProviderPort {
     boolean configured();
 
-    Flux<AssistantChatService.ChatStreamEvent> streamEvents(
+    Flux<ChatStreamEvent> streamEvents(
             List<AssistantChatService.ChatTurn> history,
             String userMessage,
             String conversationKey,

@@ -2,7 +2,9 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ChatMessageEntity;
 import com.github.fmaiassistent.chat.ChatProviderPort;
+import com.github.fmaiassistent.chat.ChatConversationState;
 import com.github.fmaiassistent.chat.ChatHistoryPolicy;
+import com.github.fmaiassistent.chat.ChatStreamEvent;
 import com.github.fmaiassistent.domain.entity.ChatSessionEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.linux.GameDateFinder;
@@ -132,14 +134,11 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private Disposable activeStream;
     private AssistantTurn activeTurn;
     private boolean applyingModel;
-    private String conversationId;
-    private final List<AssistantChatService.ChatTurn> history = new ArrayList<>();
+    private final ChatConversationState conversation = new ChatConversationState();
     private final ChatComposerState composerState = new ChatComposerState();
     private final LinkedHashSet<String> triedModels = new LinkedHashSet<>();
     private String currentModel = "";
-    private int lastUserOrdinal = -1;
     private double sessionCostUsd;
-    private Integer pendingReplaceFrom;
     private List<String> cachedSquadNames = List.of();
     private List<String> cachedClubNames = List.of();
 
@@ -569,7 +568,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void updateOmitted() {
-        int omittedCount = AssistantChatService.omittedCount(history);
+        int omittedCount = AssistantChatService.omittedCount(conversation.historySnapshot());
         omitted.setVisible(omittedCount > 0);
         omitted.setText(omittedCount + " earlier messages are omitted from the model context.");
     }
@@ -624,7 +623,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         }
         Double estimate = catalog.estimateUsd(
                 settings.openRouterModel(),
-                catalog.estimatePromptTokens(message, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                catalog.estimatePromptTokens(message, conversation.historySnapshot().stream()
+                        .map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
                 600);
         if (dailyCapBlocked(message, estimate)) {
             return;
@@ -633,9 +633,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         ChatUiContext.setDraft("");
         mention.setVisible(false);
         slash.setVisible(false);
-        if (pendingReplaceFrom != null && conversationId != null) {
-            sessions.deleteFrom(conversationId, pendingReplaceFrom);
-            pendingReplaceFrom = null;
+        if (conversation.pendingReplaceFrom() != null && conversation.conversationId() != null) {
+            sessions.deleteFrom(conversation.conversationId(), conversation.pendingReplaceFrom());
+            conversation.setPendingReplaceFrom(null);
             reloadTranscript();
         }
         streamUserMessage(message, true, null);
@@ -657,11 +657,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         List<AssistantChatService.ChatTurn> prior = historyForModel();
         if (persistUser) {
             ChatMessageEntity saved = persist("user", message, modelId, ChatSessionService.MessageExtras.NONE);
-            lastUserOrdinal = saved.getOrdinal();
-            transcript.add(userCard(message, lastUserOrdinal));
-            history.add(new AssistantChatService.ChatTurn(true, message));
-        } else if (!history.isEmpty() && history.getLast().user()) {
-            prior = ChatHistoryPolicy.withoutTrailingUserTurn(history);
+            conversation.setLastUserOrdinal(saved.getOrdinal());
+            transcript.add(userCard(message, conversation.lastUserOrdinal()));
+            conversation.addUser(message);
+        } else if (!conversation.historyIsEmpty()
+                && conversation.historyAt(conversation.historySize() - 1).user()) {
+            prior = conversation.historyWithoutTrailingUser();
         }
         refreshSessions();
         updateOmitted();
@@ -673,7 +674,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         } else {
             triedModels.add(modelId);
         }
-        AssistantTurn turn = new AssistantTurn(modelId, message, lastUserOrdinal);
+        AssistantTurn turn = new AssistantTurn(modelId, message, conversation.lastUserOrdinal());
         activeTurn = turn;
         transcript.add(turn.root);
         scrollToLatest();
@@ -691,14 +692,14 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         AssistantChatService.UsageSnapshot[] usage = {new AssistantChatService.UsageSnapshot(null, null)};
         String[] generationId = {""};
         AssistantChatService.ThinkSplitter splitter = new AssistantChatService.ThinkSplitter();
-        activeStream = chat.streamEvents(prior, message, conversationId, grounding(), modelOverride)
+        activeStream = chat.streamEvents(prior, message, conversation.conversationId(), grounding(), modelOverride)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         event -> {
-                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE && event.trace() != null) {
+                            if (event.kind() == ChatStreamEvent.Kind.TOOL_TRACE && event.trace() != null) {
                                 traces.add(event.trace());
                             }
-                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL) {
+                            if (event.kind() == ChatStreamEvent.Kind.TOOL) {
                                 splitter.reset();
                                 synchronized (response) {
                                     response.setLength(0);
@@ -712,9 +713,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             }
                             String reasoningUpdate = null;
                             boolean hasAnswer = false;
-                            if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.REASONING) {
+                            if (event.kind() == ChatStreamEvent.Kind.REASONING) {
                                 reasoningUpdate = event.text();
-                            } else if (event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOKEN && event.text() != null && !event.text().isEmpty()) {
+                            } else if (event.kind() == ChatStreamEvent.Kind.TOKEN && event.text() != null && !event.text().isEmpty()) {
                                 AssistantChatService.ThinkSplitter.Piece piece = splitter.push(event.text());
                                 if (!piece.reasoning().isBlank()) {
                                     reasoningUpdate = piece.reasoning();
@@ -737,8 +738,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                             final String fr = reasoningUpdate;
                             final String eventText = event.text();
                             final AssistantChatService.ToolTrace eventTrace = event.trace();
-                            final boolean isTool = event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL;
-                            final boolean isToolTrace = event.kind() == AssistantChatService.ChatStreamEvent.Kind.TOOL_TRACE;
+                            final boolean isTool = event.kind() == ChatStreamEvent.Kind.TOOL;
+                            final boolean isToolTrace = event.kind() == ChatStreamEvent.Kind.TOOL_TRACE;
                             final boolean answered = hasAnswer;
                             access(ui, () -> {
                                 if (isTool) {
@@ -839,7 +840,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private List<AssistantChatService.ChatTurn> historyForModel() {
-        return ChatHistoryPolicy.snapshot(history);
+        return conversation.historySnapshot();
     }
 
     private static List<AssistantChatService.ChatTurn> historyForModel(List<AssistantChatService.ChatTurn> turns) {
@@ -886,7 +887,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                     String sessionId = saved.getSessionId();
                     ChatMessageEntity updated = sessions.updateGeneration(
                             sessionId, saved.getOrdinal(), lookup, lookup.reasoning());
-                    if (!sessionId.equals(conversationId)) {
+                    if (!sessionId.equals(conversation.conversationId())) {
                         return;
                     }
                     AssistantChatService.UsageSnapshot next = new AssistantChatService.UsageSnapshot(
@@ -932,7 +933,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
     private ChatMessageEntity persist(String role, String body, String model, ChatSessionService.MessageExtras extras) {
         ensureSession();
-        return sessions.append(conversationId, role, body,
+        return sessions.append(conversation.conversationId(), role, body,
                 model == null || model.isBlank() ? settings.openRouterModel() : model, extras);
     }
 
@@ -956,7 +957,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void editUser(String text, int ordinal) {
-        pendingReplaceFrom = ordinal;
+        conversation.setPendingReplaceFrom(ordinal);
         input.setValue(text);
         input.focus();
     }
@@ -965,21 +966,21 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (input.getValue() != null && !input.getValue().isBlank()) {
             return;
         }
-        int lastUser = history.size() - 1;
-        while (lastUser >= 0 && !history.get(lastUser).user()) {
+        int lastUser = conversation.historySize() - 1;
+        while (lastUser >= 0 && !conversation.historyAt(lastUser).user()) {
             lastUser--;
         }
-        if (lastUser >= 0 && lastUserOrdinal >= 0) {
-            pendingReplaceFrom = lastUserOrdinal;
-            input.setValue(history.get(lastUser).text());
+        if (lastUser >= 0 && conversation.lastUserOrdinal() >= 0) {
+            conversation.setPendingReplaceFrom(conversation.lastUserOrdinal());
+            input.setValue(conversation.historyAt(lastUser).text());
         }
     }
 
     private void deleteFrom(int ordinal) {
-        if (conversationId == null) {
+        if (conversation.conversationId() == null) {
             return;
         }
-        sessions.deleteFrom(conversationId, ordinal);
+        sessions.deleteFrom(conversation.conversationId(), ordinal);
         reloadTranscript();
     }
 
@@ -1001,8 +1002,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (userText == null || userText.isBlank() || activeStream != null) {
             return;
         }
-        if (conversationId != null && userOrdinal >= 0) {
-            sessions.deleteFrom(conversationId, userOrdinal + 1);
+        if (conversation.conversationId() != null && userOrdinal >= 0) {
+            sessions.deleteFrom(conversation.conversationId(), userOrdinal + 1);
             reloadTranscript();
         }
         streamUserMessage(userText, false);
@@ -1012,7 +1013,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         if (text == null || text.isBlank()) {
             return;
         }
-        history.add(new AssistantChatService.ChatTurn(false, text));
+        conversation.addAssistant(text);
     }
 
     private void stopStream() {
@@ -1057,14 +1058,15 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         String next = composerState.poll();
         Double estimate = catalog.estimateUsd(
                 settings.openRouterModel(),
-                catalog.estimatePromptTokens(next, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                catalog.estimatePromptTokens(next, conversation.historySnapshot().stream()
+                        .map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
                 600);
         if (dailyCapBlocked(next, estimate)) {
             return;
         }
-        if (pendingReplaceFrom != null && conversationId != null) {
-            sessions.deleteFrom(conversationId, pendingReplaceFrom);
-            pendingReplaceFrom = null;
+        if (conversation.pendingReplaceFrom() != null && conversation.conversationId() != null) {
+            sessions.deleteFrom(conversation.conversationId(), conversation.pendingReplaceFrom());
+            conversation.setPendingReplaceFrom(null);
             reloadTranscript();
         }
         streamUserMessage(next, true, null);
@@ -1114,7 +1116,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
 
     private void exportMarkdown() {
         StringBuilder markdown = new StringBuilder("# FM AI chat\n\n");
-        for (AssistantChatService.ChatTurn turn : history) {
+        for (AssistantChatService.ChatTurn turn : conversation.historySnapshot()) {
             markdown.append(turn.user() ? "## You\n\n" : "## FM AI\n\n")
                     .append(turn.text() == null ? "" : turn.text())
                     .append("\n\n");
@@ -1170,7 +1172,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private boolean dailyCapBlocked(String message) {
         Double estimate = catalog.estimateUsd(
                 settings.openRouterModel(),
-                catalog.estimatePromptTokens(message, history.stream().map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
+                catalog.estimatePromptTokens(message, conversation.historySnapshot().stream()
+                        .map(AssistantChatService.ChatTurn::text).reduce("", String::concat)),
                 600);
         return dailyCapBlocked(message, estimate);
     }
@@ -1188,18 +1191,18 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     private void newChat() {
         stopStream(false);
         restoreQueuedText();
-        if (conversationId != null) {
-            tacticContexts.forgetConversation(conversationId);
+        if (conversation.conversationId() != null) {
+            tacticContexts.forgetConversation(conversation.conversationId());
         }
         ChatSessionEntity created = sessions.create(settings.openRouterModel());
-        conversationId = created.getId();
-        settings.saveLastChatSessionId(conversationId);
-        history.clear();
+        conversation.selectConversation(created.getId());
+        settings.saveLastChatSessionId(conversation.conversationId());
+        conversation.clearHistory();
         sessionCostUsd = 0;
         sessionCost.setText("");
         composerState.resetTransient();
-        lastUserOrdinal = -1;
-        pendingReplaceFrom = null;
+        conversation.setLastUserOrdinal(-1);
+        conversation.setPendingReplaceFrom(null);
         triedModels.clear();
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
@@ -1215,17 +1218,17 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             newChat();
             return;
         }
-        conversationId = session.getId();
+        conversation.selectConversation(session.getId());
         reloadTranscript();
     }
 
     private void openSession(String id) {
         stopStream(false);
         restoreQueuedText();
-        pendingReplaceFrom = null;
+        conversation.setPendingReplaceFrom(null);
         composerState.setLastUserText("");
-        lastUserOrdinal = -1;
-        conversationId = id;
+        conversation.setLastUserOrdinal(-1);
+        conversation.selectConversation(id);
         settings.saveLastChatSessionId(id);
         reloadTranscript();
         refreshSessions();
@@ -1259,29 +1262,29 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void reloadTranscript() {
-        history.clear();
+        conversation.clearHistory();
         sessionCostUsd = 0;
         composerState.setLastUserText("");
-        lastUserOrdinal = -1;
+        conversation.setLastUserOrdinal(-1);
         transcript.removeAll();
         transcript.add(unconfigured, welcome);
-        if (conversationId == null) {
+        if (conversation.conversationId() == null) {
             updateConfigurationState();
             return;
         }
-        List<ChatMessageEntity> rows = sessions.messages(conversationId);
+        List<ChatMessageEntity> rows = sessions.messages(conversation.conversationId());
         String associatedUserText = "";
         int associatedUserOrdinal = -1;
         for (ChatMessageEntity row : rows) {
             if ("user".equals(row.getRole())) {
                 composerState.setLastUserText(row.getBody());
-                lastUserOrdinal = row.getOrdinal();
+                conversation.setLastUserOrdinal(row.getOrdinal());
                 associatedUserText = row.getBody();
                 associatedUserOrdinal = row.getOrdinal();
-                history.add(new AssistantChatService.ChatTurn(true, row.getBody()));
+                conversation.addUser(row.getBody());
                 transcript.add(userCard(row.getBody(), row.getOrdinal()));
             } else if ("assistant".equals(row.getRole())) {
-                history.add(new AssistantChatService.ChatTurn(false, row.getBody()));
+                conversation.addAssistant(row.getBody());
                 AssistantTurn turn = new AssistantTurn(row.getModel(), associatedUserText, associatedUserOrdinal);
                 turn.showContent();
                 turn.setMarkdown(row.getBody());
@@ -1328,7 +1331,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             open.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             open.addClassName("chat-session-item");
             open.getElement().setAttribute("aria-label", "Open chat: " + open.getText());
-            if (session.getId().equals(conversationId)) {
+            if (session.getId().equals(conversation.conversationId())) {
                 open.addClassName("chat-session-active");
                 open.getElement().setAttribute("aria-current", "page");
             }
@@ -1336,7 +1339,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             Button rename = iconButton(VaadinIcon.EDIT, "Rename", () -> renameSession(session));
             Button delete = iconButton(VaadinIcon.TRASH, "Delete", () -> {
                 sessions.delete(session.getId());
-                if (session.getId().equals(conversationId)) {
+                if (session.getId().equals(conversation.conversationId())) {
                     newChat();
                 } else {
                     refreshSessions();
@@ -1368,12 +1371,12 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
     }
 
     private void ensureSession() {
-        if (conversationId != null && sessions.find(conversationId).isPresent()) {
+        if (conversation.conversationId() != null && sessions.find(conversation.conversationId()).isPresent()) {
             return;
         }
         ChatSessionEntity created = sessions.create(settings.openRouterModel());
-        conversationId = created.getId();
-        settings.saveLastChatSessionId(conversationId);
+        conversation.selectConversation(created.getId());
+        settings.saveLastChatSessionId(conversation.conversationId());
     }
 
     private void addSessionCost(String modelId, AssistantChatService.UsageSnapshot usage) {
@@ -1914,9 +1917,9 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             thumbsUp.setVisible(true);
             thumbsDown.setVisible(true);
             paintFeedback(row.getFeedback());
-            thumbsUp.addClickListener(event -> paintFeedback(sessions.setFeedback(conversationId, ordinal, "up")));
+            thumbsUp.addClickListener(event -> paintFeedback(sessions.setFeedback(conversation.conversationId(), ordinal, "up")));
             thumbsDown.addClickListener(event -> {
-                String value = sessions.setFeedback(conversationId, ordinal, "down");
+                String value = sessions.setFeedback(conversation.conversationId(), ordinal, "down");
                 paintFeedback(value);
                 if ("down".equals(value) && generationId != null && !generationId.isBlank()) {
                     UI ui = getUI().orElse(null);
