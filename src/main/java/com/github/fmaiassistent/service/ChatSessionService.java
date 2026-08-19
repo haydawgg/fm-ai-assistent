@@ -47,7 +47,7 @@ public class ChatSessionService {
 
     @Transactional(readOnly = true)
     public List<ChatSessionEntity> list() {
-        return sessions.findAllByOrderByUpdatedAtDesc();
+        return sessions.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, MAX_SEARCH_RESULTS));
     }
 
     @Transactional(readOnly = true)

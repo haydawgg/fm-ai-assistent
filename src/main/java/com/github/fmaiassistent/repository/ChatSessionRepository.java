@@ -14,6 +14,8 @@ import java.util.Optional;
 public interface ChatSessionRepository extends JpaRepository<ChatSessionEntity, String> {
     List<ChatSessionEntity> findAllByOrderByUpdatedAtDesc();
 
+    List<ChatSessionEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from ChatSessionEntity s where s.id = :id")
     Optional<ChatSessionEntity> findByIdForUpdate(@Param("id") String id);

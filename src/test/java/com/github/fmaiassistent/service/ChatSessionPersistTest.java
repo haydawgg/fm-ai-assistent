@@ -80,6 +80,21 @@ class ChatSessionPersistTest {
     }
 
     @Test
+    void recentSessionListIsDatabaseBounded() {
+        try {
+            for (int index = 0; index <= ChatSessionService.MAX_SEARCH_RESULTS; index++) {
+                jdbc.update(
+                        "insert into chat_session (id, title, model, created_at, updated_at, title_locked) "
+                                + "values (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false)",
+                        "bounded-list-" + index, "Bounded " + index, "test-model");
+            }
+            assertEquals(ChatSessionService.MAX_SEARCH_RESULTS, sessions.list().size());
+        } finally {
+            jdbc.update("delete from chat_session where id like 'bounded-list-%'");
+        }
+    }
+
+    @Test
     void feedbackTogglesOnSameVote() {
         ChatSessionEntity session = sessions.create("openai/gpt-4.1-mini");
         sessions.append(session.getId(), "assistant", "Here is the XI.", "openai/gpt-4.1-mini",

@@ -13,6 +13,7 @@ This file records findings that were reviewed while hardening the Windows deskto
 - Consolidate desktop-view notifications behind `UiFeedback`, preserving existing duration, position, and severity variants.
 - Bound chat message, reasoning, and tool-trace CLOB inputs at both the Vaadin composer and persistence/update boundaries; regression coverage is in `ChatContentLimitsTest`.
 - Bound chat-session search results at the repository boundary while preserving database-side matching and updated-time ordering; regression coverage is in `ChatSessionPersistTest`.
+- Bound the recent-session listing used when chat search is empty with the same repository-level limit, preventing the sidebar from loading an unbounded session table.
 
 ## Revalidation rule
 
