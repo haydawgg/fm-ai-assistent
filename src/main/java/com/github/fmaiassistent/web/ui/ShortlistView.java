@@ -181,11 +181,10 @@ public class ShortlistView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Ranking shortlist…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() ->
+        UiAsync.submit(ui, () ->
                 tools.transferShortlistRows(
                         club, position, role, finalAgeCap, value(minCa), value(minPa),
-                        feePounds(), wagePounds())
-        ).thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
+                        feePounds(), wagePounds()), rows -> {
             grid.setItems(rows);
             long listed = rows.stream().filter(TransferShortlistRow::transferListed).count();
             long injured = rows.stream().filter(TransferShortlistRow::injured).count();
@@ -195,16 +194,11 @@ public class ShortlistView extends VerticalLayout {
                     + (Boolean.TRUE.equals(wonderkids.getValue()) ? " with wonderkid age cap" : ""));
             summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
-        })).exceptionally(ex -> {
-            OpenRouterModelPicker.access(ui, () -> {
-                Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
-                        5000, Notification.Position.MIDDLE)
-                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
-                summary.setText("Shortlist failed — adjust the filters and try again.");
-                summary.getElement().setAttribute("aria-busy", "false");
-                runButton.setEnabled(true);
-            });
-            return null;
+        }, ex -> {
+            UiFeedback.error(ex, "Shortlist failed — adjust the filters and try again.");
+            summary.setText("Shortlist failed — adjust the filters and try again.");
+            summary.getElement().setAttribute("aria-busy", "false");
+            runButton.setEnabled(true);
         });
     }
 

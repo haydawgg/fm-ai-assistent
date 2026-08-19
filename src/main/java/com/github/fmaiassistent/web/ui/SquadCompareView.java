@@ -122,24 +122,18 @@ public class SquadCompareView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Comparing squads…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() -> tools.compareSquads(left, right))
-                .thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
+        UiAsync.submit(ui, () -> tools.compareSquads(left, right), result -> {
                     @SuppressWarnings("unchecked")
                     List<SquadAdvice.SquadCompareRow> rows = (List<SquadAdvice.SquadCompareRow>) result.get("positions");
                     grid.setItems(rows == null ? List.of() : rows);
                     summary.setText(cardText("Left", result.get("left")) + "  ·  " + cardText("Right", result.get("right")));
                     summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
-                })).exceptionally(ex -> {
-                    OpenRouterModelPicker.access(ui, () -> {
-                        Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
-                                5000, Notification.Position.MIDDLE)
-                                .addThemeVariants(NotificationVariant.LUMO_ERROR);
-                        summary.setText("Squad comparison failed — choose two clubs and try again.");
-                        summary.getElement().setAttribute("aria-busy", "false");
-                        runButton.setEnabled(true);
-                    });
-                    return null;
+                }, ex -> {
+                    UiFeedback.error(ex, "Squad comparison failed — choose two clubs and try again.");
+                    summary.setText("Squad comparison failed — choose two clubs and try again.");
+                    summary.getElement().setAttribute("aria-busy", "false");
+                    runButton.setEnabled(true);
                 });
     }
 

@@ -138,24 +138,18 @@ public class SquadTrimView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Ranking squad…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() -> tools.sellRows(club))
-                .thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
+        UiAsync.submit(ui, () -> tools.sellRows(club), rows -> {
                     grid.setItems(rows);
                     long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
                     long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
                     summary.setText(rows.size() + " players · " + sell + " sell · " + loan + " loan");
                     summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
-                })).exceptionally(ex -> {
-                    OpenRouterModelPicker.access(ui, () -> {
-                        Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
-                                5000, Notification.Position.MIDDLE)
-                                .addThemeVariants(NotificationVariant.LUMO_ERROR);
-                        summary.setText("Squad ranking failed — try again.");
-                        summary.getElement().setAttribute("aria-busy", "false");
-                        runButton.setEnabled(true);
-                    });
-                    return null;
+                }, ex -> {
+                    UiFeedback.error(ex, "Squad ranking failed — try again.");
+                    summary.setText("Squad ranking failed — try again.");
+                    summary.getElement().setAttribute("aria-busy", "false");
+                    runButton.setEnabled(true);
                 });
     }
 }

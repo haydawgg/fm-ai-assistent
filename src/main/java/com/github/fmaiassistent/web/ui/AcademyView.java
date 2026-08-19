@@ -125,8 +125,7 @@ public class AcademyView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Loading academy intake…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() -> tools.academyRows(sessionClub, cap))
-                .thenAccept(rows -> OpenRouterModelPicker.access(ui, () -> {
+        UiAsync.submit(ui, () -> tools.academyRows(sessionClub, cap), rows -> {
                     grid.setItems(rows);
                     long cover = rows.stream().filter(row -> row.vsFirstTeam() >= -8).count();
                     summary.removeClassName("moneyball-empty");
@@ -134,14 +133,11 @@ public class AcademyView extends VerticalLayout {
                             + " · " + cover + " within 8 CA of the first-team average");
                     summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
-                })).exceptionally(ex -> {
-                    OpenRouterModelPicker.access(ui, () -> {
-                        UiFeedback.error(ex, "Academy refresh failed — try again.");
-                        summary.setText("Academy refresh failed — try again.");
-                        summary.getElement().setAttribute("aria-busy", "false");
-                        runButton.setEnabled(true);
-                    });
-                    return null;
+                }, ex -> {
+                    UiFeedback.error(ex, "Academy refresh failed — try again.");
+                    summary.setText("Academy refresh failed — try again.");
+                    summary.getElement().setAttribute("aria-busy", "false");
+                    runButton.setEnabled(true);
                 });
     }
 }

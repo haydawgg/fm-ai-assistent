@@ -152,10 +152,9 @@ public class ContractsView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Refreshing contract queue…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() -> new Result(
+        UiAsync.submit(ui, () -> new Result(
                         tools.contractRows(sessionClub),
-                        tools.wageHealth(sessionClub)))
-                .thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
+                        tools.wageHealth(sessionClub)), result -> {
                     grid.setItems(result.rows());
                     applyHealth(result.health());
                     long renew = result.rows().stream().filter(row -> "renew".equals(row.action())).count();
@@ -166,14 +165,11 @@ public class ContractsView extends VerticalLayout {
                             + renew + " renew · " + sell + " sell · " + loan + " loan");
                     summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
-                })).exceptionally(ex -> {
-                    OpenRouterModelPicker.access(ui, () -> {
-                        UiFeedback.error(ex, "Contract refresh failed — try again.");
-                        summary.setText("Contract refresh failed — try again.");
-                        summary.getElement().setAttribute("aria-busy", "false");
-                        runButton.setEnabled(true);
-                    });
-                    return null;
+                }, ex -> {
+                    UiFeedback.error(ex, "Contract refresh failed — try again.");
+                    summary.setText("Contract refresh failed — try again.");
+                    summary.getElement().setAttribute("aria-busy", "false");
+                    runButton.setEnabled(true);
                 });
     }
 

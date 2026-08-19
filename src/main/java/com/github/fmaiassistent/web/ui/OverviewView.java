@@ -63,22 +63,10 @@ public class OverviewView extends VerticalLayout {
     private void refresh() {
         String club = SessionClub.resolved(settings, SessionClub.names(clubs));
         UI ui = UI.getCurrent();
-        CompletableFuture.supplyAsync(() -> dashboard.load(club))
-                .thenAccept(result -> {
-                    if (ui == null || !ui.isAttached()) {
-                        return;
-                    }
-                    ui.access(() -> {
-                        snapshot = result;
-                        render();
-                    });
-                })
-                .exceptionally(error -> {
-                    if (ui != null && ui.isAttached()) {
-                        ui.access(() -> renderError(error));
-                    }
-                    return null;
-                });
+        UiAsync.submit(ui, () -> dashboard.load(club), result -> {
+            snapshot = result;
+            render();
+        }, this::renderError);
     }
 
     private void render() {

@@ -200,7 +200,7 @@ public class MoneyballView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Finding value signings…");
         summary.getElement().setAttribute("aria-busy", "true");
-        CompletableFuture.supplyAsync(() ->
+        UiAsync.submit(ui, () ->
                 tools.moneyballRows(
                         clubName,
                         position,
@@ -208,8 +208,7 @@ public class MoneyballView extends VerticalLayout {
                         value(minPa),
                         value(maxAge),
                         feePounds(),
-                        wagePounds())
-        ).thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
+                        wagePounds()), result -> {
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
             renderDealCards(result.rows());
@@ -219,16 +218,11 @@ public class MoneyballView extends VerticalLayout {
             summary.removeClassName("moneyball-empty");
             summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
-        })).exceptionally(ex -> {
-            OpenRouterModelPicker.access(ui, () -> {
-                Notification.show(ex.getCause() instanceof RuntimeException re ? re.getMessage() : ex.getMessage(),
-                        5000, Notification.Position.MIDDLE)
-                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
-                summary.setText("Value search failed — adjust the filters and try again.");
-                summary.getElement().setAttribute("aria-busy", "false");
-                runButton.setEnabled(true);
-            });
-            return null;
+        }, ex -> {
+            UiFeedback.error(ex, "Value search failed — adjust the filters and try again.");
+            summary.setText("Value search failed — adjust the filters and try again.");
+            summary.getElement().setAttribute("aria-busy", "false");
+            runButton.setEnabled(true);
         });
     }
 

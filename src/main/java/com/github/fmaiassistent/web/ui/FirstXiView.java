@@ -232,11 +232,11 @@ public class FirstXiView extends VerticalLayout {
         summary.setText("Evaluating role fit…");
         summary.getElement().setAttribute("aria-busy", "true");
         String tacticText = tactic.getValue();
-        CompletableFuture.supplyAsync(() -> {
+        UiAsync.submit(ui, () -> {
             List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tacticText);
             List<SquadAdvice.XiPick> picks = tools.bestXiRows(sessionClub, slots);
             return new RunResult(picks, tools.unavailableForClub(sessionClub), tools.suggestedBuys(sessionClub, picks));
-        }).thenAccept(result -> OpenRouterModelPicker.access(ui, () -> {
+        }, result -> {
             List<SquadAdvice.XiPick> picks = result.picks();
             List<Map<String, Object>> out = result.unavailable();
             List<Map<String, Object>> buys = result.buys();
@@ -275,14 +275,11 @@ public class FirstXiView extends VerticalLayout {
                     + " — suggested buys from fm26_transfer_shortlist");
             summary.getElement().setAttribute("aria-busy", "false");
             runButton.setEnabled(true);
-        })).exceptionally(ex -> {
-            OpenRouterModelPicker.access(ui, () -> {
-                UiFeedback.error(ex, "Evaluation failed — adjust the role blueprint and try again.");
-                summary.setText("Evaluation failed — adjust the role blueprint and try again.");
-                summary.getElement().setAttribute("aria-busy", "false");
-                runButton.setEnabled(true);
-            });
-            return null;
+        }, ex -> {
+            UiFeedback.error(ex, "Evaluation failed — adjust the role blueprint and try again.");
+            summary.setText("Evaluation failed — adjust the role blueprint and try again.");
+            summary.getElement().setAttribute("aria-busy", "false");
+            runButton.setEnabled(true);
         });
     }
 
