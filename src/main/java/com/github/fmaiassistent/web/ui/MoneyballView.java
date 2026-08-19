@@ -1,10 +1,11 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.MoneyballAnalysisResult;
+import com.github.fmaiassistent.football.MoneyballCandidate;
+import com.github.fmaiassistent.football.MoneyballPort;
+import com.github.fmaiassistent.football.MoneyballQuery;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballResult;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools.MoneyballRow;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
@@ -28,6 +29,7 @@ import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -48,7 +50,8 @@ public class MoneyballView extends VerticalLayout {
     private static final List<String> POSITIONS = List.of(
             "GK", "DL", "DC", "DR", "WBL", "DMC", "WBR", "ML", "MC", "MR", "AML", "AMC", "AMR", "ST");
 
-    private final PlayerAnalysisPort tools;
+    private final PlayerAnalysisPort dossierTools;
+    private final MoneyballPort moneyball;
 
     private final String sessionClub;
     private final ComboBox<String> positionFilter = new ComboBox<>("Position");
@@ -60,11 +63,21 @@ public class MoneyballView extends VerticalLayout {
     private final Button runButton = new Button("Find value", VaadinIcon.DIPLOMA.create());
     private final Span summary = new Span();
     private final Div dealCards = new Div();
-    private final Grid<MoneyballRow> grid = new Grid<>();
+    private final Grid<MoneyballCandidate> grid = new Grid<>();
     private final MoneyCurrency currency;
 
     public MoneyballView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
-        this.tools = tools;
+        this(tools, requireMoneyballPort(tools), clubs, settings);
+    }
+
+    @Autowired
+    public MoneyballView(
+            PlayerAnalysisPort dossierTools,
+            MoneyballPort moneyball,
+            ClubDatabaseService clubs,
+            AppSettingsService settings) {
+        this.dossierTools = dossierTools;
+        this.moneyball = moneyball;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
@@ -136,37 +149,37 @@ public class MoneyballView extends VerticalLayout {
             if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
                 return;
             }
-            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+            PlayerDossier.openNamed(dossierTools, event.getItem().name(), currency, sessionClub);
         });
         grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
                 .setHeader("")
                 .setKey("ask")
                 .setWidth("3.5em")
                 .setFlexGrow(0);
-        grid.addColumn(MoneyballRow::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::rank).setHeader("Rank").setSortable(true).setWidth("4.5em").setFlexGrow(0);
         grid.addColumn(ratingRenderer()).setHeader("Signing")
                 .setSortable(true)
-                .setComparator(Comparator.comparingInt(MoneyballRow::signingRating))
+                .setComparator(Comparator.comparingInt(MoneyballCandidate::signingRating))
                 .setWidth("8.5em").setFlexGrow(0);
         grid.addColumn(tierRenderer()).setHeader("Deal")
                 .setSortable(true)
                 .setComparator(Comparator.comparingDouble(row -> row.deal().score()))
                 .setWidth("7em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::name).setHeader("Name").setSortable(true).setAutoWidth(true);
-        grid.addColumn(MoneyballRow::age).setHeader("Age").setSortable(true).setWidth("4em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::positionScore).setHeader("Pos").setSortable(true).setWidth("4em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::ca).setHeader("CA").setSortable(true).setWidth("4em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::pa).setHeader("PA").setSortable(true).setWidth("4em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::developmentUpside).setHeader("Upside").setSortable(true).setWidth("5em").setFlexGrow(0);
-        grid.addColumn(MoneyballRow::club).setHeader("Club").setSortable(true);
-        grid.addColumn(MoneyballRow::nationality).setHeader("Nation").setSortable(true);
+        grid.addColumn(MoneyballCandidate::name).setHeader("Name").setSortable(true).setAutoWidth(true);
+        grid.addColumn(MoneyballCandidate::age).setHeader("Age").setSortable(true).setWidth("4em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::positionScore).setHeader("Pos").setSortable(true).setWidth("4em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::ca).setHeader("CA").setSortable(true).setWidth("4em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::pa).setHeader("PA").setSortable(true).setWidth("4em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::developmentUpside).setHeader("Upside").setSortable(true).setWidth("5em").setFlexGrow(0);
+        grid.addColumn(MoneyballCandidate::club).setHeader("Club").setSortable(true);
+        grid.addColumn(MoneyballCandidate::nationality).setHeader("Nation").setSortable(true);
         grid.addColumn(row -> String.format(Locale.ROOT, "%.2f", row.deal().score())).setHeader("Deal score")
                 .setSortable(true)
                 .setComparator(Comparator.comparingDouble(row -> row.deal().score()))
                 .setWidth("6em").setFlexGrow(0);
-        grid.addColumn(row -> money(row.deal().market().price())).setHeader("Market value")
+        grid.addColumn(row -> money(row.deal().marketPrice())).setHeader("Market value")
                 .setSortable(true)
-                .setComparator(Comparator.comparingLong(row -> row.deal().market().price()));
+                .setComparator(Comparator.comparingLong(row -> row.deal().marketPrice()));
         grid.addColumn(feeRenderer()).setHeader("Fee")
                 .setSortable(true)
                 .setComparator(Comparator.comparingLong(row -> row.costFee()));
@@ -178,10 +191,10 @@ public class MoneyballView extends VerticalLayout {
                 .setComparator(Comparator.comparingLong(row -> row.deal().marketCost() - row.deal().totalCost()));
         grid.addColumn(row -> money(row.salaryWeekly())).setHeader("Wage/wk")
                 .setSortable(true)
-                .setComparator(Comparator.comparingLong(MoneyballRow::salaryWeekly));
-        grid.addColumn(row -> row.deal().market().samples()).setHeader("Samples")
+                .setComparator(Comparator.comparingLong(MoneyballCandidate::salaryWeekly));
+        grid.addColumn(row -> row.deal().marketSamples()).setHeader("Samples")
                 .setSortable(true)
-                .setComparator(Comparator.comparingInt(row -> row.deal().market().samples()));
+                .setComparator(Comparator.comparingInt(row -> row.deal().marketSamples()));
         grid.addColumn(row -> capitalize(row.willingness())).setHeader("Willingness").setSortable(true);
     }
 
@@ -200,15 +213,8 @@ public class MoneyballView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Finding value signings…");
         summary.getElement().setAttribute("aria-busy", "true");
-        UiAsync.submit(ui, () ->
-                tools.moneyballRows(
-                        clubName,
-                        position,
-                        value(minCa),
-                        value(minPa),
-                        value(maxAge),
-                        feePounds(),
-                        wagePounds()), result -> {
+        UiAsync.submit(ui, () -> moneyball.moneyballCandidates(new MoneyballQuery(
+                        clubName, position, value(minCa), value(minPa), value(maxAge), feePounds(), wagePounds())), result -> {
             grid.setEmptyStateText("No candidates match these filters.");
             grid.setItems(result.rows());
             renderDealCards(result.rows());
@@ -226,10 +232,10 @@ public class MoneyballView extends VerticalLayout {
         });
     }
 
-    private void renderDealCards(List<MoneyballRow> rows) {
+    private void renderDealCards(List<MoneyballCandidate> rows) {
         dealCards.removeAll();
         int shown = 0;
-        for (MoneyballRow row : rows) {
+        for (MoneyballCandidate row : rows) {
             if (shown >= 12) {
                 break;
             }
@@ -239,7 +245,7 @@ public class MoneyballView extends VerticalLayout {
         dealCards.setVisible(shown > 0);
     }
 
-    private Div dealCard(MoneyballRow row) {
+    private Div dealCard(MoneyballCandidate row) {
         Span tier = new Span(row.deal().tier());
         tier.addClassName("tier-badge");
         tier.addClassName("tier-" + row.deal().tier());
@@ -257,7 +263,7 @@ public class MoneyballView extends VerticalLayout {
         why.addClassName("deal-card-why");
         Span cost = new Span((row.freeAgent() ? "Free" : money(row.costFee())) + " · 3-yr " + money(row.deal().totalCost()));
         cost.addClassName("deal-card-cost");
-        Button dossier = new Button("Dossier", event -> PlayerDossier.openNamed(tools, row.name(), currency, sessionClub));
+        Button dossier = new Button("Dossier", event -> PlayerDossier.openNamed(dossierTools, row.name(), currency, sessionClub));
         dossier.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         Button explain = new Button("Ask FM AI", event ->
                 ChatLaunch.open(ChatLaunch.explainDeal(row.name(), sessionClub)));
@@ -270,7 +276,7 @@ public class MoneyballView extends VerticalLayout {
         return card;
     }
 
-    private static ComponentRenderer<HorizontalLayout, MoneyballRow> ratingRenderer() {
+    private static ComponentRenderer<HorizontalLayout, MoneyballCandidate> ratingRenderer() {
         return new ComponentRenderer<>(row -> {
             ProgressBar bar = new ProgressBar(0, 100, row.signingRating());
             bar.addThemeVariants(ProgressBarVariant.LUMO_SUCCESS);
@@ -286,7 +292,7 @@ public class MoneyballView extends VerticalLayout {
         });
     }
 
-    private static ComponentRenderer<Span, MoneyballRow> tierRenderer() {
+    private static ComponentRenderer<Span, MoneyballCandidate> tierRenderer() {
         return new ComponentRenderer<>(row -> {
             Span badge = new Span(row.deal().tier());
             badge.addClassName("tier-badge");
@@ -295,12 +301,12 @@ public class MoneyballView extends VerticalLayout {
         });
     }
 
-    private ComponentRenderer<Span, MoneyballRow> feeRenderer() {
+    private ComponentRenderer<Span, MoneyballCandidate> feeRenderer() {
         return new ComponentRenderer<>(row ->
                 new Span(row.freeAgent() ? "Free" : money(row.costFee())));
     }
 
-    private ComponentRenderer<Span, MoneyballRow> gapRenderer() {
+    private ComponentRenderer<Span, MoneyballCandidate> gapRenderer() {
         return new ComponentRenderer<>(row -> {
             long gap = row.deal().marketCost() - row.deal().totalCost();
             Span value = new Span((gap >= 0 ? "+" : "\u2212") + money(Math.abs(gap)));
@@ -351,5 +357,12 @@ public class MoneyballView extends VerticalLayout {
     private static String capitalize(String value) {
         return value == null || value.isEmpty() ? value
                 : Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    private static MoneyballPort requireMoneyballPort(PlayerAnalysisPort tools) {
+        if (tools instanceof MoneyballPort port) {
+            return port;
+        }
+        throw new IllegalArgumentException("Player analysis adapter does not provide moneyball queries");
     }
 }
