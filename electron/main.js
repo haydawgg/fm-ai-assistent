@@ -32,6 +32,15 @@ if (!gotSingleInstanceLock) {
 let mainWindow = null;
 let quitting = false;
 
+function updateSplashStatus(message) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.executeJavaScript(
+    `document.getElementById('status-message')?.replaceChildren(document.createTextNode(${JSON.stringify(message)}));`,
+  ).catch(() => {});
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -82,6 +91,7 @@ function createWindow() {
 
 function waitForBackend(url, timeoutMs = 120_000) {
   const started = Date.now();
+  updateSplashStatus('Starting Java backend…');
   return new Promise((resolve, reject) => {
     const poll = () => {
       const state = getBackendState();
@@ -91,14 +101,18 @@ function waitForBackend(url, timeoutMs = 120_000) {
       }
       fetch(BACKEND_HEALTH_URL, { signal: AbortSignal.timeout(2000) })
         .then(async (response) => {
-          if (response.ok && await isExpectedBackendResponse(response)) {
-            markBackendReady();
-            resolve();
-          } else {
-            retry();
-          }
-        })
-        .catch(() => retry());
+        if (response.ok && await isExpectedBackendResponse(response)) {
+          markBackendReady();
+          resolve();
+        } else {
+          updateSplashStatus(`Initializing backend… ${Math.floor((Date.now() - started) / 1000)}s`);
+          retry();
+        }
+      })
+        .catch(() => {
+          updateSplashStatus(`Waiting for backend… ${Math.floor((Date.now() - started) / 1000)}s`);
+          retry();
+        });
     };
     const retry = () => {
       if (Date.now() - started > timeoutMs) {
