@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.logging.Logger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class WindowsProcessReader implements ProcessMemoryReader {
     private static final Logger LOGGER = Logger.getLogger(WindowsProcessReader.class.getName());
@@ -45,6 +46,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     private final int pid;
     private final Pointer process;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public WindowsProcessReader(int pid) throws IOException {
         if (Native.POINTER_SIZE != Long.BYTES) {
@@ -119,6 +121,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     @Override
     public byte[] readBytes(long address, int size) throws IOException {
+        ensureOpen();
         ProcessMemoryReader.validateAddressRange(address, size);
         if (size == 0) {
             return new byte[0];
@@ -140,6 +143,7 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     @Override
     public List<MemoryRegion> maps() throws IOException {
+        ensureOpen();
         List<ModuleRange> modules = modules();
         List<MemoryRegion> regions = new ArrayList<>();
         long address = 0;
@@ -328,9 +332,18 @@ public final class WindowsProcessReader implements ProcessMemoryReader {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         boolean closed = Kernel32.INSTANCE.CloseHandle(process);
         if (!closed) {
             LOGGER.warning("CloseHandle failed for process handle (error " + Native.getLastError() + ")");
+        }
+    }
+
+    private void ensureOpen() throws IOException {
+        if (closed.get()) {
+            throw new IOException("Process memory reader is closed");
         }
     }
 

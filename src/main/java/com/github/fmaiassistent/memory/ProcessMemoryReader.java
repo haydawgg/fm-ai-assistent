@@ -36,6 +36,7 @@ public interface ProcessMemoryReader extends AutoCloseable {
      */
     default MemoryReadResult<byte[]> readBytesResult(long address, int size) {
         try {
+            validateAddressRange(address, size);
             byte[] bytes = readBytes(address, size);
             return bytes == null ? MemoryReadResult.unknown("Reader returned no bytes") : MemoryReadResult.known(bytes);
         } catch (IOException | RuntimeException ex) {

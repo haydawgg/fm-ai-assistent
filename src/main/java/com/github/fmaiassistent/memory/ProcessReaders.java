@@ -27,9 +27,20 @@ public final class ProcessReaders {
 
     private static boolean isKnownFmPid(int pid) throws IOException {
         if (isWindows() || isLinux()) {
-            return findProcesses("fm.exe").stream().anyMatch(info -> info.pid() == pid);
+            return findProcesses("fm.exe").stream()
+                    .filter(info -> info.pid() == pid)
+                    .anyMatch(ProcessReaders::isFootballManagerProcess);
         }
         return false;
+    }
+
+    /** Exact executable identity check used before opening a process handle. */
+    static boolean isFootballManagerProcess(ProcessInfo process) {
+        if (process == null || process.name() == null || process.name().isBlank()) {
+            return false;
+        }
+        String name = java.nio.file.Path.of(process.name()).getFileName().toString();
+        return "fm.exe".equalsIgnoreCase(name);
     }
 
     public static List<ProcessInfo> findProcesses(String query) throws IOException {
