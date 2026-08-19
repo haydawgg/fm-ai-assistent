@@ -33,24 +33,19 @@ interface PlayerWorkspaceLoader {
     }
 
     static PlayerWorkspaceLoader database(PlayerDatabaseService service) {
-        return new DatabasePlayerWorkspaceLoader(service);
+        return new DatabasePlayerWorkspaceLoader(PlayerWorkspaceQuery.database(service));
     }
 }
 
 final class DatabasePlayerWorkspaceLoader implements PlayerWorkspaceLoader {
-    private final PlayerDatabaseService service;
+    private final PlayerWorkspaceQuery query;
 
-    DatabasePlayerWorkspaceLoader(PlayerDatabaseService service) {
-        this.service = service;
+    DatabasePlayerWorkspaceLoader(PlayerWorkspaceQuery query) {
+        this.query = query;
     }
 
     @Override
     public Result load(PlayerFilterCriteria filter, String sessionClub) {
-        PlayerFilterCriteria requested = filter == null ? PlayerFilterCriteria.empty() : filter;
-        PlayerFilterCriteria effective = PlayerWorkspaceQuery.effectiveFilter(requested, sessionClub);
-        List<PlayerEntity> rows = effective.isEmpty()
-                ? service.findAllPlayerEntities()
-                : service.findPlayerEntities(effective);
-        return new Result(rows, service.countPlayers());
+        return new Result(query.find(filter, sessionClub), query.count());
     }
 }
