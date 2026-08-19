@@ -2,6 +2,7 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
@@ -114,7 +115,7 @@ public class OverviewView extends VerticalLayout {
 
     private Component insights(List<PlayerEntity> all, List<PlayerEntity> squad, ClubEntity club) {
         long injured = squad.stream().filter(player -> Boolean.TRUE.equals(player.getInjured())).count();
-        long expiring = squad.stream().filter(player -> player.getContractEndDate() != null && !player.getContractEndDate().isBlank()).count();
+        long expiring = squad.stream().filter(OverviewView::contractExpiringSoon).count();
         int averageCa = averageCa(squad.isEmpty() ? all : squad);
         long wage = squad.stream().map(PlayerEntity::getSalaryWeeklyRaw).filter(value -> value != null)
                 .mapToLong(Integer::longValue).sum();
@@ -240,5 +241,10 @@ public class OverviewView extends VerticalLayout {
 
     private static int ca(PlayerEntity player) {
         return player.getCa() == null ? 0 : player.getCa();
+    }
+
+    private static boolean contractExpiringSoon(PlayerEntity player) {
+        Long days = SquadAdvice.daysUntilExpiry(player);
+        return days != null && days >= 0 && days <= 180;
     }
 }

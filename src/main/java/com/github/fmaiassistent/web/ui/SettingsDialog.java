@@ -161,6 +161,16 @@ final class SettingsDialog {
                 + ". On Windows, the API key is protected with Windows DPAPI.");
         file.addClassName("settings-path");
 
+        Button onboarding = new Button("Run setup again", VaadinIcon.ROCKET.create(), event -> {
+            settings.saveOnboardingComplete(false);
+            dialog.close();
+            UI current = UI.getCurrent();
+            if (current != null) {
+                current.getPage().reload();
+            }
+        });
+        onboarding.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
         TextField promptName = new TextField("Saved prompt name");
         promptName.setWidthFull();
         TextArea promptText = new TextArea("Prompt");
@@ -182,7 +192,7 @@ final class SettingsDialog {
 
         VerticalLayout layout = new VerticalLayout(
                 intro, currencySelect, apiKey, test, testStatus, model, fallbackBar, fallbackList, catalogStatus,
-                dailyCap, topP, notify, notifyHint, instructions, promptName, promptText, savePrompt, promptList, file);
+                dailyCap, topP, notify, notifyHint, instructions, promptName, promptText, savePrompt, promptList, onboarding, file);
         layout.setPadding(false);
         layout.setSpacing(true);
         layout.addClassName("settings-content");

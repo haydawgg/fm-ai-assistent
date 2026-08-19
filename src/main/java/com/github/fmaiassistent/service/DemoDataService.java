@@ -55,9 +55,10 @@ public class DemoDataService implements ApplicationRunner {
         }
         CompetitionEntity eredivisie = competitions.save(competition("Eredivisie", "Netherlands", 155, 1001));
         CompetitionEntity premierLeague = competitions.save(competition("Premier League", "England", 190, 1002));
+        CompetitionEntity primeiraLiga = competitions.save(competition("Primeira Liga", "Portugal", 160, 1003));
         ClubEntity feyenoord = clubs.save(club("Feyenoord", "Eredivisie", "Netherlands", 154, 18_500_000L, 24_000_000L, 10001, eredivisie));
         ClubEntity brighton = clubs.save(club("Brighton", "Premier League", "England", 162, 63_000_000L, 47_000_000L, 10002, premierLeague));
-        ClubEntity porto = clubs.save(club("FC Porto", "Primeira Liga", "Portugal", 159, 31_000_000L, 34_000_000L, 10003, eredivisie));
+        ClubEntity porto = clubs.save(club("FC Porto", "Primeira Liga", "Portugal", 159, 31_000_000L, 34_000_000L, 10003, primeiraLiga));
 
         List<PlayerEntity> rows = new ArrayList<>();
         rows.add(player("Jasper Vermeer", "Netherlands", feyenoord, "GK", 142, 150, 29, 18_000, 12_000_000L, false));

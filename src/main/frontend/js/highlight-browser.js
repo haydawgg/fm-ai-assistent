@@ -17,12 +17,12 @@
   }
 
   function highlightElement(element) {
-    if (!element || element.dataset.fmaiHighlighted === 'true') {
+    if (!element || element.dataset.fmaiFallbackOnly === 'true') {
       return;
     }
     element.innerHTML = escapeHtml(element.textContent || '');
     element.classList.add('hljs');
-    element.dataset.fmaiHighlighted = 'true';
+    element.dataset.fmaiFallbackOnly = 'true';
   }
 
   window.hljs = window.hljs || { highlightElement: highlightElement };

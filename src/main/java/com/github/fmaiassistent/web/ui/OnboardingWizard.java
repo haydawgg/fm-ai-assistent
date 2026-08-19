@@ -53,7 +53,7 @@ final class OnboardingWizard {
         apiKey.setValue(settings.openRouterApiKey());
         apiKey.setPlaceholder("sk-or-...");
 
-        Span status = new Span("You can complete setup now or return to these steps later from the top bar.");
+        Span status = new Span("You can complete setup now or return to these steps later from Settings.");
         status.addClassName("settings-intro");
 
         Span progress = new Span();

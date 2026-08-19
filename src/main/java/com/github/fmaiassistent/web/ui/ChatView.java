@@ -1637,6 +1637,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
         private final Set<String> tools = new LinkedHashSet<>();
         private final String userText;
         private final int userOrdinal;
+        private Runnable retryAction = () -> { };
         private String raw = "";
         private String reasoningRaw = "";
         private String generationId = "";
@@ -1667,6 +1668,7 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             Button regenerate = iconButton(VaadinIcon.REFRESH, "Regenerate", () -> regenerateFrom(userText, userOrdinal));
             retry.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             retry.setVisible(false);
+            retry.addClickListener(event -> retryAction.run());
             HorizontalLayout heading = new HorizontalLayout(meta, copy, thumbsUp, thumbsDown, regenerate, retry);
             heading.setWidthFull();
             heading.setAlignItems(FlexComponent.Alignment.CENTER);
@@ -1826,8 +1828,10 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
                       if (window.hljs && typeof window.hljs.highlightElement === 'function') {
                         try {
                           window.hljs.highlightElement(code);
-                          code.dataset.hl = '1';
-                          return;
+                          if (code.dataset.fmaiFallbackOnly !== 'true') {
+                            code.dataset.hl = '1';
+                            return;
+                          }
                         } catch (error) {}
                       }
                       const cls = [...code.classList].find(c => c.startsWith('language-'));
@@ -1932,8 +1936,8 @@ public class ChatView extends VerticalLayout implements BeforeEnterObserver {
             raw = message == null ? "" : message;
             body.setContent(ChatMarkdown.sanitize(raw));
             body.addClassName("chat-error");
+            retryAction = onRetry == null ? () -> { } : onRetry;
             retry.setVisible(retryText != null && !retryText.isBlank());
-            retry.addClickListener(event -> onRetry.run());
             finishStreaming();
         }
 

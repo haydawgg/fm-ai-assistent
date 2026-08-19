@@ -136,21 +136,18 @@ function isBackendAlreadyRunning() {
     fetch(BACKEND_URL, { signal: controller.signal })
       .then(async (response) => {
         clearTimeout(timer);
-        if (response.status >= 500) {
-          // A server is mid-boot or unhealthy on this port. Treat the port as
-          // occupied so we don't spawn a second JVM that races for it.
-          resolve(true);
-          return;
-        }
-        const text = await response.text().catch(() => '');
-        // Only adopt the port if it is really our Vaadin app, not some other service.
-        resolve(/vaadin/i.test(text) || /fm-ai-assistent/i.test(text));
+        resolve(await isExpectedBackendResponse(response));
       })
       .catch(() => {
         clearTimeout(timer);
         resolve(false);
       });
   });
+}
+
+export async function isExpectedBackendResponse(response) {
+  const text = await response.clone().text().catch(() => '');
+  return /fm[\s-]*ai[\s-]*assistent/i.test(text);
 }
 
 function killProcessTree(pid) {

@@ -1,7 +1,13 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { startBackend, stopBackend, getBackendState, markBackendReady } from './java-launcher.js';
+import {
+  startBackend,
+  stopBackend,
+  getBackendState,
+  markBackendReady,
+  isExpectedBackendResponse,
+} from './java-launcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let BACKEND_URL = process.env.FM_AI_BACKEND_URL || 'http://127.0.0.1:8080';
@@ -83,8 +89,8 @@ function waitForBackend(url, timeoutMs = 120_000) {
         return;
       }
       fetch(url, { signal: AbortSignal.timeout(2000) })
-        .then((response) => {
-          if (response.ok) {
+        .then(async (response) => {
+          if (response.ok && await isExpectedBackendResponse(response)) {
             markBackendReady();
             resolve();
           } else {
