@@ -2,6 +2,9 @@ package com.github.fmaiassistent.mcp;
 
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.football.PlayerAnalysisRules;
+import com.github.fmaiassistent.football.TransferShortlistCandidate;
+import com.github.fmaiassistent.football.TransferShortlistPort;
+import com.github.fmaiassistent.football.TransferShortlistQuery;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.service.CompetitionDatabaseService;
@@ -36,7 +39,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 @Service
-public class FmAiAssistentTools implements PlayerAnalysisPort {
+public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlistPort {
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 250;
     private static final int DEFAULT_SHORTLIST_LIMIT = 8;
@@ -765,34 +768,65 @@ public class FmAiAssistentTools implements PlayerAnalysisPort {
             Integer minPotentialAbility,
             Long maxAskingPrice,
             Integer maxWeeklySalary) {
+        return transferShortlistCandidates(new TransferShortlistQuery(
+                managingClub, position, roleName, maxAge, minCurrentAbility, minPotentialAbility,
+                maxAskingPrice, maxWeeklySalary)).stream()
+                .map(FmAiAssistentTools::toTransferShortlistRow)
+                .toList();
+    }
+
+    /** Domain-facing typed recruitment seam used by desktop analysis modules. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<TransferShortlistCandidate> transferShortlistCandidates(TransferShortlistQuery query) {
+        TransferShortlistQuery requested = query == null
+                ? new TransferShortlistQuery(null, null, null, null, null, null, null, null)
+                : query;
         RankedTransfers ranked = rankTransfers(
-                managingClub, position, roleName, null, null, maxAge, minCurrentAbility, minPotentialAbility,
-                maxAskingPrice, maxWeeklySalary, null, null, null, null, null, null, true);
+                requested.managingClub(), requested.position(), requested.roleName(), null, null,
+                requested.maxAge(), requested.minCurrentAbility(), requested.minPotentialAbility(),
+                requested.maxAskingPrice(), requested.maxWeeklySalary(), null, null, null, null, null, null, true);
         List<TransferShortlistRow> rows = new ArrayList<>();
         for (int index = 0; index < ranked.candidates().size(); index++) {
             ScoredCandidate candidate = ranked.candidates().get(index);
-            PlayerEntity player = candidate.player();
             rows.add(new TransferShortlistRow(
                     index + 1,
                     candidate.decisionScore(),
-                    player.getName(),
-                    effectiveAge(player),
-                    player.getNationality(),
-                    player.getClub(),
+                    candidate.player().getName(),
+                    effectiveAge(candidate.player()),
+                    candidate.player().getNationality(),
+                    candidate.player().getClub(),
                     candidate.positionScore(),
                     candidate.roleFit().score(),
-                    value(player.getCa()),
-                    value(player.getPa()),
-                    effectivePotential(player) - value(player.getCa()),
-                    candidate.priceKnown() ? player.getAskingPrice() : null,
-                    value(player.getSalaryWeeklyRaw()),
+                    value(candidate.player().getCa()),
+                    value(candidate.player().getPa()),
+                    effectivePotential(candidate.player()) - value(candidate.player().getCa()),
+                    candidate.priceKnown() ? candidate.player().getAskingPrice() : null,
+                    value(candidate.player().getSalaryWeeklyRaw()),
                     candidate.willingness().name().toLowerCase(Locale.ROOT),
                     candidate.freeAgent(),
-                    Boolean.TRUE.equals(player.getTransferListed()),
-                    Boolean.TRUE.equals(player.getInjured()),
+                    Boolean.TRUE.equals(candidate.player().getTransferListed()),
+                    Boolean.TRUE.equals(candidate.player().getInjured()),
                     candidateSignals(candidate.asCandidate(), ranked.benchmarkCa())));
         }
-        return rows;
+        return rows.stream().map(FmAiAssistentTools::toDomainCandidate).toList();
+    }
+
+    private static TransferShortlistCandidate toDomainCandidate(TransferShortlistRow row) {
+        return new TransferShortlistCandidate(
+                row.rank(), row.score(), row.name(), row.age(), row.nationality(), row.club(),
+                row.positionScore(), row.roleFit(), row.ca(), row.pa(), row.developmentUpside(),
+                row.askingPrice(), row.salaryWeekly(), row.willingness(), row.freeAgent(),
+                row.transferListed(), row.injured(), row.signals());
+    }
+
+    private static TransferShortlistRow toTransferShortlistRow(TransferShortlistCandidate candidate) {
+        return new TransferShortlistRow(
+                candidate.rank(), candidate.score(), candidate.name(), candidate.age(), candidate.nationality(),
+                candidate.club(), candidate.positionScore(), candidate.roleFit(), candidate.ca(), candidate.pa(),
+                candidate.developmentUpside(), candidate.askingPrice(), candidate.salaryWeekly(),
+                candidate.willingness(), candidate.freeAgent(), candidate.transferListed(), candidate.injured(),
+                candidate.signals());
     }
 
     @Transactional(readOnly = true)
