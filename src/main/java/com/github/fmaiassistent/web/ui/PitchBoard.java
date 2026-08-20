@@ -1,6 +1,6 @@
 package com.github.fmaiassistent.web.ui;
 
-import com.github.fmaiassistent.mcp.SquadAdvice;
+import com.github.fmaiassistent.football.FirstXiPick;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 
@@ -23,11 +23,11 @@ final class PitchBoard extends Div {
         add(hint);
     }
 
-    void show(List<SquadAdvice.XiPick> picks) {
+    void show(List<FirstXiPick> picks) {
         show(picks, Map.of());
     }
 
-    void show(List<SquadAdvice.XiPick> picks, Map<String, String> injuryNotes) {
+    void show(List<FirstXiPick> picks, Map<String, String> injuryNotes) {
         removeAll();
         if (picks == null || picks.isEmpty()) {
             setEmpty();
@@ -36,10 +36,10 @@ final class PitchBoard extends Div {
         Div grass = new Div();
         grass.addClassName("pitch-grass");
         grass.add(mark("pitch-halfway"), mark("pitch-box-top"), mark("pitch-box-bottom"), mark("pitch-spot"));
-        List<String> positions = picks.stream().map(SquadAdvice.XiPick::position).toList();
+        List<String> positions = picks.stream().map(FirstXiPick::position).toList();
         List<PitchLayout.Slot> slots = PitchLayout.layout(positions);
         for (PitchLayout.Slot slot : slots) {
-            SquadAdvice.XiPick pick = picks.get(slot.index());
+            FirstXiPick pick = picks.get(slot.index());
             String note = injuryNote(pick.playerName(), injuryNotes);
             Div token = new Div();
             token.addClassName("pitch-token");
@@ -74,7 +74,7 @@ final class PitchBoard extends Div {
         return note == null ? "" : note;
     }
 
-    private static String caption(SquadAdvice.XiPick pick, String note) {
+    private static String caption(FirstXiPick pick, String note) {
         if (pick.hole()) {
             return pick.position() + " hole";
         }

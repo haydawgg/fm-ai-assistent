@@ -2,7 +2,10 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.football.AcademyCandidate;
 import com.github.fmaiassistent.football.ContractRecommendation;
+import com.github.fmaiassistent.football.FirstXiPick;
+import com.github.fmaiassistent.football.FirstXiSlot;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.football.SquadAdvicePort;
 import com.github.fmaiassistent.football.SquadSellCandidate;
@@ -161,21 +164,21 @@ public class DashboardSnapshotService {
         try {
             String source = text(metadata.get("tactic_slots"));
             List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(source.isBlank() ? DEFAULT_TACTIC : source);
-            List<SquadAdvice.XiPick> picks = tools.bestXiRows(clubName, slots);
+            List<FirstXiPick> picks = tools.bestXi(clubName, slots.stream()
+                            .map(slot -> new FirstXiSlot(
+                                    slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole()))
+                            .toList());
             List<String> unavailable = tools.unavailableForClub(clubName).stream()
                     .map(row -> text(row.get("name"))).filter(value -> !value.isBlank()).toList();
-            List<Double> fits = picks.stream().map(SquadAdvice.XiPick::roleFit).filter(value -> value != null).toList();
+            List<Double> fits = picks.stream().map(FirstXiPick::roleFit).filter(value -> value != null).toList();
             Integer fit = fits.isEmpty() ? null : (int) Math.round(fits.stream().mapToDouble(Double::doubleValue).average().orElse(0) / 20d * 100d);
-            List<SquadAdvice.XiPick> filled = picks.stream()
-                    .filter(pick -> !pick.hole() && pick.ca() > 0)
-                    .toList();
-            int strength = filled.isEmpty() ? 0 : (int) Math.round(filled.stream().mapToInt(SquadAdvice.XiPick::ca).average().orElse(0));
+            List<FirstXiPick> filled = picks.stream().filter(pick -> !pick.hole() && pick.ca() > 0).toList();
+            int strength = filled.isEmpty() ? 0 : (int) Math.round(filled.stream().mapToInt(FirstXiPick::ca).average().orElse(0));
             return new DashboardSnapshot.Tactical(
                     picks,
                     unavailable,
                     text(metadata.get("tactic_formation")),
-                    (int) picks.stream().filter(SquadAdvice.XiPick::hole).count(),
-                    filled.isEmpty() ? null : strength,
+                    (int) picks.stream().filter(FirstXiPick::hole).count(), filled.isEmpty() ? null : strength,
                     fit);
         } catch (RuntimeException ignored) {
             return new DashboardSnapshot.Tactical(List.of(), List.of(), text(metadata.get("tactic_formation")), 0, null, null);
@@ -212,7 +215,9 @@ public class DashboardSnapshotService {
 
     private List<SquadAdvice.AcademyRow> safeAcademyRows(String clubName) {
         DashboardSectionState<List<SquadAdvice.AcademyRow>> state = DashboardSectionLoader.load(
-                () -> tools.academyRows(clubName, null), List::isEmpty, "Academy unavailable");
+                () -> tools.academyCandidates(clubName, null).stream()
+                        .map(DashboardSnapshotService::toAcademyRow)
+                        .toList(), List::isEmpty, "Academy unavailable");
         return DashboardSectionLoader.or(state, List.of());
     }
 
@@ -239,6 +244,12 @@ public class DashboardSnapshotService {
                 candidate.pa(), candidate.salaryWeekly(), candidate.askingPrice(), candidate.contractEnd(),
                 candidate.depthAtPosition(), candidate.caVsFirstTeam(), candidate.recommendation(),
                 candidate.sellScore(), candidate.reasons());
+    }
+
+    private static SquadAdvice.AcademyRow toAcademyRow(AcademyCandidate candidate) {
+        return new SquadAdvice.AcademyRow(candidate.name(), candidate.position(), candidate.age(), candidate.ca(),
+                candidate.pa(), candidate.upside(), candidate.vsFirstTeam(), candidate.dualPositions(),
+                candidate.salaryWeekly(), candidate.contractEnd());
     }
 
     static List<DashboardSnapshot.Depth> depth(List<PlayerEntity> squad) {

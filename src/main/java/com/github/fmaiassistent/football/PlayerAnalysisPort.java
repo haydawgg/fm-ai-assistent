@@ -1,7 +1,6 @@
 package com.github.fmaiassistent.football;
 
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
-import com.github.fmaiassistent.mcp.SquadAdvice;
 
 import java.util.List;
 import java.util.Map;
@@ -21,10 +20,9 @@ public interface PlayerAnalysisPort {
 
     PlayerEntity playerByName(String name);
 
-    List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge);
+    List<AcademyCandidate> academyCandidates(String managingClub, Integer maxAge);
 
-    List<SquadAdvice.XiPick> bestXiRows(String managingClub, List<SquadAdvice.XiSlot> slots);
+    List<FirstXiPick> bestXi(String managingClub, List<FirstXiSlot> slots);
 
-    List<Map<String, Object>> suggestedBuys(String managingClub, List<SquadAdvice.XiPick> picks);
-
+    List<Map<String, Object>> suggestedBuys(FirstXiSuggestionQuery query);
 }

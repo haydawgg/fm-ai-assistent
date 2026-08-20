@@ -1,5 +1,9 @@
 package com.github.fmaiassistent.mcp;
 
+import com.github.fmaiassistent.football.AcademyCandidate;
+import com.github.fmaiassistent.football.FirstXiPick;
+import com.github.fmaiassistent.football.FirstXiSlot;
+import com.github.fmaiassistent.football.FirstXiSuggestionQuery;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.football.PlayerAnalysisRules;
 import com.github.fmaiassistent.football.TransferShortlistCandidate;
@@ -799,6 +803,14 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return academyRows(managingClub, maxAge, null);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<AcademyCandidate> academyCandidates(String managingClub, Integer maxAge) {
+        return academyRows(managingClub, maxAge).stream()
+                .map(FmAiAssistentTools::toAcademyCandidate)
+                .toList();
+    }
+
     private List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge, PositionSpec position) {
         ClubEntity club = requireClub(managingClub);
         int cap = maxAge == null ? DEFAULT_WONDERKID_MAX_AGE : maxAge;
@@ -894,6 +906,18 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return SquadAdvice.bestXi(squadPlayers(club.getName()), slots, this::slotRoleFit);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<FirstXiPick> bestXi(String managingClub, List<FirstXiSlot> slots) {
+        List<SquadAdvice.XiSlot> transportSlots = slots == null ? List.of() : slots.stream()
+                .map(slot -> new SquadAdvice.XiSlot(
+                        slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole()))
+                .toList();
+        return bestXiRows(managingClub, transportSlots).stream()
+                .map(FmAiAssistentTools::toFirstXiPick)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public List<Map<String, Object>> suggestedBuys(String managingClub, List<SquadAdvice.XiPick> picks) {
         List<Map<String, Object>> upgrades = new ArrayList<>();
@@ -925,6 +949,29 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
             upgrades.add(row);
         }
         return upgrades;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> suggestedBuys(FirstXiSuggestionQuery query) {
+        FirstXiSuggestionQuery requested = query == null
+                ? new FirstXiSuggestionQuery(null, List.of()) : query;
+        List<SquadAdvice.XiPick> picks = requested.picks().stream()
+                .map(pick -> new SquadAdvice.XiPick(
+                        pick.position(), pick.inPossessionRole(), pick.outOfPossessionRole(), pick.playerName(),
+                        pick.positionScore(), pick.roleFit(), pick.ca(), pick.pa(), pick.hole()))
+                .toList();
+        return suggestedBuys(requested.managingClub(), picks);
+    }
+
+    private static AcademyCandidate toAcademyCandidate(SquadAdvice.AcademyRow row) {
+        return new AcademyCandidate(row.name(), row.position(), row.age(), row.ca(), row.pa(), row.upside(),
+                row.vsFirstTeam(), row.dualPositions(), row.salaryWeekly(), row.contractEnd());
+    }
+
+    private static FirstXiPick toFirstXiPick(SquadAdvice.XiPick row) {
+        return new FirstXiPick(row.position(), row.inPossessionRole(), row.outOfPossessionRole(), row.playerName(),
+                row.positionScore(), row.roleFit(), row.ca(), row.pa(), row.hole());
     }
 
     /** Typed transfer-shortlist candidate, shared by the MCP tool and the web UI. */

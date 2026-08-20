@@ -1,8 +1,8 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.AcademyCandidate;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
@@ -36,7 +36,7 @@ public class AcademyView extends VerticalLayout {
     private final IntegerField maxAge = new IntegerField("Max age");
     private final Button runButton = new Button("Show intake", VaadinIcon.ACADEMY_CAP.create());
     private final Span summary = new Span();
-    private final Grid<SquadAdvice.AcademyRow> grid = new Grid<>();
+    private final Grid<AcademyCandidate> grid = new Grid<>();
 
     public AcademyView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
         this.tools = tools;
@@ -100,17 +100,17 @@ public class AcademyView extends VerticalLayout {
                 .setKey("ask")
                 .setWidth("3.5em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(SquadAdvice.AcademyRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::upside).setHeader("Upside").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::name).setHeader("Name").setAutoWidth(true);
+        grid.addColumn(AcademyCandidate::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::upside).setHeader("Upside").setWidth("5em").setFlexGrow(0);
         grid.addColumn(row -> row.vsFirstTeam() >= 0 ? "+" + row.vsFirstTeam() : String.valueOf(row.vsFirstTeam()))
                 .setHeader("vs XI").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.AcademyRow::dualPositions).setHeader("Natural pos").setWidth("7em").setFlexGrow(0);
+        grid.addColumn(AcademyCandidate::dualPositions).setHeader("Natural pos").setWidth("7em").setFlexGrow(0);
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
-        grid.addColumn(SquadAdvice.AcademyRow::contractEnd).setHeader("Contract");
+        grid.addColumn(AcademyCandidate::contractEnd).setHeader("Contract");
     }
 
     private void run() {
@@ -125,7 +125,7 @@ public class AcademyView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Loading academy intake…");
         summary.getElement().setAttribute("aria-busy", "true");
-        UiAsync.submit(ui, () -> tools.academyRows(sessionClub, cap), rows -> {
+        UiAsync.submit(ui, () -> tools.academyCandidates(sessionClub, cap), rows -> {
                     grid.setItems(rows);
                     long cover = rows.stream().filter(row -> row.vsFirstTeam() >= -8).count();
                     summary.removeClassName("moneyball-empty");

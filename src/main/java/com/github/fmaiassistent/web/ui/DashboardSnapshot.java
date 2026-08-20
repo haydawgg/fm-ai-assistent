@@ -1,7 +1,7 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
-import com.github.fmaiassistent.mcp.SquadAdvice;
+import com.github.fmaiassistent.football.FirstXiPick;
 
 import java.util.List;
 
@@ -35,7 +35,7 @@ record DashboardSnapshot(
     }
 
     record Tactical(
-            List<SquadAdvice.XiPick> picks,
+            List<FirstXiPick> picks,
             List<String> unavailable,
             String formation,
             int holes,

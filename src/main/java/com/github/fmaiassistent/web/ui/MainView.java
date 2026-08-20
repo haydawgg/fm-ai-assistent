@@ -57,6 +57,7 @@ public class MainView extends VerticalLayout {
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
     private final PlayerWorkspaceLoader playerLoader;
+    private final PlayerWorkspaceSavedViews savedViewStore;
 
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
     private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
@@ -100,6 +101,7 @@ public class MainView extends VerticalLayout {
         this.competitions = competitions;
         this.settings = settings;
         this.playerLoader = PlayerWorkspaceLoader.database(players);
+        this.savedViewStore = new PlayerWorkspaceSavedViews(settings);
         this.currency = settings.currency();
         this.playerWorkspaceGrid = new PlayerWorkspaceGrid(playersGrid, currency);
 
@@ -627,7 +629,7 @@ public class MainView extends VerticalLayout {
     private void refreshSavedViewOptions() {
         syncingSavedViews = true;
         try {
-            List<String> names = settings.playerViews().stream().map(SavedPlayerView::name).toList();
+            List<String> names = savedViewStore.names();
             String current = savedViews.getValue();
             savedViews.setItems(names);
             if (current != null && names.stream().anyMatch(name -> name.equalsIgnoreCase(current))) {
@@ -644,9 +646,7 @@ public class MainView extends VerticalLayout {
     }
 
     private void applySavedView(String name) {
-        settings.playerViews().stream()
-                .filter(view -> view.name().equalsIgnoreCase(name))
-                .findFirst()
+        savedViewStore.find(name)
                 .ifPresent(view -> {
                     playerFilter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
                     showAllPlayerColumns = view.showAllColumns();
@@ -680,7 +680,7 @@ public class MainView extends VerticalLayout {
                 UiFeedback.show("Enter a view name", 3000, Notification.Position.TOP_CENTER);
                 return;
             }
-            settings.savePlayerView(new SavedPlayerView(viewName, playerFilter, showAllPlayerColumns));
+            savedViewStore.save(viewName, playerFilter, showAllPlayerColumns);
             refreshSavedViewOptions();
             syncingSavedViews = true;
             try {
@@ -706,7 +706,7 @@ public class MainView extends VerticalLayout {
             UiFeedback.show("Select a saved view to delete", 2500, Notification.Position.TOP_CENTER);
             return;
         }
-        settings.deletePlayerView(name);
+        savedViewStore.delete(name);
         refreshSavedViewOptions();
         Notification deleted = UiFeedback.show("View deleted", 2500, Notification.Position.TOP_CENTER);
         deleted.addClassName("app-toast");

@@ -1,10 +1,12 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.FirstXiPick;
+import com.github.fmaiassistent.football.FirstXiSlot;
+import com.github.fmaiassistent.football.FirstXiSuggestionQuery;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.PositionCodes;
-import com.github.fmaiassistent.mcp.SquadAdvice;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
@@ -63,7 +65,7 @@ public class FirstXiView extends VerticalLayout {
     private final Span summary = new Span();
     private final PitchBoard pitch = new PitchBoard();
     private final Div unavailable = new Div();
-    private final Grid<SquadAdvice.XiPick> grid = new Grid<>();
+    private final Grid<FirstXiPick> grid = new Grid<>();
     private final Grid<UpgradeRow> upgrades = new Grid<>();
 
     public FirstXiView(
@@ -163,7 +165,7 @@ public class FirstXiView extends VerticalLayout {
             if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
                 return;
             }
-            SquadAdvice.XiPick pick = event.getItem();
+            FirstXiPick pick = event.getItem();
             if (pick.hole()) {
                 ChatLaunch.open(ChatLaunch.explainHole(pick.position(), sessionClub));
                 return;
@@ -181,14 +183,14 @@ public class FirstXiView extends VerticalLayout {
             }
             return ChatLaunch.askButton(pick.playerName(), sessionClub);
         }).setHeader("").setKey("ask").setWidth("3.5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.XiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.XiPick::playerName).setHeader("Player");
-        grid.addColumn(SquadAdvice.XiPick::inPossessionRole).setHeader("In possession");
-        grid.addColumn(SquadAdvice.XiPick::outOfPossessionRole).setHeader("Out of possession");
-        grid.addColumn(SquadAdvice.XiPick::positionScore).setHeader("Pos score").setWidth("6em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.XiPick::roleFit).setHeader("Role fit").setWidth("6em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.XiPick::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.XiPick::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(FirstXiPick::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(FirstXiPick::playerName).setHeader("Player");
+        grid.addColumn(FirstXiPick::inPossessionRole).setHeader("In possession");
+        grid.addColumn(FirstXiPick::outOfPossessionRole).setHeader("Out of possession");
+        grid.addColumn(FirstXiPick::positionScore).setHeader("Pos score").setWidth("6em").setFlexGrow(0);
+        grid.addColumn(FirstXiPick::roleFit).setHeader("Role fit").setWidth("6em").setFlexGrow(0);
+        grid.addColumn(FirstXiPick::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(FirstXiPick::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
         grid.addColumn(pick -> pick.hole() ? "hole" : "filled")
                 .setHeader("Status")
                 .setRenderer(new ComponentRenderer<>(pick -> {
@@ -215,7 +217,7 @@ public class FirstXiView extends VerticalLayout {
     }
 
     private record RunResult(
-            List<SquadAdvice.XiPick> picks,
+            List<FirstXiPick> picks,
             List<Map<String, Object>> unavailable,
             List<Map<String, Object>> buys) {
     }
@@ -233,18 +235,21 @@ public class FirstXiView extends VerticalLayout {
         summary.getElement().setAttribute("aria-busy", "true");
         String tacticText = tactic.getValue();
         UiAsync.submit(ui, () -> {
-            List<SquadAdvice.XiSlot> slots = FmAiAssistentTools.parseTacticSlots(tacticText);
-            List<SquadAdvice.XiPick> picks = tools.bestXiRows(sessionClub, slots);
-            return new RunResult(picks, tools.unavailableForClub(sessionClub), tools.suggestedBuys(sessionClub, picks));
+            List<FirstXiSlot> slots = FmAiAssistentTools.parseTacticSlots(tacticText).stream()
+                    .map(slot -> new FirstXiSlot(slot.position(), slot.inPossessionRole(), slot.outOfPossessionRole()))
+                    .toList();
+            List<FirstXiPick> picks = tools.bestXi(sessionClub, slots);
+            return new RunResult(picks, tools.unavailableForClub(sessionClub),
+                    tools.suggestedBuys(new FirstXiSuggestionQuery(sessionClub, picks)));
         }, result -> {
-            List<SquadAdvice.XiPick> picks = result.picks();
+            List<FirstXiPick> picks = result.picks();
             List<Map<String, Object>> out = result.unavailable();
             List<Map<String, Object>> buys = result.buys();
             grid.setItems(picks);
             renderUnavailable(out);
             showPitch(picks, out);
             List<String> holes = new ArrayList<>();
-            for (SquadAdvice.XiPick pick : picks) {
+            for (FirstXiPick pick : picks) {
                 if (pick.hole()) {
                     holes.add(pick.position());
                 }
@@ -291,7 +296,7 @@ public class FirstXiView extends VerticalLayout {
             return;
         }
         pitch.show(live.stream()
-                .map(slot -> new SquadAdvice.XiPick(
+                .map(slot -> new FirstXiPick(
                         slot.position(),
                         "",
                         "",
@@ -304,7 +309,7 @@ public class FirstXiView extends VerticalLayout {
                 .toList(), injuryNotes);
     }
 
-    private void showPitch(List<SquadAdvice.XiPick> recommended, List<Map<String, Object>> unavailableRows) {
+    private void showPitch(List<FirstXiPick> recommended, List<Map<String, Object>> unavailableRows) {
         Map<String, String> notes = injuryNotes(unavailableRows);
         List<LiveSelectedXiPanel.SelectedSlot> live = LiveSelectedXiPanel.parse(
                 stringMeta(metadata, "tactic_selected"));
