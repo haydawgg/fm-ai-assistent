@@ -67,6 +67,7 @@ public class MainView extends VerticalLayout {
     private final Tabs tabs = new Tabs();
     private final Div content = new Div();
     private final Grid<PlayerEntity> playersGrid = new Grid<>();
+    private final PlayerWorkspaceGrid playerWorkspaceGrid;
     private final Grid<ClubEntity> clubsGrid = new Grid<>();
     private final Grid<CompetitionEntity> competitionsGrid = new Grid<>();
 
@@ -85,8 +86,6 @@ public class MainView extends VerticalLayout {
     private final PlayerWorkspaceSelection selection = new PlayerWorkspaceSelection();
     private boolean syncingQuickFilters;
     private boolean syncingSavedViews;
-    private boolean playersColumnsBuilt;
-    private boolean playersColumnsAllMode;
     private boolean clubsColumnsBuilt;
     private boolean competitionsColumnsBuilt;
     private List<PlayerEntity> visiblePlayers = List.of();
@@ -102,6 +101,7 @@ public class MainView extends VerticalLayout {
         this.settings = settings;
         this.playerLoader = PlayerWorkspaceLoader.database(players);
         this.currency = settings.currency();
+        this.playerWorkspaceGrid = new PlayerWorkspaceGrid(playersGrid, currency);
 
         setSizeFull();
         setPadding(false);
@@ -449,36 +449,8 @@ public class MainView extends VerticalLayout {
     }
 
     private void setPlayerGrid(List<PlayerWorkspaceColumns.Column> columns, List<PlayerEntity> rows) {
-        boolean mode = showAllPlayerColumns;
-        if (!playersColumnsBuilt || playersColumnsAllMode != mode) {
-            playersGrid.removeAllColumns();
-            playersGrid.setPartNameGenerator(this::playerRowPartName);
-            for (PlayerWorkspaceColumns.Column column : columns) {
-                Grid.Column<PlayerEntity> gridColumn;
-                if ("NAME".equals(column.key())) {
-                    gridColumn = playersGrid.addColumn(new ComponentRenderer<>(this::playerNameCell))
-                            .setFlexGrow(1)
-                            .setWidth("220px");
-                } else if ("CA".equals(column.key()) || "PA".equals(column.key())) {
-                    gridColumn = playersGrid.addColumn(new ComponentRenderer<>(player -> abilityCell(column.value(player))))
-                            .setAutoWidth(true);
-                } else {
-                    gridColumn = playersGrid.addColumn(player -> displayColumn(column.key(), column.value(player)))
-                            .setAutoWidth(true);
-                }
-                gridColumn
-                        .setKey(column.key())
-                        .setHeader(column.header())
-                        .setResizable(true)
-                        .setComparator((left, right) -> comparePlayerColumn(left, right, column))
-                        .setSortable(true);
-                if ("NAME".equals(column.key())) {
-                    gridColumn.setFrozen(true);
-                }
-            }
-            playersColumnsBuilt = true;
-            playersColumnsAllMode = mode;
-        }
+        String filterClub = playerFilter.club();
+        playerWorkspaceGrid.configure(columns, showAllPlayerColumns, filterClub);
         playersGrid.setItems(rows);
         visiblePlayers = List.copyOf(rows);
         selection.reconcile(rows);
@@ -652,57 +624,6 @@ public class MainView extends VerticalLayout {
         return state;
     }
 
-    private Component playerNameCell(PlayerEntity player) {
-        Span name = new Span(display(player.getName()));
-        name.addClassName("player-name");
-        Div badges = new Div();
-        badges.addClassName("player-badges");
-        if (Boolean.TRUE.equals(player.getInjured())) {
-            Span injured = new Span("INJ");
-            injured.addClassName("row-badge");
-            injured.addClassName("row-badge-injury");
-            badges.add(injured);
-        }
-        if (Boolean.TRUE.equals(player.getTransferListed())) {
-            Span listed = new Span("Listed");
-            listed.addClassName("row-badge");
-            listed.addClassName("row-badge-transfer");
-            badges.add(listed);
-        }
-        Div cell = new Div(name, badges);
-        cell.addClassName("player-name-cell");
-        return cell;
-    }
-
-    private Component abilityCell(Object value) {
-        Span text = new Span(display(value));
-        text.addClassName("ability-value");
-        Div cell = new Div(text);
-        cell.addClassName("ability-cell");
-        String tone = abilityTone(value);
-        if (tone != null) {
-            cell.addClassName(tone);
-        }
-        return cell;
-    }
-
-    private static String abilityTone(Object value) {
-        Long score = sortableLong(value);
-        if (score == null) {
-            return null;
-        }
-        if (score >= 160) {
-            return "ability-elite";
-        }
-        if (score >= 140) {
-            return "ability-high";
-        }
-        if (score >= 120) {
-            return "ability-mid";
-        }
-        return "ability-low";
-    }
-
     private void refreshSavedViewOptions() {
         syncingSavedViews = true;
         try {
@@ -789,22 +710,6 @@ public class MainView extends VerticalLayout {
         refreshSavedViewOptions();
         Notification deleted = UiFeedback.show("View deleted", 2500, Notification.Position.TOP_CENTER);
         deleted.addClassName("app-toast");
-    }
-
-    private String playerRowPartName(PlayerEntity player) {
-        String filterClub = playerFilter.club();
-        if (filterClub == null || filterClub.isBlank()) {
-            return null;
-        }
-        boolean contractedToFilter = sameText(player.getClub(), filterClub);
-        boolean playingAtFilter = sameText(player.getPlayingClub(), filterClub);
-        if (contractedToFilter && !playingAtFilter) {
-            return "contract-club-loaned-out";
-        }
-        if (playingAtFilter && !contractedToFilter) {
-            return "playing-club-loaned-in";
-        }
-        return null;
     }
 
     private void openPlayerDrawer(PlayerEntity player) {
@@ -2115,23 +2020,6 @@ public class MainView extends VerticalLayout {
     private static boolean isGoalkeeper(PlayerEntity player) {
         Integer goalkeeper = player.getGoalkeeper();
         return goalkeeper != null && goalkeeper >= 15;
-    }
-
-    private int comparePlayerColumn(PlayerEntity left, PlayerEntity right, PlayerWorkspaceColumns.Column column) {
-        if (PlayerWorkspaceColumns.NUMERIC_SORT_COLUMNS.contains(column.key())) {
-            if ("SALARY_WEEKLY_RAW".equals(column.key())) {
-                return compareLongs(
-                        displayedWeeklySalary(column.value(left)),
-                        displayedWeeklySalary(column.value(right)));
-            }
-            return compareLongs(sortableLong(column.value(left)), sortableLong(column.value(right)));
-        }
-        return display(column.value(left)).compareToIgnoreCase(display(column.value(right)));
-    }
-
-    private Long displayedWeeklySalary(Object value) {
-        Long pounds = sortableLong(value);
-        return pounds == null ? null : MoneyDisplay.displayedAmount(pounds, currency);
     }
 
     private static int compareClubColumn(ClubEntity left, ClubEntity right, String column) {
