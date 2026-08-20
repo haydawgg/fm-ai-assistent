@@ -16,7 +16,7 @@ The app also includes a frontend where you can search and filter the data yourse
 - Compare (`/compare-squads`) — two clubs, best player per position
 - Chat (`/chat`) — in-app OpenRouter chat using the same `fm26_*` tools
 
-You can inspect attributes, positions, reputations, contracts, salaries, asking prices, and budgets. Preferred-move traits are filled when RAM name vectors match. Morale, form, and match stats stay empty until those offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring. Status fields that fail to read are shown as unknown rather than false.
+You can inspect attributes, positions, reputations, contracts, salaries, asking prices, budgets, and the persisted current-season statistics when a validated layout is available. Preferred-move traits are filled when RAM name vectors match. Morale and form remain unavailable until their offsets are validated. In/out-of-possession roles are not read from RAM; paste them on First XI, or load an `.fmf` on Chat, if you want role-fit scoring. Status fields that fail to read are shown as unknown rather than false.
 
 Display currency is chosen in Settings. RAM snapshots persist in a local H2 file (`fm-ai-assistent-db`) under `%USERPROFILE%\\.fm-ai-assistent` on Windows (or `~/.fm-ai-assistent` on Linux). Existing files beside an older jar or executable are migrated there with a retained backup on first launch.
 
@@ -54,7 +54,7 @@ After building the native executable, package it with Electron:
 npm run build-native-win
 ```
 
-The packaged app prefers the bundled native backend and includes its generated runtime DLLs. Set `FM_AI_BACKEND_MODE=java` to force the Java backend, or use `FM_AI_BACKEND_MODE=auto` to prefer native and fall back to Java when the native artifact is unavailable.
+The packaged app includes both the bundled native backend and the Java backend. In `auto` mode it prefers the regular Java 25 backend when the bundled jar and Java 25 are available because that is the most compatible path for Windows process-memory access. Set `FM_AI_BACKEND_MODE=native` to force the native backend, or `FM_AI_BACKEND_MODE=java` to force the Java backend.
 
 ### Option 1: Java Jar
 
@@ -79,6 +79,8 @@ The application starts on:
 ```text
 http://127.0.0.1:8080
 ```
+
+In the desktop app, use `Ctrl +` and `Ctrl -` to zoom the UI between 80% and 150%.
 
 After a load, `fm26_current_tactic` reports the live formation and selected XI when the scan hits. In-app chat uses an OpenRouter key from Settings. You can also connect an MCP client such as Claude Desktop to `/mcp`.
 
@@ -123,7 +125,7 @@ The application reads the FM26 archive catalog, decrypts and decompresses the em
 
 Recruitment: `fm26_transfer_shortlist`, `fm26_moneyball_shortlist`, `fm26_wonderkid_shortlist`.
 Squad: `fm26_sell_shortlist`, `fm26_compare_squads`, `fm26_compare_players`, `fm26_best_xi`, `fm26_current_tactic`.
-Lookup: `fm26_status`, `fm26_load_from_ram`, `fm26_find_clubs`, `fm26_find_players`, `fm26_find_competitions`, `fm26_get_club_context`, `fm26_get_player_details`, `fm26_get_role_attributes`.
+Lookup: `fm26_status`, `fm26_load_from_ram`, `fm26_find_clubs`, `fm26_find_players`, `fm26_find_competitions`, `fm26_get_club_context`, `fm26_get_player_details`, `fm26_get_player_match_stats`, `fm26_get_role_attributes`.
 Research: `fm26_ram_table_counts` (live offset-table slot counts; not a manager workflow).
 
 `fm26_load_from_ram` starts an asynchronous load and returns a `job_id`. Call `fm26_status` to monitor the phase, progress and final counts. The web UI still displays live progress while loading.
@@ -155,13 +157,20 @@ Restart Claude Desktop after changing the config. The web server binds to `127.0
 - Start fm-ai-assistent
 - Open http://127.0.0.1:8080
 - Load from RAM
+- Optional: use **Import stats** on the Player Desk to preview and merge a Football Manager CSV export. The preview shows matched, ambiguous, unmatched, and invalid rows before saving. Aggregate season fields update only when the CSV provides a valid value; extra numeric fields are retained separately, and rows with a match date are persisted as match-level statistics. **Import history** records the source, season, counts, and timestamp.
 - Use Shortlist / Moneyball / Squad trim / First XI / Compare, or Chat (OpenRouter), or connect an MCP client to `/mcp`
 
 ## Known limits
 
-- Morale, form, appearances, goals and assists are not read from RAM yet.
+- Morale and form remain unavailable until their offsets are independently validated. Current-season all-competition appearances, starts, minutes, goals, assists and average rating are persisted as nullable values; unsupported or unreadable FM builds show `null`/Unknown rather than zero.
 - In/out-of-possession roles are not in RAM. Use Chat `.fmf` import or paste roles on First XI.
 - Preferred-move traits are filled only when RAM name vectors match.
+- Native candidate fields (UID, morale, condition and transfer-value hints) are disabled unless an exact validated FM build/module profile is registered. External offset tables are treated as research leads, not production offsets.
+- Candidate native fields now carry group and field-level provenance in the dossier and MCP output; `unavailable` means the field was not validated/read, not zero.
+- Published snapshots retain the numeric native offset-table build key alongside the module path, size, and SHA-256 so offset validation is reproducible.
+- CSV imports normalize common advanced metrics such as xG, xA, key passes, chances created, and shots, and derive goals/assists per 90 only when aggregate minutes are known.
+- CSV imports match by unique player name, optionally narrowed by club; ambiguous or unmatched rows are reported and not applied.
+- Imported aggregate metrics and match-level metrics are labeled as CSV-backed. Native RAM statistics remain current-season all-competition totals, and `null` means unknown rather than zero.
 - Staff and retired people without playable positions are excluded from transfer and moneyball pools.
 - In-app chat sends the selected save context and conversation to OpenRouter. Use MCP-only mode if you do not want to configure an OpenRouter key.
 

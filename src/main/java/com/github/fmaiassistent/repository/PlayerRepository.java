@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
@@ -15,6 +17,9 @@ public interface PlayerRepository extends JpaRepository<PlayerEntity, Long>, Jpa
 
     @EntityGraph(attributePaths = {"clubEntity", "clubEntity.competitionEntity", "playingClubEntity"})
     List<PlayerEntity> findAll(Specification<PlayerEntity> spec);
+
+    @EntityGraph(attributePaths = {"clubEntity", "clubEntity.competitionEntity", "playingClubEntity"})
+    Page<PlayerEntity> findAll(Specification<PlayerEntity> spec, Pageable pageable);
 
     @Query("""
             select player
@@ -39,6 +44,9 @@ public interface PlayerRepository extends JpaRepository<PlayerEntity, Long>, Jpa
     List<PlayerEntity> findAllWithClubsByClubName(@Param("club") String club, @Param("clubVariants") Collection<String> clubVariants);
 
     List<PlayerEntity> findByRecordAddressIn(Collection<String> recordAddresses);
+
+    @EntityGraph(attributePaths = {"clubEntity", "playingClubEntity"})
+    List<PlayerEntity> findByNameContainingIgnoreCase(String name);
 
     @Query("select distinct p.nationality from PlayerEntity p where p.nationality is not null and p.nationality <> '' order by p.nationality")
     List<String> findDistinctNationalities();

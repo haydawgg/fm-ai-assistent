@@ -14,16 +14,23 @@ final class PlayerWorkspaceFormatting {
         return value == null ? "" : Objects.toString(value);
     }
 
+    static String rating(Object value) {
+        if (value == null) return "—";
+        if (!(value instanceof Number number)) return display(value);
+        return String.format(java.util.Locale.ROOT, "%.2f", number.doubleValue());
+    }
+
     static String column(String column, Object value, MoneyCurrency currency) {
         if ("SALARY_WEEKLY_RAW".equals(column) || PlayerWorkspaceColumns.MONEY_COLUMNS.contains(column)) {
             return money(value, currency);
         }
-        return display(value);
+        if ("AVERAGE_RATING".equals(column)) return rating(value);
+        return value == null ? "—" : display(value);
     }
 
     static String money(Object value, MoneyCurrency currency) {
         Long pounds = sortableLong(value);
-        return pounds == null ? "" : MoneyDisplay.format(pounds, currency);
+        return pounds == null ? "—" : MoneyDisplay.format(pounds, currency);
     }
 
     static String height(PlayerEntity player) {
@@ -54,6 +61,15 @@ final class PlayerWorkspaceFormatting {
         }
         try {
             return Long.valueOf(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    static Double sortableDouble(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) return null;
+        try {
+            return Double.valueOf(String.valueOf(value));
         } catch (NumberFormatException ex) {
             return null;
         }

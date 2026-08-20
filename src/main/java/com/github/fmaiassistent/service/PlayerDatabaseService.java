@@ -11,12 +11,17 @@ import com.github.fmaiassistent.exporter.TacticExporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.persistence.EntityManager;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
+import com.github.fmaiassistent.config.CaffeineCacheConfiguration;
 import org.springframework.util.StopWatch;
 
 import java.io.IOException;
@@ -69,10 +74,12 @@ public class PlayerDatabaseService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, allEntries = true)
     public LoadResult saveExported(PlayerExporter.ExportResult result) {
         return saveExported(result, LoadProgressReporter.NONE);
     }
 
+    @CacheEvict(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, allEntries = true)
     public LoadResult saveExported(PlayerExporter.ExportResult result, Consumer<LoadProgress> progress) {
         LoadProgressReporter reporter = new LoadProgressReporter(progress);
         long total = result.rows().size();
@@ -114,7 +121,33 @@ public class PlayerDatabaseService {
     public void finishSnapshot(PlayerExporter.ExportResult result) {
         metadata.save(new LoadMetadataEntity("game_date", result.gameDate()));
         metadata.save(new LoadMetadataEntity("loaded_at", OffsetDateTime.now().toString()));
+        metadata.save(new LoadMetadataEntity("game_build", String.valueOf(result.build())));
+        metadata.save(new LoadMetadataEntity("season_key", seasonKey(result.gameDate())));
+        metadata.save(new LoadMetadataEntity("season_stats_scope", "all_competitions"));
+        metadata.save(new LoadMetadataEntity("season_stats_source", "native_memory"));
+        metadata.save(new LoadMetadataEntity("season_stats_state", result.seasonStatsState()));
+        metadata.save(new LoadMetadataEntity("season_stats_available", String.valueOf(result.seasonStatsAvailable())));
+        metadata.save(new LoadMetadataEntity("season_stats_partial", String.valueOf(result.seasonStatsPartial())));
+        metadata.save(new LoadMetadataEntity("season_stats_read_at", OffsetDateTime.now().toString()));
+        if (result.pluginIdentity() != null) {
+            metadata.save(new LoadMetadataEntity("game_plugin_path", result.pluginIdentity().path()));
+            metadata.save(new LoadMetadataEntity("game_plugin_sha256", result.pluginIdentity().sha256()));
+            metadata.save(new LoadMetadataEntity("game_plugin_size", String.valueOf(result.pluginIdentity().size())));
+        }
         saveTactic(result);
+    }
+
+    private static String seasonKey(String gameDate) {
+        if (gameDate == null || gameDate.isBlank()) {
+            return "";
+        }
+        try {
+            LocalDate date = LocalDate.parse(gameDate);
+            int startYear = date.getMonthValue() >= 7 ? date.getYear() : date.getYear() - 1;
+            return startYear + "/" + String.valueOf(startYear + 1).substring(2);
+        } catch (RuntimeException ex) {
+            return "";
+        }
     }
 
     private void flushPlayerBatch(List<PlayerEntity> batch) {
@@ -282,22 +315,81 @@ public class PlayerDatabaseService {
         return out;
     }
 
+    /** Loads one server-side page for the player desk. Unknown persisted scalar values fail range filters. */
     @Transactional(readOnly = true)
+    public List<PlayerEntity> findPlayerPage(PlayerFilterCriteria filter, int offset, int limit) {
+        return findPlayerPage(filter, offset, limit, null, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PlayerEntity> findPlayerPage(
+            PlayerFilterCriteria filter, int offset, int limit, String sortKey, boolean descending) {
+        PlayerFilterCriteria safeFilter = filter == null ? PlayerFilterCriteria.empty() : filter;
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        boolean legacyJavaFilters = false;
+        if (legacyJavaFilters) {
+            return page(findPlayerEntities(safeFilter), safeOffset, safeLimit);
+        }
+        String sortField = sortableEntityField(sortKey);
+        Sort.Direction direction = descending ? Sort.Direction.DESC : Sort.Direction.ASC;
+        Page<PlayerEntity> page = players.findAll(PlayerSpecifications.fromFilter(safeFilter),
+                PageRequest.of(safeOffset / safeLimit, safeLimit,
+                        Sort.by(new Sort.Order(direction, sortField), new Sort.Order(Sort.Direction.ASC, "id"))));
+        return List.copyOf(page.getContent());
+    }
+
+    private static String sortableEntityField(String sortKey) {
+        if (sortKey == null || sortKey.isBlank()) return "name";
+        String normalized = sortKey.trim().toLowerCase(Locale.ROOT);
+        if ("age".equals(normalized)) {
+            return "ageNumeric";
+        }
+        return Set.of("name", "age", "height_cm", "nationality", "club", "playing_club", "ca", "pa",
+                        "appearances", "starts", "minutes", "goals", "assists", "average_rating",
+                        "salary_weekly_raw", "asking_price", "contract_end_date", "transfer_listed",
+                        "listed_for_loan", "transfer_agreed", "injured", "current_reputation",
+                        "home_reputation", "world_reputation")
+                .contains(normalized)
+                ? PlayerColumnNames.toEntityFieldName(normalized)
+                : "name";
+    }
+
+    @Transactional(readOnly = true)
+    public long countPlayerEntities(PlayerFilterCriteria filter) {
+        PlayerFilterCriteria safeFilter = filter == null ? PlayerFilterCriteria.empty() : filter;
+        boolean legacyJavaFilters = false;
+        if (legacyJavaFilters) {
+            return findPlayerEntities(safeFilter).size();
+        }
+        return players.count(PlayerSpecifications.fromFilter(safeFilter));
+    }
+
+    private static List<PlayerEntity> page(List<PlayerEntity> rows, int offset, int limit) {
+        if (offset >= rows.size()) return List.of();
+        return rows.subList(offset, Math.min(rows.size(), offset + limit));
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, key = "'playingNations'")
     public List<String> findPlayingNations() {
         return competitionRepository.findDistinctNations();
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, key = "'playingCompetitions'")
     public List<String> findPlayingCompetitions() {
         return competitionRepository.findDistinctNameByOrderByNameAsc();
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, key = "'clubs'")
     public List<String> findClubs() {
         return clubRepository.findDistinctNameByOrderByNameAsc();
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE, key = "'nationalities'")
     public List<String> findNationalities() {
         return players.findDistinctNationalities();
     }
@@ -311,11 +403,12 @@ public class PlayerDatabaseService {
     }
 
     static boolean matchesPlayerFilter(PlayerEntity player, PlayerFilterCriteria filter) {
+        PlayerFilterCriteria.Advanced advanced = filter.advanced();
         return contains(player.getName(), filter.name())
                 && equalsIgnoreCase(player.getGender(), filter.gender())
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getNation).orElse(null), filter.playingNation())
                 && equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getCompetitionEntity).map(CompetitionEntity::getName).orElse(null), filter.playingCompetition())
-                && matchesClub(player, filter.club())
+                && matchesClub(player, filter.club(), advanced.clubScope())
                 && inRange(player.getSalaryWeeklyRaw() == null ? null : player.getSalaryWeeklyRaw().longValue(),
                         null, filter.salaryMax())
                 && equalsIgnoreCase(player.getNationality(), filter.nationality())
@@ -329,6 +422,18 @@ public class PlayerDatabaseService {
                 && inRange(player.getPa(), filter.paMin(), filter.paMax())
                 && inRange(player.getAskingPrice(), filter.askingPriceMin(), filter.askingPriceMax())
                 && dateInRange(player.getContractEndDate(), filter.contractEndDateFrom(), filter.contractEndDateTo())
+                && matchesBoolean(player.getInjured(), advanced.injured())
+                && matchesBoolean(player.getTransferListed(), advanced.transferListed())
+                && matchesBoolean(player.getListedForLoan(), advanced.listedForLoan())
+                && matchesBoolean(player.getTransferAgreed(), advanced.transferAgreed())
+                && matchesFreeAgent(player, advanced.freeAgent())
+                && matchesLoan(player, advanced.loanStatus())
+                && inRange(player.getAppearances(), advanced.appearancesMin(), advanced.appearancesMax())
+                && inRange(player.getStarts(), advanced.startsMin(), advanced.startsMax())
+                && inRange(player.getMinutes(), advanced.minutesMin(), advanced.minutesMax())
+                && inRange(player.getGoals(), advanced.goalsMin(), advanced.goalsMax())
+                && inRange(player.getAssists(), advanced.assistsMin(), advanced.assistsMax())
+                && inRange(player.getAverageRating(), advanced.averageRatingMin(), advanced.averageRatingMax())
                 && minimumsMatch(player, filter.positionMinimums())
                 && minimumsMatch(player, filter.attributeMinimums());
     }
@@ -344,11 +449,31 @@ public class PlayerDatabaseService {
                 || String.valueOf(value == null ? "" : value).equalsIgnoreCase(term.trim());
     }
 
-    private static boolean matchesClub(PlayerEntity player, String club) {
+    private static boolean matchesClub(PlayerEntity player, String club, PlayerFilterCriteria.ClubScope scope) {
+        if (scope == PlayerFilterCriteria.ClubScope.CONTRACTED) {
+            return equalsIgnoreCase(Optional.ofNullable(player.getClubEntity()).map(ClubEntity::getName).orElse(null), club)
+                    || equalsIgnoreCase(player.getClub(), club);
+        }
+        if (scope == PlayerFilterCriteria.ClubScope.PLAYING) {
+            return equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getName).orElse(null), club)
+                    || equalsIgnoreCase(player.getPlayingClub(), club);
+        }
         return equalsIgnoreCase(Optional.ofNullable(player.getClubEntity()).map(ClubEntity::getName).orElse(null), club)
                 || equalsIgnoreCase(Optional.ofNullable(player.getPlayingClubEntity()).map(ClubEntity::getName).orElse(null), club)
                 || equalsIgnoreCase(player.getClub(), club)
                 || equalsIgnoreCase(player.getPlayingClub(), club);
+    }
+
+    private static boolean matchesFreeAgent(PlayerEntity player, Boolean expected) {
+        if (expected == null) return true;
+        boolean freeAgent = player.getClub() == null || player.getClub().isBlank();
+        return expected == freeAgent;
+    }
+
+    private static boolean matchesLoan(PlayerEntity player, PlayerFilterCriteria.LoanStatus status) {
+        if (status == null || status == PlayerFilterCriteria.LoanStatus.ANY) return true;
+        boolean loaned = "yes".equalsIgnoreCase(player.getIsLoanedOut());
+        return status == PlayerFilterCriteria.LoanStatus.LOANED ? loaned : !loaned;
     }
 
     private static boolean minimumsMatch(PlayerEntity player, Map<String, Integer> minimums) {
@@ -379,6 +504,16 @@ public class PlayerDatabaseService {
             return false;
         }
         return (min == null || value >= min) && (max == null || value <= max);
+    }
+
+    private static boolean inRange(Double value, Double min, Double max) {
+        if (min == null && max == null) return true;
+        if (value == null) return false;
+        return (min == null || value >= min) && (max == null || value <= max);
+    }
+
+    private static boolean matchesBoolean(Boolean value, Boolean expected) {
+        return expected == null || (value != null && value.equals(expected));
     }
 
     private static boolean dateInRange(Object value, LocalDate from, LocalDate to) {

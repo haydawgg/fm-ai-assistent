@@ -3,6 +3,7 @@ package com.github.fmaiassistent.web.ui;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.github.fmaiassistent.service.PlayerSearchService;
 
 import java.util.List;
 
@@ -16,6 +17,15 @@ import java.util.List;
  */
 interface PlayerWorkspaceLoader {
     Result load(PlayerFilterCriteria filter, String sessionClub);
+
+    List<PlayerEntity> loadPage(PlayerFilterCriteria filter, String sessionClub, int offset, int limit);
+
+    default List<PlayerEntity> loadPage(PlayerFilterCriteria filter, String sessionClub, int offset, int limit,
+                                        String sortKey, boolean descending) {
+        return loadPage(filter, sessionClub, offset, limit);
+    }
+
+    long count(PlayerFilterCriteria filter, String sessionClub);
 
     record Result(List<PlayerEntity> rows, long totalCount) {
         public Result {
@@ -35,6 +45,10 @@ interface PlayerWorkspaceLoader {
     static PlayerWorkspaceLoader database(PlayerDatabaseService service) {
         return new DatabasePlayerWorkspaceLoader(PlayerWorkspaceQuery.database(service));
     }
+
+    static PlayerWorkspaceLoader database(PlayerSearchService service) {
+        return new DatabasePlayerWorkspaceLoader(PlayerWorkspaceQuery.database(service));
+    }
 }
 
 final class DatabasePlayerWorkspaceLoader implements PlayerWorkspaceLoader {
@@ -46,6 +60,22 @@ final class DatabasePlayerWorkspaceLoader implements PlayerWorkspaceLoader {
 
     @Override
     public Result load(PlayerFilterCriteria filter, String sessionClub) {
-        return new Result(query.find(filter, sessionClub), query.count());
+        return new Result(query.findPage(filter, sessionClub, 0, 100), query.count(filter, sessionClub));
+    }
+
+    @Override
+    public List<PlayerEntity> loadPage(PlayerFilterCriteria filter, String sessionClub, int offset, int limit) {
+        return query.findPage(filter, sessionClub, offset, limit);
+    }
+
+    @Override
+    public List<PlayerEntity> loadPage(PlayerFilterCriteria filter, String sessionClub, int offset, int limit,
+                                       String sortKey, boolean descending) {
+        return query.findPage(filter, sessionClub, offset, limit, sortKey, descending);
+    }
+
+    @Override
+    public long count(PlayerFilterCriteria filter, String sessionClub) {
+        return query.count(filter, sessionClub);
     }
 }

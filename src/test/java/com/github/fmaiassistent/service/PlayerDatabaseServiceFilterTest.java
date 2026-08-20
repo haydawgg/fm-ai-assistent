@@ -52,6 +52,42 @@ class PlayerDatabaseServiceFilterTest {
         assertTrue(PlayerDatabaseService.matchesPlayerFilter(player, filter));
     }
 
+    @Test
+    void unknownSeasonStatsFailPerformanceMinimums() {
+        PlayerEntity player = player("Unknown", 140, 10_000);
+        PlayerFilterCriteria.Advanced advanced = new PlayerFilterCriteria.Advanced(
+                null, null, null, null, null,
+                PlayerFilterCriteria.LoanStatus.ANY,
+                PlayerFilterCriteria.ClubScope.EITHER,
+                1, null, null, null, null, null,
+                null, null, null, null, null, null);
+        assertFalse(PlayerDatabaseService.matchesPlayerFilter(player,
+                PlayerFilterCriteria.empty().withAdvanced(advanced)));
+    }
+
+    @Test
+    void realZeroSeasonStatsMatchMinimumZero() {
+        Map<String, Object> row = new HashMap<>();
+        row.put("name", "Zero");
+        row.put("ca", 140);
+        row.put("Striker", 15);
+        row.put("appearances", 0);
+        row.put("starts", 0);
+        row.put("minutes", 0);
+        row.put("goals", 0);
+        row.put("assists", 0);
+        row.put("average_rating", 0.0);
+        PlayerEntity player = PlayerEntity.fromExportRow(row);
+        PlayerFilterCriteria.Advanced advanced = new PlayerFilterCriteria.Advanced(
+                null, null, null, null, null,
+                PlayerFilterCriteria.LoanStatus.ANY,
+                PlayerFilterCriteria.ClubScope.EITHER,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0);
+
+        assertTrue(PlayerDatabaseService.matchesPlayerFilter(player,
+                PlayerFilterCriteria.empty().withAdvanced(advanced)));
+    }
+
     private static PlayerEntity player(String name, int ca, Integer wage) {
         Map<String, Object> row = new HashMap<>();
         row.put("name", name);

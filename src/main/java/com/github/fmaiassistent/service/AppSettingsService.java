@@ -556,7 +556,8 @@ public class AppSettingsService {
                 filter.askingPriceMax(),
                 filter.salaryMax(),
                 positions,
-                attributes);
+                attributes,
+                filter.advanced());
         return new SavedPlayerView(view.name().trim(), normalizedFilter, view.showAllColumns());
     }
 

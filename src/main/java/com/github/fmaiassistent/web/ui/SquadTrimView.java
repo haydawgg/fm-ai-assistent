@@ -105,9 +105,9 @@ public class SquadTrimView extends VerticalLayout {
         grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
                 .setHeader("")
                 .setKey("ask")
-                .setWidth("3.5em")
+                .setWidth("4.5em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::rank).setHeader("Rank").setWidth("5.5em").setFlexGrow(0);
         grid.addColumn(SquadSellCandidate::recommendation)
                 .setHeader("Call")
                 .setRenderer(new ComponentRenderer<>(row -> {
@@ -123,20 +123,31 @@ public class SquadTrimView extends VerticalLayout {
                     }
                     return badge;
                 }))
-                .setWidth("6em")
+                .setWidth("7em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(SquadSellCandidate::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::caVsFirstTeam).setHeader("vs XI").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(SquadSellCandidate::depthAtPosition).setHeader("Depth").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
+        grid.addColumn(SquadSellCandidate::name).setHeader("Name").setWidth("16em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::position).setHeader("Pos").setWidth("6em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::age).setHeader("Age").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::ca).setHeader("CA").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::pa).setHeader("PA").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::caVsFirstTeam).setHeader("vs XI").setWidth("7em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::depthAtPosition).setHeader("Depth").setWidth("7em").setFlexGrow(0);
+        grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency))
+                .setHeader("Wage/wk")
+                .setWidth("10em")
+                .setFlexGrow(0);
         grid.addColumn(row -> row.askingPrice() == null ? "" : MoneyDisplay.format(row.askingPrice(), currency))
-                .setHeader("Asking");
-        grid.addColumn(SquadSellCandidate::contractEnd).setHeader("Contract");
-        grid.addColumn(row -> String.join(", ", row.reasons())).setHeader("Reasons").setFlexGrow(1);
+                .setHeader("Asking")
+                .setWidth("10em")
+                .setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::contractEnd)
+                .setHeader("Contract")
+                .setWidth("10em")
+                .setFlexGrow(0);
+        grid.addColumn(row -> String.join(", ", row.reasons()))
+                .setHeader("Reasons")
+                .setWidth("20em")
+                .setFlexGrow(0);
     }
 
     private void run() {

@@ -2,6 +2,7 @@ package com.github.fmaiassistent.exporter;
 
 import com.github.fmaiassistent.linux.FmMemoryStrings;
 import com.github.fmaiassistent.linux.FmOffsets;
+import com.github.fmaiassistent.linux.GamePluginIdentity;
 import com.github.fmaiassistent.memory.ProcessMemoryReader;
 import com.github.fmaiassistent.memory.ProcessReaders;
 import com.github.fmaiassistent.player.AttributeDefinitions;
@@ -78,6 +79,21 @@ public class PlayerExporter {
     public static final List<String> FIELD_NAMES = buildFieldNames();
 
     private final GameDateFinder gameDateFinder = new GameDateFinder();
+    private final SeasonStatsReader seasonStatsReader;
+    private final PlayerFieldReader playerFieldReader;
+
+    public PlayerExporter() {
+        this(new BuildSeasonStatsReader(), new BuildPlayerFieldReader());
+    }
+
+    PlayerExporter(SeasonStatsReader seasonStatsReader) {
+        this(seasonStatsReader, new BuildPlayerFieldReader());
+    }
+
+    PlayerExporter(SeasonStatsReader seasonStatsReader, PlayerFieldReader playerFieldReader) {
+        this.seasonStatsReader = seasonStatsReader == null ? SeasonStatsReader.unsupported() : seasonStatsReader;
+        this.playerFieldReader = playerFieldReader == null ? PlayerFieldReader.unsupported() : playerFieldReader;
+    }
 
     public ExportResult exportAllPlayers(int pid, int build, Long gamePluginBase) throws IOException {
         return exportAllPlayers(pid, build, gamePluginBase, LoadProgressReporter.NONE);
@@ -97,6 +113,7 @@ public class PlayerExporter {
             Consumer<LoadProgress> progress,
             Consumer<List<Map<String, Object>>> chunkSink) throws IOException {
         FmOffsets.Bounds bounds = FmOffsets.peopleBounds(reader, build, gamePluginBase);
+        GamePluginIdentity pluginIdentity = GamePluginIdentity.detect(reader);
         long total = bounds.count();
         int threads = Math.min(Runtime.getRuntime().availableProcessors(), 4);
         LocalDate gameDate = gameDateFinder.find(reader, build, gamePluginBase).orElse(null);
@@ -106,6 +123,8 @@ public class PlayerExporter {
         SkipCounts skips = new SkipCounts();
         AtomicLong scanned = new AtomicLong();
         AtomicLong kept = new AtomicLong();
+        AtomicLong seasonStatsAvailable = new AtomicLong();
+        AtomicLong seasonStatsPartial = new AtomicLong();
         LoadProgressReporter reporter = new LoadProgressReporter(progress);
         reporter.start(LoadProgress.Phase.PEOPLE, total);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -126,8 +145,8 @@ public class PlayerExporter {
                 futures.add(pool.submit(() -> {
                     try {
                         exportRange(
-                                reader, bounds.start(), from, to, clubNames, decoded, peoplePointers, skips,
-                                scanned, kept, total, reporter);
+                        reader, build, gameDate, pluginIdentity, bounds.start(), from, to, clubNames, decoded, peoplePointers,
+                                skips, scanned, kept, seasonStatsAvailable, seasonStatsPartial, total, reporter);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException(e);
@@ -204,6 +223,10 @@ public class PlayerExporter {
             LOGGER.warn("Skipped {} people records that could not be decoded", skipSnapshot.decodeError());
         }
         LOGGER.info("People table classification: {}", skipSnapshot.summary());
+        String seasonStatsState = seasonStatsAvailable.get() == 0
+                ? "unavailable"
+                : (seasonStatsPartial.get() > 0 || seasonStatsAvailable.get() < kept.get())
+                ? "partial" : "available";
         long peopleMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - peopleStarted);
         long persistMs = TimeUnit.NANOSECONDS.toMillis(persistCallbackNs.get());
         LOGGER.info("people drain {} ms (persist chunks {} ms, decode+queue {} ms)",
@@ -218,10 +241,15 @@ public class PlayerExporter {
         }
         return new ExportResult(
                 gameDate == null ? "" : gameDate.toString(),
+                build,
+                pluginIdentity,
                 collected == null ? List.of() : collected,
                 tactic,
                 skipSnapshot,
-                kept.get());
+                kept.get(),
+                seasonStatsState,
+                seasonStatsAvailable.get(),
+                seasonStatsPartial.get());
     }
 
     private static void flushPlayerChunk(
@@ -257,7 +285,8 @@ public class PlayerExporter {
         BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>((int) Math.max(16, to - from + 8));
         try {
             exportRange(
-                    reader, slotBase, from, to, clubNames, decoded, ConcurrentHashMap.newKeySet(), skips,
+                    reader, FmOffsets.DEFAULT_BUILD, null, GamePluginIdentity.unknown(), slotBase, from, to, clubNames, decoded,
+                    ConcurrentHashMap.newKeySet(), skips, new AtomicLong(), new AtomicLong(),
                     new AtomicLong(), new AtomicLong(), to, new LoadProgressReporter(LoadProgressReporter.NONE));
             decoded.drainTo(rows);
         } catch (InterruptedException e) {
@@ -292,8 +321,8 @@ public class PlayerExporter {
         BlockingQueue<Map<String, Object>> decoded = new ArrayBlockingQueue<>((int) Math.max(16, total + 8));
         try {
             exportRange(
-                    reader, slotBase, 0, total, new ConcurrentHashMap<>(), decoded, ConcurrentHashMap.newKeySet(),
-                    skips, scanned, kept, total, reporter);
+                    reader, FmOffsets.DEFAULT_BUILD, null, GamePluginIdentity.unknown(), slotBase, 0, total, new ConcurrentHashMap<>(), decoded,
+                    ConcurrentHashMap.newKeySet(), skips, scanned, kept, new AtomicLong(), new AtomicLong(), total, reporter);
             decoded.drainTo(rows);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -312,6 +341,28 @@ public class PlayerExporter {
             SkipCounts skips,
             AtomicLong scanned,
             AtomicLong kept,
+            long total,
+            LoadProgressReporter reporter) throws InterruptedException {
+        exportRange(reader, FmOffsets.DEFAULT_BUILD, null, GamePluginIdentity.unknown(), slotBase, from, to, clubNames, decoded,
+                peoplePointers, skips, scanned, kept, new AtomicLong(), new AtomicLong(), total, reporter);
+    }
+
+    private void exportRange(
+            ProcessMemoryReader reader,
+            int build,
+            LocalDate gameDate,
+            GamePluginIdentity pluginIdentity,
+            long slotBase,
+            long from,
+            long to,
+            Map<Long, String> clubNames,
+            BlockingQueue<Map<String, Object>> decoded,
+            Set<Long> peoplePointers,
+            SkipCounts skips,
+            AtomicLong scanned,
+            AtomicLong kept,
+            AtomicLong seasonStatsAvailable,
+            AtomicLong seasonStatsPartial,
             long total,
             LoadProgressReporter reporter) throws InterruptedException {
         for (long index = from; index < to; index++) {
@@ -344,8 +395,11 @@ public class PlayerExporter {
                     contractedClub = playingClub;
                 }
                 Map<String, Object> row = decodeRow(
-                        reader, (int) index, slotAddress, record, contractedClub, playingClub, null,
+                        reader, (int) index, slotAddress, record, contractedClub, playingClub, gameDate,
                         classified.layout(), classified.name());
+                applyCandidateFields(row, reader, build, record, pluginIdentity);
+                applySeasonStats(row, reader, build, record, gameDate, pluginIdentity,
+                        seasonStatsAvailable, seasonStatsPartial);
                 contractedClubAddress.ifPresent(value -> row.put("_club_address", value));
                 playingClubAddress.ifPresent(value -> row.put("_playing_club_address", value));
                 kept.incrementAndGet();
@@ -354,6 +408,65 @@ public class PlayerExporter {
                 skips.decodeError.incrementAndGet();
                 LOGGER.debug("Skipping person at slot {}: {}", index, ex.toString());
             }
+        }
+    }
+
+    private void applyCandidateFields(
+            Map<String, Object> row,
+            ProcessMemoryReader reader,
+            int build,
+            long record,
+            GamePluginIdentity pluginIdentity) {
+        try {
+            CandidatePlayerFields fields = playerFieldReader.read(reader, build, record, pluginIdentity);
+            row.put("source_uid", fields.sourceUid());
+            row.put("morale", fields.morale());
+            row.put("condition", fields.condition());
+            row.put("guide_value", fields.guideValue());
+            row.put("transfer_value", fields.transferValue());
+            row.put("_candidate_fields_state", fields.state().name().toLowerCase());
+        } catch (IOException | RuntimeException ex) {
+            row.put("source_uid", null);
+            row.put("morale", null);
+            row.put("condition", null);
+            row.put("guide_value", null);
+            row.put("transfer_value", null);
+            row.put("_candidate_fields_state", "unavailable");
+        }
+    }
+
+    private void applySeasonStats(
+            Map<String, Object> row,
+            ProcessMemoryReader reader,
+            int build,
+            long record,
+            LocalDate gameDate,
+            GamePluginIdentity pluginIdentity,
+            AtomicLong available,
+            AtomicLong partial) {
+        try {
+            SeasonStatsReader.Result result = seasonStatsReader.read(reader, build, record, gameDate, pluginIdentity);
+            SeasonStats stats = result.stats();
+            row.put("appearances", stats.appearances());
+            row.put("starts", stats.starts());
+            row.put("minutes", stats.minutes());
+            row.put("goals", stats.goals());
+            row.put("assists", stats.assists());
+            row.put("average_rating", stats.averageRating());
+            row.put("_season_stats_state", result.state().name().toLowerCase());
+            if (result.state() == SeasonStatsReader.Result.State.AVAILABLE) {
+                available.incrementAndGet();
+            } else if (result.state() == SeasonStatsReader.Result.State.PARTIAL) {
+                partial.incrementAndGet();
+            }
+        } catch (IOException | RuntimeException ex) {
+            row.put("appearances", null);
+            row.put("starts", null);
+            row.put("minutes", null);
+            row.put("goals", null);
+            row.put("assists", null);
+            row.put("average_rating", null);
+            row.put("_season_stats_state", "unavailable");
         }
     }
 
@@ -469,16 +582,26 @@ public class PlayerExporter {
         // in-game date: when the RAM date is unknown it stays empty so expiry/tenure logic is not fooled by a
         // fabricated season-baseline date, while ages remain stable against the baseline via effectiveAge().
         row.put("age", dob == null ? "" : ageOn(dob, gameDate != null ? gameDate : GameDateFinder.DEFAULT_GAME_DATE));
+        row.put("age_numeric", dob == null ? null : GameDateFinder.effectiveAge(
+                row.get("age") == null ? null : String.valueOf(row.get("age")),
+                dob.toString(), gameDate == null ? null : gameDate.toString()));
         row.put("age_as_of", gameDate == null ? "" : gameDate.toString());
         row.put("height_cm", nearbyU8(
                 reader, nearby, nearbyFrom, record + layout.relative(HEIGHT_CM_REL),
                 layout.relative(HEIGHT_CM_REL)));
         row.put("traits", PlayerTraits.read(reader, record));
-        row.put("morale", "");
-        row.put("form", "");
-        row.put("appearances", "");
-        row.put("goals", "");
-        row.put("assists", "");
+        row.put("source_uid", null);
+        row.put("morale", null);
+        row.put("condition", null);
+        row.put("guide_value", null);
+        row.put("transfer_value", null);
+        row.put("form", null);
+        row.put("appearances", null);
+        row.put("starts", null);
+        row.put("minutes", null);
+        row.put("goals", null);
+        row.put("assists", null);
+        row.put("average_rating", null);
 
         for (FieldDef field : POSITION_FIELDS) {
             int raw = data[field.offset() - SOURCE_OBJECT_BASE_OFFSET] & 0xff;
@@ -882,8 +1005,9 @@ public class PlayerExporter {
                 "injury", "injury_start_date", "injury_light_training_days_remaining", "injury_full_training_days_remaining",
                 "injury_min_days_remaining", "injury_max_days_remaining", "injury_expected_return",
                 "contract_end_date", "salary_pa",
-                "salary_weekly_raw", "date_of_birth", "age", "age_as_of", "height_cm",
-                "traits", "morale", "form", "appearances", "goals", "assists"));
+                "salary_weekly_raw", "date_of_birth", "age", "age_numeric", "age_as_of", "height_cm",
+                "traits", "source_uid", "morale", "condition", "guide_value", "transfer_value", "candidate_fields_state", "form",
+                "appearances", "starts", "minutes", "goals", "assists", "average_rating"));
         POSITION_FIELDS.stream().map(FieldDef::name).forEach(names::add);
         VISIBLE_FIELDS.stream().map(FieldDef::name).forEach(names::add);
         HIDDEN_DIRECT_FIELDS.stream().map(FieldDef::name).forEach(names::add);
@@ -892,16 +1016,23 @@ public class PlayerExporter {
 
     public record ExportResult(
             String gameDate,
+            int build,
+            GamePluginIdentity pluginIdentity,
             List<Map<String, Object>> rows,
             TacticExporter.Snapshot tactic,
             SkipSnapshot skips,
-            long kept) {
+            long kept,
+            String seasonStatsState,
+            long seasonStatsAvailable,
+            long seasonStatsPartial) {
         public ExportResult(String gameDate, List<Map<String, Object>> rows) {
-            this(gameDate, rows, null, SkipSnapshot.EMPTY, rows == null ? 0 : rows.size());
+            this(gameDate, FmOffsets.DEFAULT_BUILD, GamePluginIdentity.unknown(), rows, null, SkipSnapshot.EMPTY,
+                    rows == null ? 0 : rows.size(), "unavailable", 0, 0);
         }
 
         public ExportResult(String gameDate, List<Map<String, Object>> rows, TacticExporter.Snapshot tactic) {
-            this(gameDate, rows, tactic, SkipSnapshot.EMPTY, rows == null ? 0 : rows.size());
+            this(gameDate, FmOffsets.DEFAULT_BUILD, GamePluginIdentity.unknown(), rows, tactic, SkipSnapshot.EMPTY,
+                    rows == null ? 0 : rows.size(), "unavailable", 0, 0);
         }
     }
 

@@ -72,7 +72,7 @@ public class DatabaseLoadAllService {
                     result.clubs(),
                     result.competitions());
             return result;
-        } catch (RuntimeException | IOException ex) {
+        } catch (RuntimeException | IOException | LinkageError ex) {
             LOGGER.error("RAM snapshot failed for pid {}", resolvedPid, ex);
             throw ex;
         }

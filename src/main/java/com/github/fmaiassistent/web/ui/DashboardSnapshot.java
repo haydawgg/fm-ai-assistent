@@ -17,7 +17,24 @@ record DashboardSnapshot(
         List<FmAiAssistentTools.TransferShortlistRow> shortlist,
         List<Depth> depth,
         TrimSummary trim,
-        boolean aiConfigured) {
+        boolean aiConfigured,
+        SnapshotStatusModel status) {
+
+    DashboardSnapshot(
+            SnapshotHeartbeat.Status heartbeat,
+            String clubName,
+            boolean clubAvailable,
+            boolean partial,
+            Metrics metrics,
+            List<Action> actions,
+            Tactical tactical,
+            List<FmAiAssistentTools.TransferShortlistRow> shortlist,
+            List<Depth> depth,
+            TrimSummary trim,
+            boolean aiConfigured) {
+        this(heartbeat, clubName, clubAvailable, partial, metrics, actions, tactical, shortlist, depth, trim,
+                aiConfigured, SnapshotStatusModel.fromHeartbeat(heartbeat, metrics == null ? 0 : metrics.squadCount()));
+    }
 
     record Metrics(
             int squadCount,

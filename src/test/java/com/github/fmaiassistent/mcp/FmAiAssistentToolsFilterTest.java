@@ -201,7 +201,7 @@ class FmAiAssistentToolsFilterTest {
     }
 
     @Test
-    void unreadRamFieldsAreStrippedFromToolPayloads() {
+    void unreadRamFieldsAreStrippedButPersistedSeasonStatsRemainAvailable() {
         Map<String, Object> payload = new HashMap<>();
         payload.put("name", "Ada");
         payload.put("morale", "");
@@ -217,9 +217,9 @@ class FmAiAssistentToolsFilterTest {
         assertFalse(payload.containsKey("morale"));
         assertFalse(payload.containsKey("MORALE"));
         assertFalse(payload.containsKey("form"));
-        assertFalse(payload.containsKey("appearances"));
-        assertFalse(payload.containsKey("goals"));
-        assertFalse(payload.containsKey("assists"));
+        assertEquals(0, payload.get("appearances"));
+        assertEquals("", payload.get("goals"));
+        assertEquals("", payload.get("assists"));
     }
 
     @Test

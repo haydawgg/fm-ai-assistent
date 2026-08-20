@@ -50,7 +50,7 @@ public class RamLoadCoordinator {
                     });
             job.complete(result);
             return result;
-        } catch (IOException | RuntimeException ex) {
+        } catch (IOException | RuntimeException | LinkageError ex) {
             LoadJob job = currentJob.get();
             if (job != null) {
                 job.fail(ex);
@@ -78,7 +78,7 @@ public class RamLoadCoordinator {
                             null,
                             progress -> job.progress.set(progress));
                     job.complete(result);
-                } catch (IOException | RuntimeException ex) {
+                } catch (IOException | RuntimeException | LinkageError ex) {
                     job.fail(ex);
                 } finally {
                     loading.set(false);

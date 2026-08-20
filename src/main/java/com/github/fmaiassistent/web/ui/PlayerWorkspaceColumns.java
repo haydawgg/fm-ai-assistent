@@ -11,6 +11,7 @@ final class PlayerWorkspaceColumns {
     static final Set<String> NUMERIC_SORT_COLUMNS = Set.of(
             "ID", "CLUB_ID", "PLAYING_CLUB_ID", "CURRENT_REPUTATION", "HOME_REPUTATION", "WORLD_REPUTATION",
             "CA", "PA", "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW", "AGE", "HEIGHT_CM",
+            "APPEARANCES", "STARTS", "MINUTES", "GOALS", "ASSISTS", "AVERAGE_RATING",
             "REPUTATION", "TRANSFER_BUDGET", "PAYROLL_BUDGET",
             "GOALKEEPER", "DEFENDER_LEFT", "DEFENDER_CENTRAL", "DEFENDER_RIGHT", "WING_BACK_LEFT",
             "DEFENSIVE_MIDFIELDER", "WING_BACK_RIGHT", "MIDFIELDER_LEFT", "MIDFIELDER_CENTRAL",
@@ -29,14 +30,41 @@ final class PlayerWorkspaceColumns {
             "ASKING_PRICE", "ASKING_PRICE_RAW", "SALARY_PA", "SALARY_WEEKLY_RAW",
             "BALANCE", "TRANSFER_BUDGET", "PAYROLL_BUDGET");
     private static final Set<String> DEFAULT_KEYS = Set.of(
-            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA",
+            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA", "APPEARANCES", "GOALS", "ASSISTS", "AVERAGE_RATING",
             "SALARY_WEEKLY_RAW", "ASKING_PRICE", "CONTRACT_END_DATE");
+
+    private static final Set<String> SQUAD_KEYS = Set.of(
+            "NAME", "AGE", "CLUB", "PLAYING_CLUB", "POSITION", "CA", "PA", "INJURED",
+            "APPEARANCES", "STARTS", "MINUTES", "GOALS", "ASSISTS", "AVERAGE_RATING");
+    private static final Set<String> RECRUITMENT_KEYS = Set.of(
+            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA", "ASKING_PRICE", "SALARY_WEEKLY_RAW",
+            "TRANSFER_LISTED", "LISTED_FOR_LOAN", "APPEARANCES", "GOALS", "AVERAGE_RATING");
+    private static final Set<String> CONTRACT_KEYS = Set.of(
+            "NAME", "AGE", "CLUB", "POSITION", "CA", "SALARY_WEEKLY_RAW", "ASKING_PRICE",
+            "CONTRACT_END_DATE", "TRANSFER_AGREED", "FUTURE_TRANSFER_CLUB", "FUTURE_TRANSFER_DATE");
+    private static final Set<String> PERFORMANCE_KEYS = Set.of(
+            "NAME", "AGE", "CLUB", "POSITION", "CA", "PA", "APPEARANCES", "STARTS", "MINUTES",
+            "GOALS", "ASSISTS", "AVERAGE_RATING", "INJURED");
 
     private PlayerWorkspaceColumns() {
     }
 
     static List<Column> visible(boolean showAll) {
         return showAll ? all() : all().stream().filter(column -> DEFAULT_KEYS.contains(column.key())).toList();
+    }
+
+    static List<Column> visible(PlayerViewPreset preset) {
+        if (preset == null || preset == PlayerViewPreset.FULL_DATA) {
+            return all();
+        }
+        Set<String> keys = switch (preset) {
+            case SQUAD -> SQUAD_KEYS;
+            case RECRUITMENT -> RECRUITMENT_KEYS;
+            case CONTRACTS -> CONTRACT_KEYS;
+            case PERFORMANCE -> PERFORMANCE_KEYS;
+            case FULL_DATA -> Set.of();
+        };
+        return all().stream().filter(column -> keys.contains(column.key())).toList();
     }
 
     static List<Column> all() {
@@ -50,6 +78,12 @@ final class PlayerWorkspaceColumns {
                 new Column("POSITION", "Position", PositionTextFormatter::format),
                 new Column("CA", "CA", PlayerEntity::getCa),
                 new Column("PA", "PA", PlayerEntity::getPa),
+                new Column("APPEARANCES", "Apps", PlayerEntity::getAppearances),
+                new Column("STARTS", "Starts", PlayerEntity::getStarts),
+                new Column("MINUTES", "Minutes", PlayerEntity::getMinutes),
+                new Column("GOALS", "Goals", PlayerEntity::getGoals),
+                new Column("ASSISTS", "Assists", PlayerEntity::getAssists),
+                new Column("AVERAGE_RATING", "Rating", PlayerEntity::getAverageRating),
                 new Column("SALARY_WEEKLY_RAW", "Wage", PlayerEntity::getSalaryWeeklyRaw),
                 new Column("ASKING_PRICE", "Asking", PlayerEntity::getAskingPrice),
                 new Column("CONTRACT_END_DATE", "Contract", PlayerEntity::getContractEndDate),

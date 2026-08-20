@@ -24,6 +24,8 @@ import com.github.fmaiassistent.service.CompetitionDatabaseService;
 import com.github.fmaiassistent.service.DatabaseLoadAllService;
 import com.github.fmaiassistent.repository.PlayerFilterCriteria;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
+import com.github.fmaiassistent.service.PlayerSearchService;
+import com.github.fmaiassistent.service.PlayerStatsQueryService;
 import com.github.fmaiassistent.service.RamLoadCoordinator;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
 import com.github.fmaiassistent.player.AttributeDefinitions;
@@ -39,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.text.Normalizer;
 import java.time.Period;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -64,33 +67,56 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
     private static final int DEFAULT_WONDERKID_MAX_AGE = 21;
     /** Youth often joined recently; a 1-year tenure filter empties U19 pools. */
     static final String WONDERKID_MIN_TIME_AT_CLUB = "P0D";
-    static final List<String> FIELDS_NOT_IN_RAM = List.of("morale", "form", "appearances", "goals", "assists");
+    static final List<String> FIELDS_NOT_IN_RAM = List.of("morale", "form");
     private static final int SOURCE_CLUB_REPUTATION_MARGIN = 1000;
     private static final List<String> RAM_DECODED_TABLES = List.of("PeopleOffset", "TeamOffset", "CompetitionOffset");
     private static final List<String> RAM_NOT_DECODED_TABLES = List.of("NationOffset", "StadiumOffset", "AgreementOffset", "ClubOffset",
             "CityOffset", "ContinentOffset", "RegionOffset", "CurrencyOffset");
 
     private final PlayerDatabaseService players;
+    private final PlayerSearchService playerSearch;
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final PlayerMapper playerMapper;
+    private final PlayerStatsQueryService statsQuery;
     private final JdbcTemplate jdbc;
     private final RamLoadCoordinator ramLoad;
     private final DatabaseLoadAllService loadAll;
     private volatile List<RoleAttributeRow> roleAttributeRowsCache;
 
+    @Override
+    public Map<String, Double> importedPlayerStats(PlayerEntity player) {
+        return statsQuery.importedStats(player);
+    }
+
+    @Override
+    public List<Map<String, Object>> recentPlayerMatchStats(PlayerEntity player, int limit) {
+        return statsQuery.recentMatches(player, limit).stream().map(match -> {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("date", match.date());
+            out.put("competition", match.competition());
+            out.put("opponent", match.opponent());
+            out.put("stats", match.stats());
+            return out;
+        }).toList();
+    }
+
     public FmAiAssistentTools(
             PlayerDatabaseService players,
+            PlayerSearchService playerSearch,
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
             PlayerMapper playerMapper,
+            PlayerStatsQueryService statsQuery,
             JdbcTemplate jdbc,
             RamLoadCoordinator ramLoad,
             DatabaseLoadAllService loadAll) {
         this.players = players;
+        this.playerSearch = playerSearch;
         this.clubs = clubs;
         this.competitions = competitions;
         this.playerMapper = playerMapper;
+        this.statsQuery = statsQuery;
         this.jdbc = jdbc;
         this.ramLoad = ramLoad;
         this.loadAll = loadAll;
@@ -135,7 +161,7 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return out;
     }
 
-    @Tool(name = "fm26_find_players", description = "Search FM26 players using the same data available in the UI. Money values are raw pounds.")
+    @Tool(name = "fm26_find_players", description = "Search FM26 players using the same data available in the UI, including current-season all-competition statistics and availability/contract filters. Null statistics are unknown and do not match performance ranges. Money values are raw pounds.")
     @Transactional(readOnly = true)
     public Map<String, Object> findPlayers(
             @ToolParam(required = false, description = "Player name contains filter") String name,
@@ -152,14 +178,31 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
             @ToolParam(required = false, description = "Maximum potential ability") Integer paMax,
             @ToolParam(required = false, description = "Maximum asking price in pounds") Long askingPriceMax,
             @ToolParam(required = false, description = "Maximum weekly salary in pounds") Integer salaryWeeklyMax,
+            @ToolParam(required = false, description = "Contract end date from, ISO-8601 YYYY-MM-DD") String contractEndDateFrom,
+            @ToolParam(required = false, description = "Contract end date to, ISO-8601 YYYY-MM-DD") String contractEndDateTo,
             @ToolParam(required = false, description = "Minimum world reputation") Integer worldReputationMin,
             @ToolParam(required = false, description = "Maximum world reputation") Integer worldReputationMax,
             @ToolParam(required = false, description = "Transfer-listed filter. Use true for only transfer-listed players, false for only players not transfer-listed.") Boolean transferListed,
             @ToolParam(required = false, description = "Listed-for-loan filter. Use true for only loan-listed players, false for only players not listed for loan.") Boolean listedForLoan,
             @ToolParam(required = false, description = "Transfer-agreed filter. Use true for players who already agreed a future move, false to exclude them.") Boolean transferAgreed,
             @ToolParam(required = false, description = "Future transfer destination club exact filter.") String futureTransferClub,
-            @ToolParam(required = false, description = "Injury filter. Use true for only injured players, false for only currently fit players.") Boolean injured,
-            @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
+             @ToolParam(required = false, description = "Injury filter. Use true for only injured players, false for only currently fit players.") Boolean injured,
+             @ToolParam(required = false, description = "Free-agent filter. Use true for players without a contracted club.") Boolean freeAgent,
+             @ToolParam(required = false, description = "Loan filter: LOANED or NOT_LOANED.") String loanStatus,
+             @ToolParam(required = false, description = "Club scope: EITHER, CONTRACTED or PLAYING.") String clubScope,
+             @ToolParam(required = false, description = "Minimum current-season appearances.") Integer appearancesMin,
+             @ToolParam(required = false, description = "Maximum current-season appearances.") Integer appearancesMax,
+             @ToolParam(required = false, description = "Minimum current-season starts.") Integer startsMin,
+             @ToolParam(required = false, description = "Maximum current-season starts.") Integer startsMax,
+             @ToolParam(required = false, description = "Minimum current-season minutes.") Integer minutesMin,
+             @ToolParam(required = false, description = "Maximum current-season minutes.") Integer minutesMax,
+             @ToolParam(required = false, description = "Minimum current-season goals.") Integer goalsMin,
+             @ToolParam(required = false, description = "Maximum current-season goals.") Integer goalsMax,
+             @ToolParam(required = false, description = "Minimum current-season assists.") Integer assistsMin,
+             @ToolParam(required = false, description = "Maximum current-season assists.") Integer assistsMax,
+             @ToolParam(required = false, description = "Minimum current-season average rating.") Double averageRatingMin,
+             @ToolParam(required = false, description = "Maximum current-season average rating.") Double averageRatingMax,
+             @ToolParam(required = false, description = "Position: GK, DL, DC, DR, WBL, DMC, WBR, ML, MC, MR, AML, AMC, AMR or ST.") String position,
             @ToolParam(required = false, description = "Minimum position ability 1-20 when position is supplied. Defaults to 15.") Integer minimumPositionScore,
             @ToolParam(required = false, description = "If true, return full attributes. Defaults to compact summaries; use fm26_get_player_details for finalists.") Boolean details,
             @ToolParam(required = false, description = "Maximum players to return") Integer limit) {
@@ -174,45 +217,41 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
                 ? 1
                 : Math.max(1, Math.min(20, minimumPositionScore == null ? DEFAULT_MIN_POSITION_SCORE : minimumPositionScore));
         boolean fullDetails = Boolean.TRUE.equals(details);
+        PlayerFilterCriteria.Advanced advanced = new PlayerFilterCriteria.Advanced(
+                injured, transferListed, listedForLoan, transferAgreed, freeAgent,
+                parseLoanStatus(loanStatus), parseClubScope(clubScope),
+                appearancesMin, appearancesMax, startsMin, startsMax, minutesMin, minutesMax,
+                goalsMin, goalsMax, assistsMin, assistsMax, averageRatingMin, averageRatingMax);
         Predicate<PlayerEntity> filter = player ->
-                contains(player.getName(), name)
-                        && (blank(gender) || equalsIgnoreCase(player.getGender(), gender))
-                        && (blank(nationality) || equalsIgnoreCase(player.getNationality(), nationality))
-                        && (blank(playingNation) || equalsIgnoreCase(playingNation(player), playingNation))
-                        && (blank(playingCompetition) || equalsIgnoreCase(playingCompetition(player), playingCompetition))
-                        && (blank(club) || equalsIgnoreCase(player.getClub(), club) || equalsIgnoreCase(player.getPlayingClub(), club))
-                        && inRange(effectiveAge(player), ageMin, ageMax)
-                        && inRange(player.getCa(), caMin, caMax)
-                        && inRange(player.getPa(), paMin, paMax)
-                        && askingPriceWithinMax(player.getAskingPrice(), player.getClub(), askingPriceMax)
+                        askingPriceWithinMax(player.getAskingPrice(), player.getClub(), askingPriceMax)
                         && salaryWithinMax(player.getSalaryWeeklyRaw(), salaryWeeklyMax)
-                        && inRange(player.getWorldReputation(), worldReputationMin, worldReputationMax)
-                        && matchesBoolean(player.getTransferListed(), transferListed)
-                        && matchesBoolean(player.getListedForLoan(), listedForLoan)
-                        && matchesBoolean(player.getTransferAgreed(), transferAgreed)
                         && (blank(futureTransferClub) || equalsIgnoreCase(player.getFutureTransferClub(), futureTransferClub))
-                        && matchesBoolean(player.getInjured(), injured)
                         && MarketValuation.hasPlayablePosition(player)
                         && (positionSpec == null || positionScore(player, positionSpec) >= positionMinimum);
+        LocalDate contractFrom = parseDate(contractEndDateFrom);
+        LocalDate contractTo = parseDate(contractEndDateTo);
         PlayerFilterCriteria databaseFilter = new PlayerFilterCriteria(
                 name, gender, playingNation, playingCompetition, club,
                 ageMin, ageMax, null, null, nationality,
                 null, null, null, null, worldReputationMin, worldReputationMax,
                 caMin, caMax, paMin, paMax,
-                null, null, null, null, salaryWeeklyMax == null ? null : salaryWeeklyMax.longValue(),
-                Map.of(), Map.of());
-        List<Map<String, Object>> rows = players.findPlayerEntities(databaseFilter).stream()
+                contractFrom, contractTo, null, askingPriceMax, salaryWeeklyMax == null ? null : salaryWeeklyMax.longValue(),
+                Map.of(), Map.of(), advanced);
+        Map<String, Object> snapshotMetadata = players.metadata();
+        List<Map<String, Object>> rows = playerSearch.find(databaseFilter).stream()
                 .filter(filter)
                 .sorted(Comparator
                         .comparing((PlayerEntity player) -> value(player.getPa())).reversed()
                         .thenComparing(Comparator.comparing((PlayerEntity player) -> value(player.getCa())).reversed())
                         .thenComparing(PlayerEntity::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .limit(safeLimit)
-                .map(fullDetails ? this::playerFullMap : this::playerSummaryMap)
+                .map(player -> fullDetails
+                        ? playerFullMap(player, snapshotMetadata)
+                        : playerSummaryMap(player, snapshotMetadata))
                 .toList();
         Map<String, Object> out = result("players", rows, safeLimit);
         if (rows.isEmpty()) {
-            out.put("empty_hint", "No rows. Change at most one filter then answer. askingPriceMax drops unknown fees; omit it for youth. Do not keep searching.");
+            out.put("empty_hint", "No rows. Change at most one filter then answer. Performance ranges exclude players with unknown statistics; remove or broaden the stats filter if needed. askingPriceMax drops unknown fees; omit it for youth. Do not keep searching.");
         }
         return out;
     }
@@ -469,7 +508,7 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return out;
     }
 
-    @Tool(name = "fm26_status", description = "Snapshot status: in-game date, last RAM load time, and player/club/competition counts. Call this before recruitment tools.")
+    @Tool(name = "fm26_status", description = "Snapshot status: in-game date, last RAM load time, counts, and current-season statistics availability. Call this before recruitment tools.")
     @Transactional(readOnly = true)
     public Map<String, Object> status() {
         Map<String, Object> out = new LinkedHashMap<>(players.metadata());
@@ -502,8 +541,8 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
             out.put("status", "already_in_progress");
             out.put("message", "A RAM load is already in progress. Call fm26_status to check progress.");
             return out;
-        } catch (RuntimeException ex) {
-            throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
+        } catch (RuntimeException | LinkageError ex) {
+            throw new IllegalStateException(readerFailureMessage(ex), ex);
         }
     }
 
@@ -556,9 +595,22 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
             out.put("not_decoded", RAM_NOT_DECODED_TABLES);
             out.put("guidance", "Counts only. Traits are read when preferred-move name vectors match. Morale, form and match stats stay empty until those offsets are validated.");
             return out;
-        } catch (IOException | RuntimeException ex) {
-            throw new IllegalStateException(ex.getMessage() == null ? "fm.exe process not found" : ex.getMessage(), ex);
+        } catch (IOException | RuntimeException | LinkageError ex) {
+            throw new IllegalStateException(readerFailureMessage(ex), ex);
         }
+    }
+
+    private static String readerFailureMessage(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current.getMessage() != null && !current.getMessage().isBlank()) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return failure instanceof LinkageError
+                ? "The Windows memory reader could not initialize. Restart FM AI Assistent and try again."
+                : "fm.exe process not found";
     }
 
     @Tool(name = "fm26_sell_shortlist", description = "Squad trim. Rank the managing club's own players for sell / loan / keep using depth, CA vs first team, wages and contract. Money values are raw pounds.")
@@ -723,6 +775,27 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
                 .toList();
     }
 
+    @Tool(name = "fm26_get_player_match_stats", description = "Get imported current-season match-level statistics for one player. Match statistics are available only when a compatible CSV export has been imported; an empty list means no imported match data, not zero performances.")
+    @Transactional(readOnly = true)
+    public Map<String, Object> getPlayerMatchStats(
+            @ToolParam(description = "Player name. Exact match is preferred; contains match is used as fallback.") String name,
+            @ToolParam(required = false, description = "Maximum matches to return") Integer limit) {
+        PlayerEntity player = playerByName(name);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("player", player.getName());
+        out.put("season", statsQuery.season().isBlank() ? null : statsQuery.season());
+        out.put("stats_source", statsQuery.source().isBlank() ? null : statsQuery.source());
+        out.put("matches", statsQuery.recentMatches(player, limit == null ? 20 : limit).stream().map(match -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("date", match.date());
+            row.put("competition", match.competition());
+            row.put("opponent", match.opponent());
+            row.put("stats", match.stats());
+            return row;
+        }).toList());
+        return out;
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<SquadSellCandidate> squadSellCandidates(String managingClub) {
@@ -795,7 +868,13 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
 
     @Transactional(readOnly = true)
     public PlayerEntity playerByName(String name) {
-        return pickPlayer(allPlayers(), name, false);
+        return pickPlayer(playerSearch.find(PlayerFilterCriteria.empty()), name, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> snapshotMetadata() {
+        return players.metadata();
     }
 
     @Transactional(readOnly = true)
@@ -2084,6 +2163,10 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
     }
 
     private Map<String, Object> playerSummaryMap(PlayerEntity player) {
+        return playerSummaryMap(player, players.metadata());
+    }
+
+    private Map<String, Object> playerSummaryMap(PlayerEntity player, Map<String, Object> metadata) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", player.getId());
         out.put("name", player.getName());
@@ -2120,10 +2203,60 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         out.put("world_reputation", player.getWorldReputation());
         out.put("height_cm", player.getHeightCm());
         out.put("traits", player.getTraits());
+        addSeasonStats(out, player, metadata);
+        addCandidateFieldMetadata(out, player);
         return out;
     }
 
+    private static void addCandidateFieldMetadata(Map<String, Object> out, PlayerEntity player) {
+        String state = player.getCandidateFieldsState() == null ? "unavailable" : player.getCandidateFieldsState();
+        out.put("candidate_fields_state", state);
+        out.put("candidate_fields_source", "native_memory");
+        Map<String, String> fieldStates = new LinkedHashMap<>();
+        fieldStates.put("source_uid", fieldState(player.getSourceUid(), state));
+        fieldStates.put("morale", fieldState(player.getMorale(), state));
+        fieldStates.put("condition", fieldState(player.getCondition(), state));
+        fieldStates.put("guide_value", fieldState(player.getGuideValue(), state));
+        fieldStates.put("transfer_value", fieldState(player.getTransferValue(), state));
+        out.put("candidate_field_states", fieldStates);
+    }
+
+    private static String fieldState(Object value, String groupState) {
+        return value == null ? "unavailable" : groupState;
+    }
+
+    private static PlayerFilterCriteria.LoanStatus parseLoanStatus(String value) {
+        if (blank(value)) return PlayerFilterCriteria.LoanStatus.ANY;
+        try {
+            return PlayerFilterCriteria.LoanStatus.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return PlayerFilterCriteria.LoanStatus.ANY;
+        }
+    }
+
+    private static PlayerFilterCriteria.ClubScope parseClubScope(String value) {
+        if (blank(value)) return PlayerFilterCriteria.ClubScope.EITHER;
+        try {
+            return PlayerFilterCriteria.ClubScope.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return PlayerFilterCriteria.ClubScope.EITHER;
+        }
+    }
+
+    private static LocalDate parseDate(String value) {
+        if (blank(value)) return null;
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     private Map<String, Object> playerFullMap(PlayerEntity player) {
+        return playerFullMap(player, players.metadata());
+    }
+
+    private Map<String, Object> playerFullMap(PlayerEntity player, Map<String, Object> metadata) {
         Map<String, Object> out = new LinkedHashMap<>(playerMapper.apply(player));
         stripUnreadRamFields(out);
         out.put("POSITION_TEXT", PositionTextFormatter.format(player));
@@ -2131,7 +2264,32 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         out.put("ATTRIBUTES", attributeMap(player, AttributeDefinitions.VISIBLE_FIELDS));
         out.put("HIDDEN_ATTRIBUTES", attributeMap(player, AttributeDefinitions.HIDDEN_DIRECT_FIELDS));
         out.put("fields_not_in_ram", FIELDS_NOT_IN_RAM);
+        addSeasonStats(out, player, metadata);
+        addCandidateFieldMetadata(out, player);
         return out;
+    }
+
+    private void addSeasonStats(Map<String, Object> out, PlayerEntity player) {
+        addSeasonStats(out, player, players.metadata());
+    }
+
+    private void addSeasonStats(Map<String, Object> out, PlayerEntity player, Map<String, Object> metadata) {
+        out.put("season", blank(String.valueOf(metadata.getOrDefault("season_key", "")))
+                ? null : metadata.get("season_key"));
+        out.put("game_build", metadata.get("game_build"));
+        out.put("stats_scope", metadata.getOrDefault("season_stats_scope", "all_competitions"));
+        out.put("appearances", player.getAppearances());
+        out.put("starts", player.getStarts());
+        out.put("minutes", player.getMinutes());
+        out.put("goals", player.getGoals());
+        out.put("assists", player.getAssists());
+        out.put("average_rating", player.getAverageRating());
+        out.put("season_stats_available", "available".equals(metadata.get("season_stats_state")));
+        out.put("season_stats_state", metadata.getOrDefault("season_stats_state", "unavailable"));
+        out.put("season_stats_read_at", metadata.get("season_stats_read_at"));
+        out.put("season_stats_imported_at", metadata.get("season_stats_imported_at"));
+        out.put("stats_source", metadata.getOrDefault("season_stats_source", "unknown"));
+        out.put("imported_stats", statsQuery.importedStats(player));
     }
 
     private Map<String, Object> clubMap(ClubEntity club) {
@@ -2290,6 +2448,12 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
         return PlayerAnalysisRules.inRange(value, min, max);
     }
 
+    static boolean inDoubleRange(Double value, Double min, Double max) {
+        if (min == null && max == null) return true;
+        if (value == null) return false;
+        return (min == null || value >= min) && (max == null || value <= max);
+    }
+
     /** Unknown asking prices are not free. Free agents (no club) still pass a max-price filter. */
     static boolean askingPriceWithinMax(Long askingPrice, String club, Long max) {
         return PlayerAnalysisRules.askingPriceWithinMax(askingPrice, club, max);
@@ -2440,6 +2604,40 @@ public class FmAiAssistentTools implements PlayerAnalysisPort, TransferShortlist
                 .replace('Ð', 'd')
                 .toLowerCase(Locale.ROOT)
                 .trim();
+    }
+
+    private static boolean matchesAdvanced(PlayerEntity player, PlayerFilterCriteria.Advanced advanced) {
+        return matchesBoolean(player.getInjured(), advanced.injured())
+                && matchesBoolean(player.getTransferListed(), advanced.transferListed())
+                && matchesBoolean(player.getListedForLoan(), advanced.listedForLoan())
+                && matchesBoolean(player.getTransferAgreed(), advanced.transferAgreed())
+                && (advanced.freeAgent() == null || advanced.freeAgent() == isFreeAgent(player))
+                && (advanced.loanStatus() == PlayerFilterCriteria.LoanStatus.ANY
+                || (advanced.loanStatus() == PlayerFilterCriteria.LoanStatus.LOANED
+                ? "yes".equalsIgnoreCase(player.getIsLoanedOut())
+                : !"yes".equalsIgnoreCase(player.getIsLoanedOut())))
+                && inRange(player.getAppearances(), advanced.appearancesMin(), advanced.appearancesMax())
+                && inRange(player.getStarts(), advanced.startsMin(), advanced.startsMax())
+                && inRange(player.getMinutes(), advanced.minutesMin(), advanced.minutesMax())
+                && inRange(player.getGoals(), advanced.goalsMin(), advanced.goalsMax())
+                && inRange(player.getAssists(), advanced.assistsMin(), advanced.assistsMax())
+                && inDoubleRange(player.getAverageRating(), advanced.averageRatingMin(), advanced.averageRatingMax());
+    }
+
+    private static boolean matchesClubScope(PlayerEntity player, String club, PlayerFilterCriteria.ClubScope scope) {
+        if (blank(club)) return true;
+        String contractedEntity = player.getClubEntity() == null ? null : player.getClubEntity().getName();
+        String playingEntity = player.getPlayingClubEntity() == null ? null : player.getPlayingClubEntity().getName();
+        return switch (scope) {
+            case CONTRACTED -> equalsIgnoreCase(player.getClub(), club) || equalsIgnoreCase(contractedEntity, club);
+            case PLAYING -> equalsIgnoreCase(player.getPlayingClub(), club) || equalsIgnoreCase(playingEntity, club);
+            case EITHER -> equalsIgnoreCase(player.getClub(), club) || equalsIgnoreCase(player.getPlayingClub(), club)
+                    || equalsIgnoreCase(contractedEntity, club) || equalsIgnoreCase(playingEntity, club);
+        };
+    }
+
+    private static boolean isFreeAgent(PlayerEntity player) {
+        return player.getClub() == null || player.getClub().isBlank();
     }
 
     private record PositionSpec(String code, String column, String positionGroup) {

@@ -98,6 +98,13 @@ public class DashboardSnapshotService {
                 expiring + " tracked",
                 "contracts",
                 expiring > 0 ? "warning" : "quiet"));
+        long injured = squad.stream().filter(player -> Boolean.TRUE.equals(player.getInjured())).count();
+        actions.add(new DashboardSnapshot.Action(
+                "Availability check",
+                injured == 0 ? "No unavailable players are recorded." : "Review injuries before setting the next XI.",
+                injured + " unavailable",
+                "desk",
+                injured > 0 ? "danger" : "quiet"));
         long sell = sellRows.stream().filter(row -> "sell".equalsIgnoreCase(row.recommendation())).count();
         actions.add(new DashboardSnapshot.Action(
                 "Squad trim",
@@ -119,6 +126,12 @@ public class DashboardSnapshotService {
                 academyRows.size() + " candidates",
                 "academy",
                 academyRows.isEmpty() ? "quiet" : "info"));
+        actions.add(new DashboardSnapshot.Action(
+                "Recruitment pipeline",
+                shortlist.isEmpty() ? "No shortlist candidates are available for review." : "Review the highest-ranked targets against squad needs.",
+                shortlist.size() + " targets",
+                "shortlist",
+                shortlist.isEmpty() ? "quiet" : "accent"));
 
         boolean partial = squad.isEmpty() || !tacticConfigured;
         return new DashboardSnapshot(
@@ -132,14 +145,16 @@ public class DashboardSnapshotService {
                 shortlist.stream().limit(5).toList(),
                 depth(squad),
                 trim(sellRows),
-                !settings.openRouterApiKey().isBlank());
+                !settings.openRouterApiKey().isBlank(),
+                SnapshotStatusModel.from(players.metadata(), all.size()));
     }
 
     private DashboardSnapshot empty(SnapshotHeartbeat.Status heartbeat, String clubName, boolean aiConfigured) {
         DashboardSnapshot.Metrics metrics = new DashboardSnapshot.Metrics(0, null, null, null, 0, 0, null, 0, 0);
         DashboardSnapshot.Tactical tactical = new DashboardSnapshot.Tactical(List.of(), List.of(), "", 0, null, null);
         return new DashboardSnapshot(heartbeat, clubName, false, false, metrics, List.of(), tactical,
-                List.of(), List.of(), new DashboardSnapshot.TrimSummary(0, 0, 0, null), aiConfigured);
+                List.of(), List.of(), new DashboardSnapshot.TrimSummary(0, 0, 0, null), aiConfigured,
+                SnapshotStatusModel.fromHeartbeat(heartbeat, 0));
     }
 
     private DashboardSnapshot.Metrics metrics(List<PlayerEntity> squad, ClubEntity club) {

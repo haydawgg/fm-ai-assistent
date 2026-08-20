@@ -1,21 +1,16 @@
 :root {
-    --fmai-ink: #e8f0ec;
-    --fmai-muted: #9aa8a1;
-    --fmai-border: rgba(255, 255, 255, 0.08);
-    --fmai-border-strong: rgba(255, 255, 255, 0.14);
-    --fmai-surface: #121816;
-    --fmai-surface-elevated: #1a221f;
-    --fmai-canvas: #0b0f0e;
-    --fmai-header: #121816;
-    --fmai-green: #2ad18a;
-    --fmai-green-bright: #4ae0a0;
-    --fmai-green-dark: #0f9b68;
-    --fmai-green-deeper: #067a50;
-    --fmai-green-soft: rgba(42, 209, 138, 0.12);
-    --fmai-blue-soft: rgba(74, 158, 255, 0.12);
-    --fmai-red-soft: rgba(229, 72, 77, 0.12);
-    --fmai-font-display: "Sora", "Avenir Next", "Segoe UI", sans-serif;
-    --fmai-font-body: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+    /* Compatibility aliases: the shell owns the canonical dark design tokens. */
+    --fmai-ink: var(--fmai-text);
+    --fmai-muted: var(--fmai-text-muted);
+    --fmai-canvas: var(--fmai-bg);
+    --fmai-header: var(--fmai-surface);
+    --fmai-green: var(--fmai-accent);
+    --fmai-green-bright: var(--fmai-accent-hover);
+    --fmai-green-dark: var(--fmai-accent-strong);
+    --fmai-green-deeper: var(--fmai-accent-strong);
+    --fmai-green-soft: var(--fmai-accent-soft);
+    --fmai-blue-soft: var(--fmai-info-soft);
+    --fmai-red-soft: var(--fmai-danger-soft);
     --lumo-primary-color: var(--fmai-green);
     --lumo-primary-color-10pct: var(--fmai-green-soft);
     --lumo-primary-color-50pct: rgba(42, 209, 138, 0.5);
@@ -148,6 +143,24 @@ body {
     border-radius: 50%;
     background: var(--fmai-green-bright);
     content: "";
+}
+
+.app-status[data-snapshot-state="STALE"] .status-live,
+.app-status[data-snapshot-state="PARTIAL"] .status-live {
+    color: var(--fmai-warning);
+}
+
+.app-status[data-snapshot-state="STALE"] .status-live::before,
+.app-status[data-snapshot-state="PARTIAL"] .status-live::before {
+    background: var(--fmai-warning);
+}
+
+.app-status[data-snapshot-state="NO_SNAPSHOT"] .status-live {
+    color: var(--fmai-danger);
+}
+
+.app-status[data-snapshot-state="NO_SNAPSHOT"] .status-live::before {
+    background: var(--fmai-danger);
 }
 
 .status-chips {
@@ -699,6 +712,21 @@ body {
     letter-spacing: -0.01em;
 }
 
+.unknown-value {
+    color: var(--fmai-muted);
+    font-style: italic;
+}
+
+@media (max-width: 1024px) {
+    .workspace-nav { align-items: stretch; }
+    .workspace-nav > vaadin-tabs { order: 1; flex-basis: 100%; }
+    .workspace-nav > vaadin-select,
+    .workspace-nav > vaadin-combo-box { flex: 1 1 9rem; }
+    .player-drawer { width: min(100%, 420px); min-width: 0; }
+    .workspace-body:has(.player-drawer) { flex-direction: column; overflow-y: auto; }
+    .workspace-body:has(.player-drawer) .workspace-stage { min-height: 22rem; }
+}
+
 .attribute-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -933,6 +961,18 @@ body {
 
 .filter-dialog-content {
     overflow-y: auto;
+}
+
+.player-preset-select {
+    flex: 0 0 auto;
+}
+
+.player-preset-select::part(label) {
+    color: var(--fmai-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
 }
 
 .dialog-header {

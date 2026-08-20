@@ -465,7 +465,109 @@
         <modifyDataType tableName="chat_message" columnName="created_at" newDataType="TIMESTAMP(9) WITH TIME ZONE"/>
     </changeSet>
 
+    <changeSet id="010-player-season-stats-indexes" author="codex">
+        <addColumn tableName="players">
+            <column name="starts" type="INT"/>
+            <column name="minutes" type="INT"/>
+            <column name="average_rating" type="DOUBLE"/>
+            <column name="source_uid" type="BIGINT"/>
+            <column name="condition" type="INT"/>
+            <column name="guide_value" type="BIGINT"/>
+            <column name="transfer_value" type="BIGINT"/>
+        </addColumn>
+        <createIndex indexName="idx_players_ca" tableName="players">
+            <column name="ca"/>
+        </createIndex>
+        <createIndex indexName="idx_players_pa" tableName="players">
+            <column name="pa"/>
+        </createIndex>
+        <createIndex indexName="idx_players_contract_end_date" tableName="players">
+            <column name="contract_end_date"/>
+        </createIndex>
+        <createIndex indexName="idx_players_appearances" tableName="players">
+            <column name="appearances"/>
+        </createIndex>
+        <createIndex indexName="idx_players_starts" tableName="players">
+            <column name="starts"/>
+        </createIndex>
+        <createIndex indexName="idx_players_minutes" tableName="players">
+            <column name="minutes"/>
+        </createIndex>
+        <createIndex indexName="idx_players_goals" tableName="players">
+            <column name="goals"/>
+        </createIndex>
+        <createIndex indexName="idx_players_assists" tableName="players">
+            <column name="assists"/>
+        </createIndex>
+        <createIndex indexName="idx_players_average_rating" tableName="players">
+            <column name="average_rating"/>
+        </createIndex>
+    </changeSet>
+
     <changeSet id="009-chat-cost-decimal" author="codex">
         <modifyDataType tableName="chat_message" columnName="cost_usd" newDataType="DECIMAL(20,8)"/>
+    </changeSet>
+
+    <changeSet id="011-imported-and-match-player-stats" author="codex">
+        <createTable tableName="player_imported_stat">
+            <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="player_id" type="BIGINT"><constraints nullable="false" foreignKeyName="fk_imported_stat_player" referencedTableName="players" referencedColumnNames="id"/></column>
+            <column name="season_key" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="stats_scope" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="stat_name" type="VARCHAR(128)"><constraints nullable="false"/></column>
+            <column name="stat_value" type="DOUBLE"/>
+            <column name="source" type="VARCHAR(512)"><constraints nullable="false"/></column>
+            <column name="imported_at" type="TIMESTAMP(9) WITH TIME ZONE"><constraints nullable="false"/></column>
+        </createTable>
+        <addUniqueConstraint tableName="player_imported_stat" columnNames="player_id,season_key,stats_scope,stat_name,source" constraintName="uk_player_imported_stat"/>
+        <createIndex indexName="idx_imported_stat_player" tableName="player_imported_stat"><column name="player_id"/></createIndex>
+        <createIndex indexName="idx_imported_stat_season_scope" tableName="player_imported_stat"><column name="season_key"/><column name="stats_scope"/></createIndex>
+
+        <createTable tableName="player_match_stat">
+            <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="player_id" type="BIGINT"><constraints nullable="false" foreignKeyName="fk_match_stat_player" referencedTableName="players" referencedColumnNames="id"/></column>
+            <column name="season_key" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="match_date" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="competition" type="VARCHAR(256)"><constraints nullable="false"/></column>
+            <column name="opponent" type="VARCHAR(256)"><constraints nullable="false"/></column>
+            <column name="stat_name" type="VARCHAR(128)"><constraints nullable="false"/></column>
+            <column name="stat_value" type="DOUBLE"/>
+            <column name="source" type="VARCHAR(512)"><constraints nullable="false"/></column>
+            <column name="imported_at" type="TIMESTAMP(9) WITH TIME ZONE"><constraints nullable="false"/></column>
+        </createTable>
+        <addUniqueConstraint tableName="player_match_stat" columnNames="player_id,season_key,match_date,competition,opponent,stat_name,source" constraintName="uk_player_match_stat"/>
+        <createIndex indexName="idx_match_stat_player" tableName="player_match_stat"><column name="player_id"/></createIndex>
+        <createIndex indexName="idx_match_stat_match" tableName="player_match_stat"><column name="season_key"/><column name="match_date"/></createIndex>
+    </changeSet>
+
+    <changeSet id="012-player-stats-import-history" author="codex">
+        <createTable tableName="player_stats_import_history">
+            <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="imported_at" type="TIMESTAMP(9) WITH TIME ZONE"><constraints nullable="false"/></column>
+            <column name="source" type="VARCHAR(512)"><constraints nullable="false"/></column>
+            <column name="season_key" type="VARCHAR(32)"><constraints nullable="false"/></column>
+            <column name="stats_scope" type="VARCHAR(64)"><constraints nullable="false"/></column>
+            <column name="rows" type="INT"><constraints nullable="false"/></column>
+            <column name="matched_rows" type="INT"><constraints nullable="false"/></column>
+            <column name="invalid_rows" type="INT"><constraints nullable="false"/></column>
+            <column name="unmatched_rows" type="INT"><constraints nullable="false"/></column>
+            <column name="imported_stat_rows" type="INT"><constraints nullable="false"/></column>
+            <column name="match_stat_rows" type="INT"><constraints nullable="false"/></column>
+            <column name="status" type="VARCHAR(32)"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex indexName="idx_import_history_time" tableName="player_stats_import_history"><column name="imported_at" descending="true"/></createIndex>
+    </changeSet>
+
+    <changeSet id="013-player-age-numeric" author="codex">
+        <addColumn tableName="players">
+            <column name="age_numeric" type="INT"/>
+        </addColumn>
+        <createIndex indexName="idx_players_age_numeric" tableName="players"><column name="age_numeric"/></createIndex>
+    </changeSet>
+
+    <changeSet id="014-candidate-fields-state" author="codex">
+        <addColumn tableName="players">
+            <column name="candidate_fields_state" type="VARCHAR(32)"/>
+        </addColumn>
     </changeSet>
 </databaseChangeLog>

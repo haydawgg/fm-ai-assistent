@@ -108,7 +108,7 @@ public class FirstXiView extends VerticalLayout {
         summary.getElement().setAttribute("aria-live", "polite");
         Div boards = new Div(recommendedHeading, grid, upgradesHeading, upgrades);
         boards.addClassName("first-xi-boards");
-        add(header(), new LiveSelectedXiPanel(metadata), filterBar(), tacticEditor(), summary,
+        add(header(), workflowSteps(), new LiveSelectedXiPanel(metadata), filterBar(), tacticEditor(), summary,
                 pitch, unavailableHeading, unavailable, boards);
         expand(boards);
         if (!clubs.hasClubs()) {
@@ -134,11 +134,29 @@ public class FirstXiView extends VerticalLayout {
                 "Live RAM XI on the pitch, with unavailable players separated from the recommended role-fit selection.");
     }
 
+    private Component workflowSteps() {
+        Div steps = new Div();
+        steps.addClassName("first-xi-workflow");
+        String[] labels = {"1 · Tactic", "2 · Eligibility", "3 · Select XI", "4 · Review gaps"};
+        for (String label : labels) {
+            Span step = new Span(label);
+            step.addClassName("first-xi-workflow-step");
+            steps.add(step);
+        }
+        return steps;
+    }
+
     private HorizontalLayout filterBar() {
         runButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         runButton.setTooltipText("Recalculate the recommended XI from this role blueprint");
         runButton.addClickListener(event -> run());
-        HorizontalLayout bar = new HorizontalLayout(runButton);
+        Button ask = new Button("Ask FM AI", VaadinIcon.CHAT.create(), event ->
+                ContextualAssistantPanel.open(new ContextualAssistantRequest(
+                        new PlayerContext("First XI", sessionClub,
+                                display(metadata.get("season_key")), display(metadata.get("season_stats_read_at"))),
+                        List.of("Suggest changes to this XI.", "Which positions need attention?", "Explain the role-fit gaps."))));
+        ask.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        HorizontalLayout bar = new HorizontalLayout(runButton, ask);
         bar.setWidthFull();
         bar.setAlignItems(FlexComponent.Alignment.END);
         bar.addClassName("moneyball-filters");

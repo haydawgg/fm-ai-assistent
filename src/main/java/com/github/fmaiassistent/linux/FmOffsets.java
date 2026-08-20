@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -93,6 +94,15 @@ public final class FmOffsets {
                         .thenComparing(FmOffsets::comparePluginMappings))
                 .map(MemoryRegion::start)
                 .orElseThrow(() -> new IllegalStateException("game_plugin.dll not found in maps"));
+    }
+
+    public static Optional<String> gamePluginPath(ProcessMemoryReader reader) throws IOException {
+        return reader.maps().stream()
+                .filter(region -> region.path() != null)
+                .filter(region -> region.path().toLowerCase(Locale.ROOT).contains("game_plugin.dll"))
+                .map(MemoryRegion::path)
+                .filter(path -> !path.isBlank())
+                .findFirst();
     }
 
     private static int comparePluginMappings(MemoryRegion left, MemoryRegion right) {

@@ -33,7 +33,11 @@ import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.Tabs;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.component.upload.Upload;
+import com.vaadin.flow.component.upload.receivers.MemoryBuffer;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
+import com.vaadin.flow.data.provider.DataProvider;
+import com.vaadin.flow.data.provider.SortDirection;
 import com.vaadin.flow.component.dependency.CssImport;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
@@ -53,17 +57,23 @@ import org.slf4j.LoggerFactory;
 public class MainView extends VerticalLayout {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
     private final PlayerDatabaseService players;
+    private final PlayerSearchService playerSearch;
     private final ClubDatabaseService clubs;
     private final CompetitionDatabaseService competitions;
     private final AppSettingsService settings;
     private final PlayerWorkspaceLoader playerLoader;
     private final PlayerWorkspaceSavedViews savedViewStore;
+    private final PlayerStatsImportService statsImport;
 
     private final Button filterButton = new Button("Filter", VaadinIcon.FILTER.create());
     private final Button columnsButton = new Button("All columns", VaadinIcon.GRID.create());
+    private final Select<PlayerViewPreset> presetSelect = new Select<>();
     private final ComboBox<String> savedViews = new ComboBox<>();
     private final Button saveViewButton = new Button("Save view", VaadinIcon.PLUS.create());
     private final Button deleteViewButton = new Button(VaadinIcon.TRASH.create());
+    private final MemoryBuffer statsImportBuffer = new MemoryBuffer();
+    private final Upload statsUpload = new Upload(statsImportBuffer);
+    private final Button statsHistoryButton = new Button("Import history", VaadinIcon.CLIPBOARD_TEXT.create());
     private final Div status = new Div();
     private final Tabs tabs = new Tabs();
     private final Div content = new Div();
@@ -84,6 +94,7 @@ public class MainView extends VerticalLayout {
     private CompetitionFilterCriteria competitionFilter = CompetitionFilterCriteria.empty();
     private MoneyCurrency currency;
     private boolean showAllPlayerColumns;
+    private PlayerViewPreset playerPreset = PlayerViewPreset.SQUAD;
     private final PlayerWorkspaceSelection selection = new PlayerWorkspaceSelection();
     private boolean syncingQuickFilters;
     private boolean syncingSavedViews;
@@ -93,14 +104,18 @@ public class MainView extends VerticalLayout {
 
     public MainView(
             PlayerDatabaseService players,
+            PlayerSearchService playerSearch,
             ClubDatabaseService clubs,
             CompetitionDatabaseService competitions,
-            AppSettingsService settings) {
+            AppSettingsService settings,
+            PlayerStatsImportService statsImport) {
         this.players = players;
+        this.playerSearch = playerSearch;
         this.clubs = clubs;
         this.competitions = competitions;
         this.settings = settings;
-        this.playerLoader = PlayerWorkspaceLoader.database(players);
+        this.statsImport = statsImport;
+        this.playerLoader = PlayerWorkspaceLoader.database(playerSearch);
         this.savedViewStore = new PlayerWorkspaceSavedViews(settings);
         this.currency = settings.currency();
         this.playerWorkspaceGrid = new PlayerWorkspaceGrid(playersGrid, currency);
@@ -132,6 +147,7 @@ public class MainView extends VerticalLayout {
     }
 
     private Component header() {
+        configureStatsUpload();
         filterButton.addClickListener(event -> openFilterDialog());
         filterButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         filterButton.addClassName("toolbar-button");
@@ -153,6 +169,26 @@ public class MainView extends VerticalLayout {
         columnsButton.addClassName("toolbar-button");
         columnsButton.addClickListener(event -> {
             showAllPlayerColumns = !showAllPlayerColumns;
+            playerPreset = showAllPlayerColumns ? PlayerViewPreset.FULL_DATA : PlayerViewPreset.SQUAD;
+            columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
+            presetSelect.setValue(playerPreset);
+            if (tabs.getSelectedTab() == playersTab) {
+                showPlayers();
+            }
+        });
+        presetSelect.setLabel("View");
+        presetSelect.setItems(PlayerViewPreset.values());
+        presetSelect.setItemLabelGenerator(PlayerViewPreset::label);
+        presetSelect.setValue(playerPreset);
+        presetSelect.setWidth("10rem");
+        presetSelect.addClassName("player-preset-select");
+        presetSelect.getElement().setAttribute("aria-label", "Player desk view preset");
+        presetSelect.addValueChangeListener(event -> {
+            if (event.getValue() == null) {
+                return;
+            }
+            playerPreset = event.getValue();
+            showAllPlayerColumns = playerPreset == PlayerViewPreset.FULL_DATA;
             columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
             if (tabs.getSelectedTab() == playersTab) {
                 showPlayers();
@@ -179,7 +215,8 @@ public class MainView extends VerticalLayout {
         refreshSavedViewOptions();
 
         HorizontalLayout navigation = new HorizontalLayout(
-                tabs, savedViews, saveViewButton, deleteViewButton, columnsButton, filterButton);
+                tabs, presetSelect, savedViews, saveViewButton, deleteViewButton, columnsButton, filterButton, statsUpload,
+                statsHistoryButton);
         navigation.setWidthFull();
         navigation.setAlignItems(Alignment.CENTER);
         navigation.expand(tabs);
@@ -197,6 +234,121 @@ public class MainView extends VerticalLayout {
         return header;
     }
 
+    private void configureStatsUpload() {
+        statsUpload.setAcceptedFileTypes(".csv", "text/csv", "text/plain");
+        statsUpload.setMaxFiles(1);
+        statsUpload.setDropAllowed(false);
+        statsUpload.setUploadButton(new Button("Import stats", VaadinIcon.UPLOAD.create()));
+        statsUpload.getElement().setAttribute("aria-label", "Import player or match statistics CSV");
+        statsUpload.addSucceededListener(event -> {
+            try {
+                openStatsImportPreview(statsImport.preview(
+                        statsImportBuffer.getInputStream().readAllBytes(), event.getFileName()));
+            } catch (Exception ex) {
+                LOGGER.warn("Statistics CSV import failed", ex);
+                Notification notification = Notification.show("Statistics import failed: " + ex.getMessage(),
+                        7000, Notification.Position.BOTTOM_START);
+                notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
+            }
+        });
+        statsUpload.addFileRejectedListener(event -> Notification.show("CSV rejected: " + event.getErrorMessage()));
+        statsHistoryButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        statsHistoryButton.addClassName("toolbar-button");
+        statsHistoryButton.addClickListener(event -> openStatsImportHistory());
+    }
+
+    private void openStatsImportHistory() {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Statistics import history");
+        dialog.setWidth("850px");
+        VerticalLayout body = new VerticalLayout();
+        body.setPadding(false);
+        List<com.github.fmaiassistent.domain.entity.PlayerStatsImportHistoryEntity> history = statsImport.history();
+        if (history.isEmpty()) {
+            body.add(new Span("No statistics imports yet."));
+        } else {
+            for (var item : history) {
+                body.add(new Span(item.getImportedAt() + " · " + item.getSource() + " · "
+                        + item.getSeasonKey() + " · matched " + item.getMatchedRows() + "/" + item.getRows()
+                        + " · invalid " + item.getInvalidRows() + " · unmatched " + item.getUnmatchedRows()
+                        + " · player stats " + item.getImportedStatRows() + " · match stats " + item.getMatchStatRows()));
+            }
+        }
+        Button close = new Button("Close", event -> dialog.close());
+        close.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        dialog.getFooter().add(close);
+        dialog.add(body);
+        dialog.open();
+    }
+
+    private void openStatsImportPreview(PlayerStatsImportService.ImportPreview preview) {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Preview statistics import");
+        dialog.setWidth("1100px");
+        dialog.getElement().getThemeList().add("professional-dialog");
+
+        TextField season = new TextField("Season");
+        season.setValue(nullSafeValue(preview.batch().season()));
+        season.setPlaceholder("2025/26");
+        Select<String> scope = new Select<>();
+        scope.setLabel("Scope");
+        scope.setItems("all_competitions");
+        scope.setValue(preview.batch().scope());
+        HorizontalLayout options = new HorizontalLayout(season, scope);
+        options.setWidthFull();
+
+        long matched = preview.rows().stream().filter(row -> row.status() == PlayerStatsImportService.MatchStatus.MATCHED).count();
+        long invalid = preview.rows().stream().filter(row -> row.status() == PlayerStatsImportService.MatchStatus.INVALID).count();
+        long ambiguous = preview.rows().stream().filter(row -> row.status() == PlayerStatsImportService.MatchStatus.AMBIGUOUS).count();
+        long unmatched = preview.rows().stream().filter(row -> row.status() == PlayerStatsImportService.MatchStatus.UNMATCHED).count();
+        Span summary = new Span("Rows: " + preview.batch().rows().size() + " · matched: " + matched
+                + " · invalid: " + invalid + " · ambiguous: " + ambiguous + " · unmatched: " + unmatched);
+
+        Grid<PlayerStatsImportService.RowPreview> grid = new Grid<>();
+        grid.setHeight("420px");
+        grid.addColumn(PlayerStatsImportService.RowPreview::rowNumber).setHeader("Row").setAutoWidth(true);
+        grid.addColumn(PlayerStatsImportService.RowPreview::importedName).setHeader("Imported player").setAutoWidth(true);
+        grid.addColumn(PlayerStatsImportService.RowPreview::importedClub).setHeader("Imported club").setAutoWidth(true);
+        grid.addColumn(row -> row.status().name()).setHeader("Status").setAutoWidth(true);
+        grid.addColumn(PlayerStatsImportService.RowPreview::matchedPlayerName).setHeader("Matched player").setAutoWidth(true);
+        grid.addColumn(PlayerStatsImportService.RowPreview::matchedClub).setHeader("Matched club").setAutoWidth(true);
+        grid.addColumn(row -> String.join(", ", row.issues())).setHeader("Issues").setAutoWidth(true);
+        grid.setItems(preview.rows());
+
+        Button cancel = new Button("Cancel", VaadinIcon.CLOSE_SMALL.create(), event -> {
+            dialog.close();
+            statsUpload.clearFileList();
+        });
+        cancel.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        Button importButton = new Button("Import matched valid rows", VaadinIcon.UPLOAD.create());
+        importButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        importButton.addClickListener(event -> {
+            try {
+                PlayerStatsImportService.ImportResult result = statsImport.importPreview(preview,
+                        season.getValue(), scope.getValue());
+                dialog.close();
+                statsUpload.clearFileList();
+                Notification notification = Notification.show(
+                        "Imported " + result.importedStatRows() + " player stats and " + result.matchStatRows()
+                                + " match stats; " + result.unmatchedRows() + " rows unmatched.",
+                        5000, Notification.Position.BOTTOM_START);
+                notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                showPlayers();
+            } catch (Exception ex) {
+                LOGGER.warn("Statistics CSV import failed", ex);
+                Notification notification = Notification.show("Statistics import failed: " + ex.getMessage(),
+                        7000, Notification.Position.BOTTOM_START);
+                notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
+            }
+        });
+        dialog.getFooter().add(cancel, importButton);
+        VerticalLayout body = new VerticalLayout(options, summary, grid);
+        body.setPadding(false);
+        body.setSizeFull();
+        dialog.add(body);
+        dialog.open();
+    }
+
     private void configureTabs() {
         tabs.add(playersTab, clubsTab, competitionsTab);
         tabs.setWidthFull();
@@ -210,6 +362,8 @@ public class MainView extends VerticalLayout {
             savedViews.setVisible(playersSelected);
             saveViewButton.setVisible(playersSelected);
             deleteViewButton.setVisible(playersSelected);
+            statsUpload.setVisible(playersSelected);
+            statsHistoryButton.setVisible(playersSelected);
             filterButton.setVisible(playersSelected
                     || event.getSelectedTab() == clubsTab
                     || event.getSelectedTab() == competitionsTab);
@@ -346,7 +500,8 @@ public class MainView extends VerticalLayout {
     private void showPlayers() {
         ChatUiContext.setView("Desk");
         ChatUiContext.setFilters(playerFilter.chatSummary());
-        List<PlayerWorkspaceColumns.Column> columns = PlayerWorkspaceColumns.visible(showAllPlayerColumns);
+        List<PlayerWorkspaceColumns.Column> columns = PlayerWorkspaceColumns.visible(
+                showAllPlayerColumns ? PlayerViewPreset.FULL_DATA : playerPreset);
         String club = playerFilter.club() != null && !playerFilter.club().isBlank()
                 ? playerFilter.club()
                 : settings.sessionClub();
@@ -356,10 +511,11 @@ public class MainView extends VerticalLayout {
         PlayerWorkspaceLoader.Result loaded = playerLoader.load(playerFilter, club);
         List<PlayerEntity> rows = loaded.rows();
         syncQuickFiltersFromCriteria();
-        setPlayerGrid(columns, rows);
+        setPlayerGrid(columns, rows, loaded.totalCount(), club);
         setFilterActive(!playerFilter.isEmpty());
         if (!playerFilter.isEmpty()) {
-            renderFilteredStatus("Players", rows.size(), loaded.totalCount());
+            int matchingPlayers = Math.toIntExact(Math.min(Integer.MAX_VALUE, loaded.totalCount()));
+            renderFilteredStatus("Players", matchingPlayers, matchingPlayers);
         } else {
             updateStatus(null);
         }
@@ -450,10 +606,24 @@ public class MainView extends VerticalLayout {
                 "Clear filters or load RAM data to populate competitions.");
     }
 
-    private void setPlayerGrid(List<PlayerWorkspaceColumns.Column> columns, List<PlayerEntity> rows) {
+    private void setPlayerGrid(
+            List<PlayerWorkspaceColumns.Column> columns,
+            List<PlayerEntity> rows,
+            long totalCount,
+            String sessionClub) {
         String filterClub = playerFilter.club();
         playerWorkspaceGrid.configure(columns, showAllPlayerColumns, filterClub);
-        playersGrid.setItems(rows);
+        PlayerFilterCriteria requestedFilter = playerFilter;
+        playersGrid.setDataProvider(DataProvider.fromCallbacks(
+                query -> {
+                    var sort = query.getSortOrders().stream().findFirst();
+                    String sortKey = sort.map(order -> order.getSorted()).orElse(null);
+                    boolean descending = sort.map(order -> order.getDirection() == SortDirection.DESCENDING).orElse(false);
+                    return playerLoader.loadPage(requestedFilter, sessionClub,
+                            query.getOffset(), query.getLimit(), sortKey, descending).stream();
+                },
+                query -> Math.toIntExact(Math.min(Integer.MAX_VALUE,
+                        playerLoader.count(requestedFilter, sessionClub)))));
         visiblePlayers = List.copyOf(rows);
         selection.reconcile(rows);
         PlayerEntity selectedPlayer = selection.selected();
@@ -468,7 +638,7 @@ public class MainView extends VerticalLayout {
         }
         showWorkspace(
                 "Players",
-                rows.size(),
+                Math.toIntExact(Math.min(Integer.MAX_VALUE, totalCount)),
                 playersGrid,
                 buildSidePanel(),
                 true,
@@ -572,6 +742,25 @@ public class MainView extends VerticalLayout {
         if (playerFilter.salaryMax() != null) {
             addFilterChip(chips, "Wage ≤", moneyDisplay(playerFilter.salaryMax()), this::clearSalaryMax);
         }
+        if (playerFilter.contractEndDateFrom() != null || playerFilter.contractEndDateTo() != null) {
+            addFilterChip(chips, "Contract", dateRangeLabel(playerFilter.contractEndDateFrom(), playerFilter.contractEndDateTo()), this::clearContractEndDate);
+        }
+        PlayerFilterCriteria.Advanced advanced = playerFilter.advanced();
+        if (advanced.injured() != null) addFilterChip(chips, "Availability", advanced.injured() ? "injured" : "fit", () -> clearAdvancedAvailabilityField("injured"));
+        if (advanced.transferListed() != null) addFilterChip(chips, "Transfer listed", advanced.transferListed() ? "yes" : "no", () -> clearAdvancedAvailabilityField("transferListed"));
+        if (advanced.listedForLoan() != null) addFilterChip(chips, "Listed for loan", advanced.listedForLoan() ? "yes" : "no", () -> clearAdvancedAvailabilityField("listedForLoan"));
+        if (advanced.transferAgreed() != null) addFilterChip(chips, "Future transfer", advanced.transferAgreed() ? "yes" : "no", () -> clearAdvancedAvailabilityField("transferAgreed"));
+        if (advanced.freeAgent() != null) addFilterChip(chips, "Free agent", advanced.freeAgent() ? "yes" : "no", () -> clearAdvancedAvailabilityField("freeAgent"));
+        if (advanced.loanStatus() != PlayerFilterCriteria.LoanStatus.ANY) addFilterChip(chips, "Loan status", advanced.loanStatus().name().toLowerCase(Locale.ROOT), () -> clearAdvancedAvailabilityField("loanStatus"));
+        if (advanced.clubScope() != PlayerFilterCriteria.ClubScope.EITHER) {
+            addFilterChip(chips, "Club scope", advanced.clubScope().name().toLowerCase(Locale.ROOT), this::clearAdvancedClubScope);
+        }
+        if (advanced.appearancesMin() != null || advanced.appearancesMax() != null) addFilterChip(chips, "Apps", rangeLabel(advanced.appearancesMin(), advanced.appearancesMax()), () -> clearAdvancedPerformanceField("appearances"));
+        if (advanced.startsMin() != null || advanced.startsMax() != null) addFilterChip(chips, "Starts", rangeLabel(advanced.startsMin(), advanced.startsMax()), () -> clearAdvancedPerformanceField("starts"));
+        if (advanced.minutesMin() != null || advanced.minutesMax() != null) addFilterChip(chips, "Minutes", rangeLabel(advanced.minutesMin(), advanced.minutesMax()), () -> clearAdvancedPerformanceField("minutes"));
+        if (advanced.goalsMin() != null || advanced.goalsMax() != null) addFilterChip(chips, "Goals", rangeLabel(advanced.goalsMin(), advanced.goalsMax()), () -> clearAdvancedPerformanceField("goals"));
+        if (advanced.assistsMin() != null || advanced.assistsMax() != null) addFilterChip(chips, "Assists", rangeLabel(advanced.assistsMin(), advanced.assistsMax()), () -> clearAdvancedPerformanceField("assists"));
+        if (advanced.averageRatingMin() != null || advanced.averageRatingMax() != null) addFilterChip(chips, "Rating", doubleRangeLabel(advanced.averageRatingMin(), advanced.averageRatingMax()), () -> clearAdvancedPerformanceField("rating"));
         if (!playerFilter.positionMinimums().isEmpty()) {
             addFilterChip(chips, "Positions", playerFilter.positionMinimums().size() + " set", this::clearPositions);
         }
@@ -650,6 +839,8 @@ public class MainView extends VerticalLayout {
                 .ifPresent(view -> {
                     playerFilter = view.filter() == null ? PlayerFilterCriteria.empty() : view.filter();
                     showAllPlayerColumns = view.showAllColumns();
+                    playerPreset = showAllPlayerColumns ? PlayerViewPreset.FULL_DATA : PlayerViewPreset.SQUAD;
+                    presetSelect.setValue(playerPreset);
                     columnsButton.setText(showAllPlayerColumns ? "Key columns" : "All columns");
                     selection.clear();
                     clearCompareState();
@@ -869,8 +1060,12 @@ public class MainView extends VerticalLayout {
                 ? "Waiting for second player"
                 : "Compare with another player");
         compare.getElement().setAttribute("aria-label", "Compare with another player");
-        Button argue = new Button("Ask FM AI", event ->
-                ChatLaunch.open(ChatLaunch.askAbout(player.getName(), settings.sessionClub())));
+        Button argue = new Button("Ask FM AI", event -> ContextualAssistantPanel.open(new ContextualAssistantRequest(
+                new PlayerContext(player.getName(), settings.sessionClub(),
+                        String.valueOf(players.metadata().getOrDefault("season_key", "")),
+                        String.valueOf(players.metadata().getOrDefault("season_stats_read_at", ""))),
+                List.of("Is this player good enough for my squad?", "Explain this player's weaknesses.",
+                        "Should I buy, sell, loan, or keep this player?"))));
         argue.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
         argue.getElement().setAttribute("aria-label", "Ask FM AI about " + display(player.getName()));
         Button close = new Button(VaadinIcon.CLOSE_SMALL.create(), event -> closePlayerDrawer());
@@ -1075,6 +1270,28 @@ public class MainView extends VerticalLayout {
         contractFrom.setValue(playerFilter.contractEndDateFrom());
         DatePicker contractTo = new DatePicker("Contract end to");
         contractTo.setValue(playerFilter.contractEndDateTo());
+        PlayerFilterCriteria.Advanced advanced = playerFilter.advanced();
+        Select<String> clubScope = textSelect("Club scope", List.of("EITHER", "CONTRACTED", "PLAYING"),
+                advanced.clubScope().name());
+        Select<String> loanStatus = textSelect("Loan status", List.of("ANY", "LOANED", "NOT_LOANED"),
+                advanced.loanStatus().name());
+        Select<String> injured = availabilitySelect(advanced.injured());
+        Select<String> transferListed = booleanSelect("Transfer listed", advanced.transferListed());
+        Select<String> listedForLoan = booleanSelect("Listed for loan", advanced.listedForLoan());
+        Select<String> transferAgreed = booleanSelect("Future transfer", advanced.transferAgreed());
+        Select<String> freeAgent = booleanSelect("Free agent", advanced.freeAgent());
+        IntegerField appearancesMin = intField("Apps min", advanced.appearancesMin(), 0, 200);
+        IntegerField appearancesMax = intField("Apps max", advanced.appearancesMax(), 0, 200);
+        IntegerField startsMin = intField("Starts min", advanced.startsMin(), 0, 200);
+        IntegerField startsMax = intField("Starts max", advanced.startsMax(), 0, 200);
+        IntegerField minutesMin = intField("Minutes min", advanced.minutesMin(), 0, 20000);
+        IntegerField minutesMax = intField("Minutes max", advanced.minutesMax(), 0, 20000);
+        IntegerField goalsMin = intField("Goals min", advanced.goalsMin(), 0, 200);
+        IntegerField goalsMax = intField("Goals max", advanced.goalsMax(), 0, 200);
+        IntegerField assistsMin = intField("Assists min", advanced.assistsMin(), 0, 200);
+        IntegerField assistsMax = intField("Assists max", advanced.assistsMax(), 0, 200);
+        com.vaadin.flow.component.textfield.NumberField ratingMin = decimalField("Rating min", advanced.averageRatingMin());
+        com.vaadin.flow.component.textfield.NumberField ratingMax = decimalField("Rating max", advanced.averageRatingMax());
 
         FormLayout basicFilters = new FormLayout(
                 name, gender,
@@ -1089,7 +1306,10 @@ public class MainView extends VerticalLayout {
                 currentRepMin, currentRepMax,
                 homeRepMin, homeRepMax,
                 worldRepMin, worldRepMax,
-                nationality
+                nationality,
+                clubScope, loanStatus, injured, transferListed, listedForLoan, transferAgreed, freeAgent,
+                appearancesMin, appearancesMax, startsMin, startsMax, minutesMin, minutesMax,
+                goalsMin, goalsMax, assistsMin, assistsMax, ratingMin, ratingMax
                 );
         basicFilters.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 2));
         basicFilters.addClassName("filter-form");
@@ -1148,9 +1368,15 @@ public class MainView extends VerticalLayout {
                     homeRepMin, homeRepMax,
                     worldRepMin, worldRepMax,
                     caMin, caMax,
-                    paMin, paMax,
-                    heightMin, heightMax,
-                    attributeFields)) {
+                     paMin, paMax,
+                     heightMin, heightMax,
+                     attributeFields)
+                    || !validRange("Apps", appearancesMin.getValue(), appearancesMax.getValue())
+                    || !validRange("Starts", startsMin.getValue(), startsMax.getValue())
+                    || !validRange("Minutes", minutesMin.getValue(), minutesMax.getValue())
+                    || !validRange("Goals", goalsMin.getValue(), goalsMax.getValue())
+                    || !validRange("Assists", assistsMin.getValue(), assistsMax.getValue())
+                    || !validRange("Rating", ratingMin.getValue(), ratingMax.getValue())) {
                 return;
             }
             playerFilter = new PlayerFilterCriteria(
@@ -1170,8 +1396,16 @@ public class MainView extends VerticalLayout {
                     contractFrom.getValue(), contractTo.getValue(),
                     toFilterPounds(askingMin.value()), toFilterPounds(askingMax.value()),
                     toFilterPounds(salaryMax.value()),
-                    selectedPositionMinimums(selectedPositions),
-                    selectedAttributeMinimums(attributeFields));
+                     selectedPositionMinimums(selectedPositions),
+                     selectedAttributeMinimums(attributeFields),
+                     new PlayerFilterCriteria.Advanced(
+                             booleanValue(injured.getValue()), booleanValue(transferListed.getValue()),
+                             booleanValue(listedForLoan.getValue()), booleanValue(transferAgreed.getValue()),
+                             booleanValue(freeAgent.getValue()), parseLoanStatus(loanStatus.getValue()),
+                             parseClubScope(clubScope.getValue()), appearancesMin.getValue(), appearancesMax.getValue(),
+                             startsMin.getValue(), startsMax.getValue(), minutesMin.getValue(), minutesMax.getValue(),
+                             goalsMin.getValue(), goalsMax.getValue(), assistsMin.getValue(), assistsMax.getValue(),
+                             ratingMin.getValue(), ratingMax.getValue()));
             showPlayers();
             dialog.close();
         });
@@ -1328,8 +1562,16 @@ public class MainView extends VerticalLayout {
     private void renderStatus(long playerCount, long clubCount, long competitionCount, Integer pid, String gameDate) {
         status.removeAll();
 
+        SnapshotStatusModel snapshotState = SnapshotStatusModel.from(players.metadata(), playerCount);
+        status.getElement().setAttribute("data-snapshot-state", snapshotState.state().name());
         boolean loaded = pid != null || (gameDate != null && !gameDate.isBlank());
-        Span freshness = new Span(loaded ? "Loaded" : "Ready");
+        String freshnessLabel = switch (snapshotState.state()) {
+            case NO_SNAPSHOT -> "No snapshot";
+            case STALE -> "Stale";
+            case PARTIAL -> "Partial";
+            default -> loaded ? "Loaded" : "Ready";
+        };
+        Span freshness = new Span(freshnessLabel);
         freshness.addClassName("status-live");
         status.add(freshness);
 
@@ -1355,6 +1597,16 @@ public class MainView extends VerticalLayout {
                 statusChip("Competitions", competitionCount));
         chips.addClassName("status-chips");
         status.add(chips);
+        Map<String, Object> snapshotMetadata = players.metadata();
+        String statsState = snapshotState.statsState();
+        String statsLabel = switch (statsState) {
+            case "available" -> "Season stats available";
+            case "partial" -> "Season stats partially available";
+            default -> "Season stats unavailable for this FM build";
+        };
+        Span stats = new Span(statsLabel);
+        stats.addClassName("status-meta");
+        status.add(stats);
     }
 
     private void renderFilteredStatus(String entityLabel, int filteredCount, long totalCount) {
@@ -1511,6 +1763,65 @@ public class MainView extends VerticalLayout {
         showPlayers();
     }
 
+    private void clearContractEndDate() {
+        playerFilter = playerFilter.withContractEndDateRange(null, null);
+        showPlayers();
+    }
+
+    private void clearAdvancedAvailability() {
+        PlayerFilterCriteria.Advanced a = playerFilter.advanced();
+        playerFilter = playerFilter.withAdvanced(new PlayerFilterCriteria.Advanced(
+                null, null, null, null, null, PlayerFilterCriteria.LoanStatus.ANY, a.clubScope(),
+                a.appearancesMin(), a.appearancesMax(), a.startsMin(), a.startsMax(), a.minutesMin(), a.minutesMax(),
+                a.goalsMin(), a.goalsMax(), a.assistsMin(), a.assistsMax(), a.averageRatingMin(), a.averageRatingMax()));
+        showPlayers();
+    }
+
+    private void clearAdvancedAvailabilityField(String field) {
+        PlayerFilterCriteria.Advanced a = playerFilter.advanced();
+        playerFilter = playerFilter.withAdvanced(new PlayerFilterCriteria.Advanced(
+                "injured".equals(field) ? null : a.injured(),
+                "transferListed".equals(field) ? null : a.transferListed(),
+                "listedForLoan".equals(field) ? null : a.listedForLoan(),
+                "transferAgreed".equals(field) ? null : a.transferAgreed(),
+                "freeAgent".equals(field) ? null : a.freeAgent(),
+                "loanStatus".equals(field) ? PlayerFilterCriteria.LoanStatus.ANY : a.loanStatus(), a.clubScope(),
+                a.appearancesMin(), a.appearancesMax(), a.startsMin(), a.startsMax(), a.minutesMin(), a.minutesMax(),
+                a.goalsMin(), a.goalsMax(), a.assistsMin(), a.assistsMax(), a.averageRatingMin(), a.averageRatingMax()));
+        showPlayers();
+    }
+
+    private void clearAdvancedClubScope() {
+        PlayerFilterCriteria.Advanced a = playerFilter.advanced();
+        playerFilter = playerFilter.withAdvanced(new PlayerFilterCriteria.Advanced(
+                a.injured(), a.transferListed(), a.listedForLoan(), a.transferAgreed(), a.freeAgent(), a.loanStatus(),
+                PlayerFilterCriteria.ClubScope.EITHER, a.appearancesMin(), a.appearancesMax(), a.startsMin(), a.startsMax(),
+                a.minutesMin(), a.minutesMax(), a.goalsMin(), a.goalsMax(), a.assistsMin(), a.assistsMax(),
+                a.averageRatingMin(), a.averageRatingMax()));
+        showPlayers();
+    }
+
+    private void clearAdvancedPerformance() {
+        PlayerFilterCriteria.Advanced a = playerFilter.advanced();
+        playerFilter = playerFilter.withAdvanced(new PlayerFilterCriteria.Advanced(
+                a.injured(), a.transferListed(), a.listedForLoan(), a.transferAgreed(), a.freeAgent(), a.loanStatus(), a.clubScope(),
+                null, null, null, null, null, null, null, null, null, null, null, null));
+        showPlayers();
+    }
+
+    private void clearAdvancedPerformanceField(String field) {
+        PlayerFilterCriteria.Advanced a = playerFilter.advanced();
+        playerFilter = playerFilter.withAdvanced(new PlayerFilterCriteria.Advanced(
+                a.injured(), a.transferListed(), a.listedForLoan(), a.transferAgreed(), a.freeAgent(), a.loanStatus(), a.clubScope(),
+                "appearances".equals(field) ? null : a.appearancesMin(), "appearances".equals(field) ? null : a.appearancesMax(),
+                "starts".equals(field) ? null : a.startsMin(), "starts".equals(field) ? null : a.startsMax(),
+                "minutes".equals(field) ? null : a.minutesMin(), "minutes".equals(field) ? null : a.minutesMax(),
+                "goals".equals(field) ? null : a.goalsMin(), "goals".equals(field) ? null : a.goalsMax(),
+                "assists".equals(field) ? null : a.assistsMin(), "assists".equals(field) ? null : a.assistsMax(),
+                "rating".equals(field) ? null : a.averageRatingMin(), "rating".equals(field) ? null : a.averageRatingMax()));
+        showPlayers();
+    }
+
     private void clearPositions() {
         playerFilter = copyPlayerFilter(
                 playerFilter, playerFilter.name(), playerFilter.club(),
@@ -1578,7 +1889,8 @@ public class MainView extends VerticalLayout {
                 source.askingPriceMax(),
                 salaryMax,
                 positionMinimums,
-                attributeMinimums);
+                attributeMinimums,
+                source.advanced());
     }
 
     private static String meaningfulText(String value) {
@@ -1603,6 +1915,20 @@ public class MainView extends VerticalLayout {
         if (max != null) {
             return "≤ " + max;
         }
+        return "";
+    }
+
+    private static String doubleRangeLabel(Double min, Double max) {
+        if (min != null && max != null) return min + "–" + max;
+        if (min != null) return "≥ " + min;
+        if (max != null) return "≤ " + max;
+        return "";
+    }
+
+    private static String dateRangeLabel(java.time.LocalDate from, java.time.LocalDate to) {
+        if (from != null && to != null) return from + "–" + to;
+        if (from != null) return "≥ " + from;
+        if (to != null) return "≤ " + to;
         return "";
     }
 
@@ -2079,6 +2405,60 @@ public class MainView extends VerticalLayout {
         return field;
     }
 
+    private static com.vaadin.flow.component.textfield.NumberField decimalField(String label, Double value) {
+        com.vaadin.flow.component.textfield.NumberField field = new com.vaadin.flow.component.textfield.NumberField(label);
+        field.setMin(0);
+        field.setMax(10);
+        field.setStep(0.01);
+        field.setClearButtonVisible(true);
+        field.setValue(value);
+        return field;
+    }
+
+    private static Select<String> textSelect(String label, List<String> items, String value) {
+        Select<String> select = new Select<>();
+        select.setLabel(label);
+        select.setItems(items);
+        select.setValue(value == null ? items.getFirst() : value);
+        return select;
+    }
+
+    private static Select<String> booleanSelect(String label, Boolean value) {
+        Select<String> select = textSelect(label, List.of("", "true", "false"), value == null ? "" : String.valueOf(value));
+        select.setItemLabelGenerator(item -> item == null || item.isBlank() ? "Any" : Boolean.parseBoolean(item) ? "Yes" : "No");
+        return select;
+    }
+
+    private static Select<String> availabilitySelect(Boolean value) {
+        Select<String> select = textSelect("Availability", List.of("", "true", "false"),
+                value == null ? "" : String.valueOf(value));
+        select.setItemLabelGenerator(item -> item == null || item.isBlank()
+                ? "Unknown" : Boolean.parseBoolean(item) ? "Injured" : "Fit");
+        return select;
+    }
+
+    private static Boolean booleanValue(String value) {
+        return value == null || value.isBlank() ? null : Boolean.valueOf(value);
+    }
+
+    private static PlayerFilterCriteria.LoanStatus parseLoanStatus(String value) {
+        try {
+            return value == null ? PlayerFilterCriteria.LoanStatus.ANY
+                    : PlayerFilterCriteria.LoanStatus.valueOf(value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return PlayerFilterCriteria.LoanStatus.ANY;
+        }
+    }
+
+    private static PlayerFilterCriteria.ClubScope parseClubScope(String value) {
+        try {
+            return value == null ? PlayerFilterCriteria.ClubScope.EITHER
+                    : PlayerFilterCriteria.ClubScope.valueOf(value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return PlayerFilterCriteria.ClubScope.EITHER;
+        }
+    }
+
     private static ComboBox<String> comboBox(String label, List<String> items, String value) {
         ComboBox<String> comboBox = new ComboBox<>(label);
         comboBox.setItems(items);
@@ -2185,6 +2565,14 @@ public class MainView extends VerticalLayout {
     }
 
     private static boolean validRange(String label, Long min, Long max) {
+        if (min != null && max != null && min > max) {
+            UiFeedback.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean validRange(String label, Double min, Double max) {
         if (min != null && max != null && min > max) {
             UiFeedback.show(label + " min must be less than or equal to max", 5000, Notification.Position.TOP_CENTER);
             return false;

@@ -10,6 +10,7 @@ import com.github.fmaiassistent.player.FieldDef;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
@@ -20,6 +21,7 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 final class PlayerDossier {
     private PlayerDossier() {
@@ -30,7 +32,9 @@ final class PlayerDossier {
             return;
         }
         try {
-            open(tools.playerByName(name), currency, sessionClub);
+            PlayerEntity player = tools.playerByName(name);
+            open(player, currency, sessionClub, tools.snapshotMetadata(),
+                    tools.importedPlayerStats(player), tools.recentPlayerMatchStats(player, 5));
         } catch (RuntimeException ex) {
             UiFeedback.error(ex.getMessage() == null ? "Player not found" : ex.getMessage(),
                     4000, Notification.Position.MIDDLE)
@@ -39,6 +43,16 @@ final class PlayerDossier {
     }
 
     static void open(PlayerEntity player, MoneyCurrency currency, String sessionClub) {
+        open(player, currency, sessionClub, Map.of(), Map.of(), List.of());
+    }
+
+    private static void open(
+            PlayerEntity player,
+            MoneyCurrency currency,
+            String sessionClub,
+            Map<String, Object> metadata,
+            Map<String, Double> importedStats,
+            List<Map<String, Object>> matchStats) {
         if (player == null) {
             return;
         }
@@ -51,10 +65,12 @@ final class PlayerDossier {
         Button chat = new Button("Ask FM AI about " + (player.getName() == null ? "player" : player.getName()),
                 VaadinIcon.CHAT.create());
         chat.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        chat.addClickListener(event -> {
-            dialog.close();
-            ChatLaunch.open(ChatLaunch.askAbout(player.getName(), sessionClub));
-        });
+        chat.addClickListener(event -> ContextualAssistantPanel.open(new ContextualAssistantRequest(
+                new PlayerContext(player.getName(), sessionClub,
+                        valueOrUnknown(metadata.get("season_key")),
+                        valueOrUnknown(metadata.get("season_stats_read_at"))),
+                List.of("Is this player good enough for my squad?", "Find alternatives for this role.",
+                        "Explain this player's weaknesses."))));
         Button close = new Button("Close", event -> dialog.close());
         close.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
         dialog.getFooter().add(chat, close);
@@ -64,8 +80,9 @@ final class PlayerDossier {
         body.setSpacing(true);
         body.addClassName("player-dossier");
         body.add(hero(player, currency));
+        body.add(dossierActions(player, sessionClub));
         body.add(summary(player, currency));
-        body.add(note("Morale, form and match stats are not read from RAM yet. Asking price 0 is unknown, not free."));
+        body.add(note("Current-season statistics use the latest all-competition snapshot. Unknown values were not read from RAM. Asking price 0 is unknown, not free."));
         body.add(section("Profile", List.of(
                 field("Position", PositionTextFormatter.format(player)),
                 field("Club", player.getClub()),
@@ -83,6 +100,41 @@ final class PlayerDossier {
                         ? "Unknown"
                         : Boolean.TRUE.equals(player.getInjured()) ? injured(player) : "Fit"),
                 field("Expected return", blank(player.getInjuryExpectedReturn()) ? "—" : player.getInjuryExpectedReturn()))));
+        body.add(section("Native candidate fields", List.of(
+                field("Read state", valueOrUnknown(player.getCandidateFieldsState())),
+                field("Source", "native memory"),
+                field("UID", number(player.getSourceUid())),
+                field("Condition", number(player.getCondition())),
+                field("Morale", number(player.getMorale())),
+                field("Guide value", number(player.getGuideValue())),
+                field("Transfer value", number(player.getTransferValue())))));
+        body.add(section("Current season · all competitions", List.of(
+                field("Season", valueOrUnknown(metadata.get("season_key"))),
+                field("Build", valueOrUnknown(metadata.get("game_build"))),
+                field("Scope", valueOrUnknown(metadata.getOrDefault("season_stats_scope", "all_competitions"))),
+                field("Appearances", number(player.getAppearances())),
+                field("Starts", number(player.getStarts())),
+                field("Minutes", number(player.getMinutes())),
+                field("Goals", number(player.getGoals())),
+                field("Assists", number(player.getAssists())),
+                field("Average rating", player.getAverageRating() == null
+                        ? "Unknown" : String.format(java.util.Locale.ROOT, "%.2f", player.getAverageRating())),
+                field("Snapshot read", valueOrUnknown(metadata.get("season_stats_read_at"))),
+                field("Imported at", valueOrUnknown(metadata.get("season_stats_imported_at"))),
+                field("Source", valueOrUnknown(metadata.getOrDefault("season_stats_source", "unknown"))))));
+        if (importedStats != null && !importedStats.isEmpty()) {
+            body.add(section("Imported metrics", importedStats.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(entry -> field(entry.getKey(), formatMetric(entry.getValue())))
+                    .toList()));
+        }
+        if (matchStats != null && !matchStats.isEmpty()) {
+            body.add(section("Recent imported matches", matchStats.stream()
+                    .map(match -> field(String.valueOf(match.getOrDefault("date", "Unknown")),
+                            String.valueOf(match.getOrDefault("opponent", "Unknown")) + " · "
+                                    + String.valueOf(match.getOrDefault("stats", Map.of()))))
+                    .toList()));
+        }
         body.add(attributes(player));
         dialog.add(body);
         dialog.open();
@@ -241,5 +293,45 @@ final class PlayerDossier {
 
     private static int nz(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private static Div dossierActions(PlayerEntity player, String sessionClub) {
+        Div actions = new Div();
+        actions.addClassName("dossier-actions");
+        Button compare = new Button("Compare player", VaadinIcon.SPLIT.create(), event -> {
+            UI ui = UI.getCurrent();
+            if (ui != null) {
+                ui.navigate("desk");
+            }
+        });
+        compare.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        Button shortlist = new Button("Open shortlist", VaadinIcon.STAR.create(), event -> {
+            UI ui = UI.getCurrent();
+            if (ui != null) {
+                ui.navigate("shortlist");
+            }
+        });
+        shortlist.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        actions.add(compare, shortlist);
+        return actions;
+    }
+
+    private static String number(Integer value) {
+        return value == null ? "Unknown" : String.valueOf(value);
+    }
+
+    private static String number(Long value) {
+        return value == null ? "Unknown" : String.valueOf(value);
+    }
+
+    private static String formatMetric(Double value) {
+        return value == null ? "Unknown" : String.format(java.util.Locale.ROOT, "%.2f", value);
+    }
+
+    private static String valueOrUnknown(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            return "Unknown";
+        }
+        return String.valueOf(value);
     }
 }

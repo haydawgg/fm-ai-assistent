@@ -14,6 +14,18 @@ import java.util.Map;
  * modules to transport concerns.</p>
  */
 public interface PlayerAnalysisPort {
+    default Map<String, Object> snapshotMetadata() {
+        return Map.of();
+    }
+
+    default Map<String, Double> importedPlayerStats(PlayerEntity player) {
+        return Map.of();
+    }
+
+    default List<Map<String, Object>> recentPlayerMatchStats(PlayerEntity player, int limit) {
+        return List.of();
+    }
+
     Map<String, Object> compareSquads(String leftClub, String rightClub);
 
     List<Map<String, Object>> unavailableForClub(String managingClub);

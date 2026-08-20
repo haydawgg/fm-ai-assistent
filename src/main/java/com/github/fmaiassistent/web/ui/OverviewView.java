@@ -70,8 +70,16 @@ public class OverviewView extends VerticalLayout {
             viewState = DashboardViewState.from(result);
             render();
         }, error -> {
-            viewState = DashboardViewState.failure(error);
-            render();
+            if (snapshot != null) {
+                viewState = DashboardViewState.from(snapshot);
+                render();
+                UiFeedback.error("Refresh failed; showing the last published snapshot. "
+                        + (error.getMessage() == null ? "Try again when FM26 is ready." : error.getMessage()),
+                        6000, Notification.Position.TOP_CENTER);
+            } else {
+                viewState = DashboardViewState.failure(error);
+                render();
+            }
         });
     }
 
@@ -94,7 +102,14 @@ public class OverviewView extends VerticalLayout {
             add(emptyClubState());
             return;
         }
-        add(commandHeader(), dataConfidenceBanner(), metrics(), middleRow(), lowerRow(), footerNote());
+        add(commandHeader(), snapshotStatus(), dataConfidenceBanner(), metrics(), middleRow(), lowerRow(), footerNote());
+    }
+
+    private Component snapshotStatus() {
+        return new SnapshotStatusView(snapshot.status(), () -> {
+            Button load = new Button();
+            RamLoadUi.start(ramLoad, load);
+        });
     }
 
     private Component commandHeader() {
@@ -177,6 +192,11 @@ public class OverviewView extends VerticalLayout {
         DashboardSnapshot.Tactical tactical = snapshot.tactical();
         Div cards = new Div(
                 metric("Squad overview", m.squadCount() + " players", m.injured() + " unavailable", "accent", VaadinIcon.USERS),
+                metric("Availability", m.injured() == 0 ? "All fit" : m.injured() + " unavailable",
+                        m.injured() == 0 ? "No recorded injury risk" : "Check before selecting the next XI",
+                        m.injured() == 0 ? "success" : "danger", VaadinIcon.HEART),
+                metric("Contract watch", m.expiring() == 0 ? "No urgent renewals" : m.expiring() + " due soon",
+                        "Expiring within six months", m.expiring() == 0 ? "info" : "warning", VaadinIcon.WALLET),
                 metric("Team ability", m.averageCa() == null ? "Unknown" : "CA " + m.averageCa(),
                         m.averageCa() == null ? "CA unavailable for this squad" : "Current ability average", "info", VaadinIcon.STAR),
                 metric("Transfer budget", money(m.transferBudget()), "Available club budget", "warning", VaadinIcon.MONEY),
@@ -232,7 +252,7 @@ public class OverviewView extends VerticalLayout {
             row.getElement().setAttribute("title", action.detail());
             body.add(row);
         }
-        return panel("Recommended actions", "The next decisions from your live snapshot.", body,
+        return panel("Decision queue", "The next decisions from your live snapshot.", body,
                 "View squad trim", "squad-trim");
     }
 
@@ -275,7 +295,9 @@ public class OverviewView extends VerticalLayout {
         body.add(status, copy);
         String[] prompts = {"Where are we weakest?", "Who should we sell?", "Find XI upgrades"};
         for (String prompt : prompts) {
-            Button chip = new Button(prompt, event -> ChatLaunch.open(prompt + " for " + snapshot.clubName() + "."));
+            Button chip = new Button(prompt, event -> ContextualAssistantPanel.open(new ContextualAssistantRequest(
+                    new PlayerContext("club command center", snapshot.clubName(),
+                            snapshot.status().season(), snapshot.status().readAt()), List.of(prompt))));
             chip.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
             chip.addClassName("overview-prompt-chip");
             body.add(chip);

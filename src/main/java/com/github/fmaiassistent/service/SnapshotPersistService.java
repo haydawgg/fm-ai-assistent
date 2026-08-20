@@ -155,7 +155,8 @@ public class SnapshotPersistService {
                         CaffeineCacheConfiguration.COMPETITIONS_CACHE,
                         CaffeineCacheConfiguration.CLUB_NAMES_CACHE,
                         CaffeineCacheConfiguration.CLUB_CACHE,
-                        CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE)) {
+                        CaffeineCacheConfiguration.PLAYER_MAPPING_CACHE,
+                        CaffeineCacheConfiguration.PLAYER_FILTER_OPTIONS_CACHE)) {
                     Cache cache = cacheManager.getCache(cacheName);
                     if (cache != null) {
                         cache.clear();

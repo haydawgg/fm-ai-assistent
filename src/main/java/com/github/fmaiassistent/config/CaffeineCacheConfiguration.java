@@ -19,6 +19,7 @@ public class CaffeineCacheConfiguration {
     public static final String CLUB_NAMES_CACHE = "club_names";
     public static final String CLUB_CACHE = "clubs";
     public static final String PLAYER_MAPPING_CACHE = "player_mapping_cache";
+    public static final String PLAYER_FILTER_OPTIONS_CACHE = "player_filter_options";
 
     @Bean
     CaffeineCacheManager cacheManager() {
@@ -29,7 +30,8 @@ public class CaffeineCacheConfiguration {
                 COMPETITIONS_CACHE,
                 CLUB_NAMES_CACHE,
                 CLUB_CACHE,
-                PLAYER_MAPPING_CACHE
+                PLAYER_MAPPING_CACHE,
+                PLAYER_FILTER_OPTIONS_CACHE
         );
 
         cacheManager.setCaffeine(

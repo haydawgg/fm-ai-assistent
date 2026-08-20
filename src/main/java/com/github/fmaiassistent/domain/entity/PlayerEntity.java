@@ -103,6 +103,8 @@ public class PlayerEntity {
     private String dateOfBirth;
     @Column(length = 1024)
     private String age;
+    @Column(name = "age_numeric")
+    private Integer ageNumeric;
     @Column(name = "age_as_of", length = 1024)
     private String ageAsOf;
     @Column(name = "height_cm")
@@ -261,16 +263,32 @@ public class PlayerEntity {
     private Integer controversy;
     @Column(length = 1024)
     private String traits;
+    @Column(name = "source_uid")
+    private Long sourceUid;
     @Column
     private Integer morale;
+    @Column
+    private Integer condition;
+    @Column(name = "guide_value")
+    private Long guideValue;
+    @Column(name = "transfer_value")
+    private Long transferValue;
+    @Column(name = "candidate_fields_state", length = 32)
+    private String candidateFieldsState;
     @Column
     private Integer form;
     @Column
     private Integer appearances;
     @Column
+    private Integer starts;
+    @Column
+    private Integer minutes;
+    @Column
     private Integer goals;
     @Column
     private Integer assists;
+    @Column(name = "average_rating")
+    private Double averageRating;
 
     private static final Map<String, Field> EXPORT_FIELDS = exportFields();
     private static final Map<String, Field> ENTITY_FIELDS = entityFields();
@@ -463,6 +481,10 @@ public class PlayerEntity {
 
     public String getAge() {
         return age;
+    }
+
+    public Integer getAgeNumeric() {
+        return ageNumeric;
     }
 
     public String getAgeAsOf() {
@@ -781,8 +803,39 @@ public class PlayerEntity {
         return traits;
     }
 
+    public Long getSourceUid() {
+        return sourceUid;
+    }
+
     public Integer getMorale() {
         return morale;
+    }
+
+    public Integer getCondition() {
+        return condition;
+    }
+
+    public Long getGuideValue() {
+        return guideValue;
+    }
+
+    public Long getTransferValue() {
+        return transferValue;
+    }
+
+    public String getCandidateFieldsState() {
+        return candidateFieldsState;
+    }
+
+    public void applyImportedSeasonStats(Integer importedAppearances, Integer importedStarts,
+                                         Integer importedMinutes, Integer importedGoals,
+                                         Integer importedAssists, Double importedAverageRating) {
+        if (importedAppearances != null) appearances = importedAppearances;
+        if (importedStarts != null) starts = importedStarts;
+        if (importedMinutes != null) minutes = importedMinutes;
+        if (importedGoals != null) goals = importedGoals;
+        if (importedAssists != null) assists = importedAssists;
+        if (importedAverageRating != null) averageRating = importedAverageRating;
     }
 
     public Integer getForm() {
@@ -793,12 +846,24 @@ public class PlayerEntity {
         return appearances;
     }
 
+    public Integer getStarts() {
+        return starts;
+    }
+
+    public Integer getMinutes() {
+        return minutes;
+    }
+
     public Integer getGoals() {
         return goals;
     }
 
     public Integer getAssists() {
         return assists;
+    }
+
+    public Double getAverageRating() {
+        return averageRating;
     }
 
     @Override
@@ -847,6 +912,13 @@ public class PlayerEntity {
                     return Integer.MIN_VALUE;
                 }
                 return (int) number;
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        if (targetType == Double.class) {
+            try {
+                return Double.valueOf(text);
             } catch (NumberFormatException ex) {
                 return null;
             }

@@ -55,7 +55,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     private final VerticalLayout sidebarNav = new VerticalLayout();
     private final Span snapshot = new Span();
     private final ComboBox<String> club = new ComboBox<>();
-    private final Button loadButton = new Button("Load", VaadinIcon.DATABASE.create());
+    private final Button loadButton = new Button("Refresh from FM", VaadinIcon.DATABASE.create());
     private final Button settingsButton = new Button(VaadinIcon.COG.create());
     private final Button globalSearchButton = new Button(VaadinIcon.SEARCH.create());
     private final TextField globalSearch = new TextField();
@@ -119,20 +119,19 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
         sidebarNav.setPadding(false);
         sidebarNav.setSpacing(false);
 
-        addNavSection("Overview");
+        addNavSection("Decide");
         addNavItem("Overview", VaadinIcon.DASHBOARD, "");
-        addNavSection("Squad");
-        addNavItem("Player desk", VaadinIcon.USERS, "desk");
-        addNavItem("Contracts", VaadinIcon.WALLET, "contracts");
-        addNavItem("Academy", VaadinIcon.ACADEMY_CAP, "academy");
-        addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
-        addNavSection("Recruitment");
-        addNavItem("Shortlist", VaadinIcon.SEARCH, "shortlist");
-        addNavItem("Moneyball", VaadinIcon.TRENDING_UP, "moneyball");
-        addNavItem("Squad trim", VaadinIcon.MINUS, "squad-trim");
-        addNavSection("Tactics");
         addNavItem("First XI", VaadinIcon.CLIPBOARD_TEXT, "first-xi");
-        addNavSection("Assistant");
+        addNavItem("Compare", VaadinIcon.SPLIT, "compare-squads");
+        addNavSection("Scout");
+        addNavItem("Shortlist", VaadinIcon.SEARCH, "shortlist");
+        addNavItem("Player desk", VaadinIcon.USERS, "desk");
+        addNavItem("Moneyball", VaadinIcon.TRENDING_UP, "moneyball");
+        addNavSection("Manage");
+        addNavItem("Contracts", VaadinIcon.WALLET, "contracts");
+        addNavItem("Squad trim", VaadinIcon.MINUS, "squad-trim");
+        addNavItem("Academy", VaadinIcon.ACADEMY_CAP, "academy");
+        addNavSection("Ask");
         addNavItem("Chat", VaadinIcon.CHAT, "chat");
 
         sidebar.add(sidebarNav);
@@ -235,7 +234,7 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
 
         loadButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         loadButton.addClassName("fmai-load");
-        loadButton.getElement().setAttribute("aria-label", "Load from RAM");
+        loadButton.getElement().setAttribute("aria-label", "Refresh snapshot from FM26 memory");
         loadButton.addClickListener(event -> RamLoadUi.start(ramLoad, loadButton));
 
         settingsButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY_INLINE);
@@ -322,11 +321,14 @@ public class AppShell extends AppLayout implements RouterLayout, AfterNavigation
     }
 
     private void refreshSnapshot(PlayerDatabaseService players) {
-        SnapshotHeartbeat.Status status = SnapshotHeartbeat.from(players.metadata(), players.countPlayers());
-        snapshot.setText(status.label());
-        snapshot.getElement().setAttribute("title", status.title());
-        snapshot.getElement().setAttribute("data-empty", status.empty());
-        snapshot.getElement().setAttribute("data-stale", status.stale());
+        SnapshotStatusModel status = SnapshotStatusModel.from(players.metadata(), players.countPlayers());
+        snapshot.setText(status.state() == WorkspaceLoadState.READY
+                ? status.playerCount() + " players · " + (status.season().isBlank() ? "snapshot ready" : status.season())
+                : status.state() == WorkspaceLoadState.PARTIAL ? "Partial snapshot · stats unknown" : status.label());
+        snapshot.getElement().setAttribute("title", status.detail());
+        snapshot.getElement().setAttribute("data-empty", Boolean.toString(status.state() == WorkspaceLoadState.NO_SNAPSHOT));
+        snapshot.getElement().setAttribute("data-stale", Boolean.toString(status.state() == WorkspaceLoadState.STALE));
+        snapshot.getElement().setAttribute("data-state", status.state().name());
     }
 
     private void addNavItem(String label, VaadinIcon icon, String route) {

@@ -10,6 +10,10 @@
 
 ### Other features
 
+- Current-season player statistics now have a fail-closed native-memory seam with build/hash provenance, null-safe persistence, UI/MCP output, and database-side performance filters. No unverified FM26 native statistics offsets are enabled.
+- CSV aggregate and match-stat imports now support preview, conservative matching, season/scope metadata, import history, dossier summaries, and `fm26_get_player_match_stats`.
+- The player desk now uses server-side paging, count queries, supported scalar/status/statistics filters, indexed fields, and cached filter options.
+
 - Upgraded Spring AI 2.0.0-M2 to 2.0.0 (MCP SDK 0.17.1 to 2.0.0) so MCP clients requesting protocol 2025-11-25 connect cleanly instead of hanging on version negotiation.
 - MCP instructions now steer value-oriented recruitment (bargains) to `fm26_moneyball_shortlist` and tactical recruitment to `fm26_transfer_shortlist`.
 - Moneyball view in the web UI (`/moneyball`, linked from the sidebar): pick a managing club and a position, and every value signing appears ranked by `signing_rating` with `deal_tier` badges, market value, fee, 3-year cost and saving vs market in a sortable grid. It shares the exact rating pipeline with the `fm26_moneyball_shortlist` MCP tool (`FmAiAssistentTools.moneyballRows`).

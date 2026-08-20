@@ -152,6 +152,20 @@ function backendMode() {
   return ['auto', 'native', 'java'].includes(requested) ? requested : 'auto';
 }
 
+function shouldUseJavaBackend(mode, native) {
+  if (mode === 'java') {
+    return true;
+  }
+  if (mode === 'native') {
+    return false;
+  }
+  // JNA is used by the Windows process reader. Prefer the regular JVM when
+  // the packaged jar and Java 25 are available; it is the most compatible
+  // path for process-memory access. Native remains available explicitly and
+  // is still used automatically when Java is not installed.
+  return Boolean(native && findJava() && findJar());
+}
+
 function backendHealthUrl() {
   return new URL('/actuator/health', BACKEND_URL).toString();
 }
@@ -249,7 +263,7 @@ async function doStartBackend() {
   const mode = backendMode();
   const native = findNativeExecutable();
   let backend = null;
-  if (mode !== 'java' && native) {
+  if (mode !== 'java' && native && !shouldUseJavaBackend(mode, native)) {
     backend = { kind: 'native', executable: native };
   } else if (mode === 'native') {
     backendState = {

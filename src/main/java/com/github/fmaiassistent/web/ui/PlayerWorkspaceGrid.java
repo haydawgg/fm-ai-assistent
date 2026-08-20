@@ -21,7 +21,7 @@ final class PlayerWorkspaceGrid {
     private final Grid<PlayerEntity> grid;
     private final MoneyCurrency currency;
     private boolean columnsBuilt;
-    private boolean columnsAllMode;
+    private String columnsSignature = "";
 
     PlayerWorkspaceGrid(Grid<PlayerEntity> grid, MoneyCurrency currency) {
         this.grid = grid;
@@ -29,21 +29,24 @@ final class PlayerWorkspaceGrid {
     }
 
     void configure(List<PlayerWorkspaceColumns.Column> columns, boolean allMode, String filterClub) {
-        if (!columnsBuilt || columnsAllMode != allMode) {
+        String signature = columns.stream().map(PlayerWorkspaceColumns.Column::key).reduce((left, right) -> left + "," + right).orElse("");
+        if (!columnsBuilt || !columnsSignature.equals(signature)) {
             grid.removeAllColumns();
             grid.setPartNameGenerator(player -> rowPartName(player, filterClub));
             for (PlayerWorkspaceColumns.Column column : columns) {
                 Grid.Column<PlayerEntity> gridColumn;
                 if ("NAME".equals(column.key())) {
                     gridColumn = grid.addColumn(new ComponentRenderer<>(this::playerNameCell))
-                            .setFlexGrow(1)
-                            .setWidth("220px");
+                            .setWidth(columnWidth(column.key()))
+                            .setFlexGrow(0);
                 } else if ("CA".equals(column.key()) || "PA".equals(column.key())) {
                     gridColumn = grid.addColumn(new ComponentRenderer<>(player -> abilityCell(column.value(player))))
-                            .setAutoWidth(true);
+                            .setWidth(columnWidth(column.key()))
+                            .setFlexGrow(0);
                 } else {
                     gridColumn = grid.addColumn(player -> displayColumn(column.key(), column.value(player)))
-                            .setAutoWidth(true);
+                            .setWidth(columnWidth(column.key()))
+                            .setFlexGrow(0);
                 }
                 gridColumn
                         .setKey(column.key())
@@ -56,7 +59,7 @@ final class PlayerWorkspaceGrid {
                 }
             }
             columnsBuilt = true;
-            columnsAllMode = allMode;
+            columnsSignature = signature;
         }
         grid.setPartNameGenerator(player -> rowPartName(player, filterClub));
     }
@@ -84,7 +87,7 @@ final class PlayerWorkspaceGrid {
     }
 
     private Component abilityCell(Object value) {
-        Span text = new Span(display(value));
+        Span text = new Span(value == null ? "—" : display(value));
         text.addClassName("ability-value");
         Div cell = new Div(text);
         cell.addClassName("ability-cell");
@@ -106,6 +109,11 @@ final class PlayerWorkspaceGrid {
                         displayedWeeklySalary(column.value(left)),
                         displayedWeeklySalary(column.value(right)));
             }
+            if ("AVERAGE_RATING".equals(column.key())) {
+                return compareDoubles(
+                        PlayerWorkspaceFormatting.sortableDouble(column.value(left)),
+                        PlayerWorkspaceFormatting.sortableDouble(column.value(right)));
+            }
             return PlayerWorkspaceFormatting.compareLongs(
                     PlayerWorkspaceFormatting.sortableLong(column.value(left)),
                     PlayerWorkspaceFormatting.sortableLong(column.value(right)));
@@ -116,6 +124,13 @@ final class PlayerWorkspaceGrid {
     private Long displayedWeeklySalary(Object value) {
         Long pounds = PlayerWorkspaceFormatting.sortableLong(value);
         return pounds == null ? null : MoneyDisplay.displayedAmount(pounds, currency);
+    }
+
+    private static int compareDoubles(Double left, Double right) {
+        if (left == null && right == null) return 0;
+        if (left == null) return 1;
+        if (right == null) return -1;
+        return Double.compare(left, right);
     }
 
     private static String rowPartName(PlayerEntity player, String filterClub) {
@@ -152,6 +167,29 @@ final class PlayerWorkspaceGrid {
 
     private static String display(Object value) {
         return PlayerWorkspaceFormatting.display(value);
+    }
+
+    private static String columnWidth(String key) {
+        return switch (key) {
+            case "NAME" -> "220px";
+            case "AGE" -> "72px";
+            case "HEIGHT_CM" -> "105px";
+            case "NATIONALITY" -> "130px";
+            case "CLUB", "PLAYING_CLUB" -> "160px";
+            case "POSITION" -> "100px";
+            case "CA", "PA" -> "72px";
+            case "APPEARANCES", "STARTS", "GOALS", "ASSISTS" -> "82px";
+            case "MINUTES" -> "95px";
+            case "AVERAGE_RATING" -> "88px";
+            case "SALARY_WEEKLY_RAW" -> "125px";
+            case "ASKING_PRICE" -> "135px";
+            case "CONTRACT_END_DATE" -> "125px";
+            case "TRANSFER_LISTED", "LISTED_FOR_LOAN", "TRANSFER_AGREED", "INJURED" -> "125px";
+            case "FUTURE_TRANSFER_CLUB", "FUTURE_TRANSFER_DATE", "FUTURE_TRANSFER_CONTRACT_END_DATE" -> "180px";
+            case "INJURY" -> "190px";
+            case "TRAITS" -> "220px";
+            default -> "145px";
+        };
     }
 
     private static boolean sameText(String left, String right) {

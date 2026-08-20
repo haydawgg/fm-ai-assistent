@@ -31,6 +31,20 @@ if (!gotSingleInstanceLock) {
 
 let mainWindow = null;
 let quitting = false;
+const UI_ZOOM_MIN = 0.8;
+const UI_ZOOM_MAX = 1.5;
+const UI_ZOOM_STEP = 0.1;
+
+function adjustUiZoom(webContents, direction) {
+  const current = webContents.getZoomFactor();
+  const next = Math.max(
+    UI_ZOOM_MIN,
+    Math.min(UI_ZOOM_MAX, Math.round((current + direction * UI_ZOOM_STEP) * 10) / 10),
+  );
+  if (next !== current) {
+    webContents.setZoomFactor(next);
+  }
+}
 
 function updateSplashStatus(message) {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -60,6 +74,23 @@ function createWindow() {
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'splash.html'));
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) {
+      return;
+    }
+    const isZoomIn = input.key === '+'
+      || input.code === 'NumpadAdd'
+      || (input.code === 'Equal' && input.shift);
+    const isZoomOut = input.key === '-'
+      || input.code === 'NumpadSubtract'
+      || input.code === 'Minus';
+    if (!isZoomIn && !isZoomOut) {
+      return;
+    }
+    event.preventDefault();
+    adjustUiZoom(mainWindow.webContents, isZoomIn ? 1 : -1);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
