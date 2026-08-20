@@ -2,7 +2,13 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.entity.ClubEntity;
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
+import com.github.fmaiassistent.football.ContractRecommendation;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
+import com.github.fmaiassistent.football.SquadAdvicePort;
+import com.github.fmaiassistent.football.SquadSellCandidate;
+import com.github.fmaiassistent.football.TransferShortlistCandidate;
+import com.github.fmaiassistent.football.TransferShortlistPort;
+import com.github.fmaiassistent.football.TransferShortlistQuery;
 import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.Positions;
 import com.github.fmaiassistent.mcp.SquadAdvice;
@@ -10,6 +16,7 @@ import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.github.fmaiassistent.service.PlayerDatabaseService;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -38,16 +45,23 @@ public class DashboardSnapshotService {
     private final PlayerDatabaseService players;
     private final ClubDatabaseService clubs;
     private final PlayerAnalysisPort tools;
+    private final TransferShortlistPort shortlist;
+    private final SquadAdvicePort squadAdvice;
     private final AppSettingsService settings;
 
+    @Autowired
     public DashboardSnapshotService(
             PlayerDatabaseService players,
             ClubDatabaseService clubs,
             PlayerAnalysisPort tools,
+            TransferShortlistPort shortlist,
+            SquadAdvicePort squadAdvice,
             AppSettingsService settings) {
         this.players = players;
         this.clubs = clubs;
         this.tools = tools;
+        this.shortlist = shortlist;
+        this.squadAdvice = squadAdvice;
         this.settings = settings;
     }
 
@@ -170,8 +184,10 @@ public class DashboardSnapshotService {
 
     private List<FmAiAssistentTools.TransferShortlistRow> safeShortlist(String clubName) {
         DashboardSectionState<List<FmAiAssistentTools.TransferShortlistRow>> state = DashboardSectionLoader.load(
-                () -> tools.transferShortlistRows(clubName, null, null, 24, null, null, null, null).stream()
-                        .sorted(Comparator.comparingDouble(FmAiAssistentTools.TransferShortlistRow::score).reversed())
+                () -> shortlist.transferShortlistCandidates(new TransferShortlistQuery(
+                                clubName, null, null, 24, null, null, null, null)).stream()
+                        .sorted(Comparator.comparingDouble(TransferShortlistCandidate::score).reversed())
+                        .map(DashboardSnapshotService::toTransferShortlistRow)
                         .toList(),
                 List::isEmpty,
                 "Shortlist unavailable");
@@ -180,13 +196,17 @@ public class DashboardSnapshotService {
 
     private List<SquadAdvice.ContractRow> safeContracts(String clubName) {
         DashboardSectionState<List<SquadAdvice.ContractRow>> state = DashboardSectionLoader.load(
-                () -> tools.contractRows(clubName), List::isEmpty, "Contracts unavailable");
+                () -> squadAdvice.contractRecommendations(clubName).stream()
+                        .map(DashboardSnapshotService::toContractRow)
+                        .toList(), List::isEmpty, "Contracts unavailable");
         return DashboardSectionLoader.or(state, List.of());
     }
 
     private List<SquadAdvice.SellRow> safeSellRows(String clubName) {
         DashboardSectionState<List<SquadAdvice.SellRow>> state = DashboardSectionLoader.load(
-                () -> tools.sellRows(clubName), List::isEmpty, "Squad trim unavailable");
+                () -> squadAdvice.squadSellCandidates(clubName).stream()
+                        .map(DashboardSnapshotService::toSellRow)
+                        .toList(), List::isEmpty, "Squad trim unavailable");
         return DashboardSectionLoader.or(state, List.of());
     }
 
@@ -194,6 +214,31 @@ public class DashboardSnapshotService {
         DashboardSectionState<List<SquadAdvice.AcademyRow>> state = DashboardSectionLoader.load(
                 () -> tools.academyRows(clubName, null), List::isEmpty, "Academy unavailable");
         return DashboardSectionLoader.or(state, List.of());
+    }
+
+    private static FmAiAssistentTools.TransferShortlistRow toTransferShortlistRow(
+            TransferShortlistCandidate candidate) {
+        return new FmAiAssistentTools.TransferShortlistRow(
+                candidate.rank(), candidate.score(), candidate.name(), candidate.age(), candidate.nationality(),
+                candidate.club(), candidate.positionScore(), candidate.roleFit(), candidate.ca(), candidate.pa(),
+                candidate.developmentUpside(), candidate.askingPrice(), candidate.salaryWeekly(),
+                candidate.willingness(), candidate.freeAgent(), candidate.transferListed(), candidate.injured(),
+                candidate.signals());
+    }
+
+    private static SquadAdvice.ContractRow toContractRow(ContractRecommendation recommendation) {
+        return new SquadAdvice.ContractRow(
+                recommendation.name(), recommendation.position(), recommendation.age(), recommendation.ca(),
+                recommendation.salaryWeekly(), recommendation.contractEnd(), recommendation.daysUntilExpiry(),
+                recommendation.action(), recommendation.reasons());
+    }
+
+    private static SquadAdvice.SellRow toSellRow(SquadSellCandidate candidate) {
+        return new SquadAdvice.SellRow(
+                candidate.rank(), candidate.name(), candidate.age(), candidate.position(), candidate.ca(),
+                candidate.pa(), candidate.salaryWeekly(), candidate.askingPrice(), candidate.contractEnd(),
+                candidate.depthAtPosition(), candidate.caVsFirstTeam(), candidate.recommendation(),
+                candidate.sellScore(), candidate.reasons());
     }
 
     static List<DashboardSnapshot.Depth> depth(List<PlayerEntity> squad) {

@@ -1,7 +1,6 @@
 package com.github.fmaiassistent.football;
 
 import com.github.fmaiassistent.domain.entity.PlayerEntity;
-import com.github.fmaiassistent.mcp.FmAiAssistentTools;
 import com.github.fmaiassistent.mcp.SquadAdvice;
 
 import java.util.List;
@@ -18,38 +17,14 @@ import java.util.Map;
 public interface PlayerAnalysisPort {
     Map<String, Object> compareSquads(String leftClub, String rightClub);
 
-    List<SquadAdvice.SellRow> sellRows(String managingClub);
-
-    List<SquadAdvice.ContractRow> contractRows(String managingClub);
-
-    SquadAdvice.WageHealth wageHealth(String managingClub);
-
     List<Map<String, Object>> unavailableForClub(String managingClub);
 
     PlayerEntity playerByName(String name);
 
     List<SquadAdvice.AcademyRow> academyRows(String managingClub, Integer maxAge);
 
-    List<FmAiAssistentTools.TransferShortlistRow> transferShortlistRows(
-            String managingClub,
-            String position,
-            String roleName,
-            Integer maxAge,
-            Integer minCurrentAbility,
-            Integer minPotentialAbility,
-            Long maxAskingPrice,
-            Integer maxWeeklySalary);
-
     List<SquadAdvice.XiPick> bestXiRows(String managingClub, List<SquadAdvice.XiSlot> slots);
 
     List<Map<String, Object>> suggestedBuys(String managingClub, List<SquadAdvice.XiPick> picks);
 
-    FmAiAssistentTools.MoneyballResult moneyballRows(
-            String managingClub,
-            String position,
-            Integer minCurrentAbility,
-            Integer minPotentialAbility,
-            Integer maxAge,
-            Long maxAskingPrice,
-            Integer maxWeeklySalary);
 }
