@@ -1,8 +1,10 @@
 package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
+import com.github.fmaiassistent.football.ContractRecommendation;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.mcp.SquadAdvice;
+import com.github.fmaiassistent.football.SquadAdvicePort;
+import com.github.fmaiassistent.football.SquadWageHealth;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
@@ -24,6 +26,7 @@ import com.vaadin.flow.component.progressbar.ProgressBarVariant;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.Locale;
@@ -35,17 +38,28 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/pitch-board.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class ContractsView extends VerticalLayout {
-    private final PlayerAnalysisPort tools;
+    private final PlayerAnalysisPort dossierTools;
+    private final SquadAdvicePort advice;
     private final String sessionClub;
     private final MoneyCurrency currency;
     private final Button runButton = new Button("Refresh queue", VaadinIcon.WALLET.create());
     private final Span summary = new Span();
     private final Span healthLabel = new Span();
     private final ProgressBar healthBar = new ProgressBar();
-    private final Grid<SquadAdvice.ContractRow> grid = new Grid<>();
+    private final Grid<ContractRecommendation> grid = new Grid<>();
 
     public ContractsView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
-        this.tools = tools;
+        this(tools, requireSquadAdvicePort(tools), clubs, settings);
+    }
+
+    @Autowired
+    public ContractsView(
+            PlayerAnalysisPort dossierTools,
+            SquadAdvicePort advice,
+            ClubDatabaseService clubs,
+            AppSettingsService settings) {
+        this.dossierTools = dossierTools;
+        this.advice = advice;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
@@ -102,9 +116,9 @@ public class ContractsView extends VerticalLayout {
             if (event.getColumn() != null && "chat".equals(event.getColumn().getKey())) {
                 return;
             }
-            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+            PlayerDossier.openNamed(dossierTools, event.getItem().name(), currency, sessionClub);
         });
-        grid.addColumn(SquadAdvice.ContractRow::action)
+        grid.addColumn(ContractRecommendation::action)
                 .setHeader("Action")
                 .setRenderer(new ComponentRenderer<>(row -> {
                     String action = row.action() == null ? "" : row.action();
@@ -121,13 +135,13 @@ public class ContractsView extends VerticalLayout {
                 }))
                 .setWidth("7em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadAdvice.ContractRow::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(SquadAdvice.ContractRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.ContractRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.ContractRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(ContractRecommendation::name).setHeader("Name").setAutoWidth(true);
+        grid.addColumn(ContractRecommendation::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(ContractRecommendation::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(ContractRecommendation::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
-        grid.addColumn(SquadAdvice.ContractRow::contractEnd).setHeader("Contract");
-        grid.addColumn(SquadAdvice.ContractRow::daysUntilExpiry).setHeader("Days").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(ContractRecommendation::contractEnd).setHeader("Contract");
+        grid.addColumn(ContractRecommendation::daysUntilExpiry).setHeader("Days").setWidth("5em").setFlexGrow(0);
         grid.addComponentColumn(row -> {
             Button ask = ChatLaunch.askButton(row.name(), sessionClub);
             Button note = new Button("Board note", event -> ChatLaunch.open(
@@ -153,8 +167,8 @@ public class ContractsView extends VerticalLayout {
         summary.setText("Refreshing contract queue…");
         summary.getElement().setAttribute("aria-busy", "true");
         UiAsync.submit(ui, () -> new Result(
-                        tools.contractRows(sessionClub),
-                        tools.wageHealth(sessionClub)), result -> {
+                        advice.contractRecommendations(sessionClub),
+                        advice.squadWageHealth(sessionClub)), result -> {
                     grid.setItems(result.rows());
                     applyHealth(result.health());
                     long renew = result.rows().stream().filter(row -> "renew".equals(row.action())).count();
@@ -173,7 +187,7 @@ public class ContractsView extends VerticalLayout {
                 });
     }
 
-    private void applyHealth(SquadAdvice.WageHealth health) {
+    private void applyHealth(SquadWageHealth health) {
         String bill = MoneyDisplay.format(health.wageBillWeekly(), currency);
         if (health.payrollBudget() == null || health.payrollBudget() <= 0) {
             healthLabel.setText("Wage bill " + bill + " /wk · payroll budget unknown");
@@ -194,6 +208,13 @@ public class ContractsView extends VerticalLayout {
         }
     }
 
-    private record Result(List<SquadAdvice.ContractRow> rows, SquadAdvice.WageHealth health) {
+    private record Result(List<ContractRecommendation> rows, SquadWageHealth health) {
+    }
+
+    private static SquadAdvicePort requireSquadAdvicePort(PlayerAnalysisPort tools) {
+        if (tools instanceof SquadAdvicePort port) {
+            return port;
+        }
+        throw new IllegalArgumentException("Player analysis adapter does not provide squad advice queries");
     }
 }

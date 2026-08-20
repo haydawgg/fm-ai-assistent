@@ -2,7 +2,8 @@ package com.github.fmaiassistent.web.ui;
 
 import com.github.fmaiassistent.domain.enums.MoneyCurrency;
 import com.github.fmaiassistent.football.PlayerAnalysisPort;
-import com.github.fmaiassistent.mcp.SquadAdvice;
+import com.github.fmaiassistent.football.SquadAdvicePort;
+import com.github.fmaiassistent.football.SquadSellCandidate;
 import com.github.fmaiassistent.service.AppSettingsService;
 import com.github.fmaiassistent.service.ClubDatabaseService;
 import com.vaadin.flow.component.Component;
@@ -21,6 +22,7 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.data.renderer.ComponentRenderer;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -30,15 +32,26 @@ import java.util.concurrent.CompletableFuture;
 @CssImport("./styles/moneyball-view.css")
 @CssImport(value = "./styles/player-grid.css", themeFor = "vaadin-grid")
 public class SquadTrimView extends VerticalLayout {
-    private final PlayerAnalysisPort tools;
+    private final PlayerAnalysisPort dossierTools;
+    private final SquadAdvicePort advice;
     private final String sessionClub;
     private final Button runButton = new Button("Rank squad", VaadinIcon.MINUS.create());
     private final Span summary = new Span();
-    private final Grid<SquadAdvice.SellRow> grid = new Grid<>();
+    private final Grid<SquadSellCandidate> grid = new Grid<>();
     private final MoneyCurrency currency;
 
     public SquadTrimView(PlayerAnalysisPort tools, ClubDatabaseService clubs, AppSettingsService settings) {
-        this.tools = tools;
+        this(tools, requireSquadAdvicePort(tools), clubs, settings);
+    }
+
+    @Autowired
+    public SquadTrimView(
+            PlayerAnalysisPort dossierTools,
+            SquadAdvicePort advice,
+            ClubDatabaseService clubs,
+            AppSettingsService settings) {
+        this.dossierTools = dossierTools;
+        this.advice = advice;
         this.currency = settings.currency();
         this.sessionClub = SessionClub.resolved(settings, SessionClub.names(clubs));
         setSizeFull();
@@ -87,15 +100,15 @@ public class SquadTrimView extends VerticalLayout {
             if (event.getColumn() != null && "ask".equals(event.getColumn().getKey())) {
                 return;
             }
-            PlayerDossier.openNamed(tools, event.getItem().name(), currency, sessionClub);
+            PlayerDossier.openNamed(dossierTools, event.getItem().name(), currency, sessionClub);
         });
         grid.addComponentColumn(row -> ChatLaunch.askButton(row.name(), sessionClub))
                 .setHeader("")
                 .setKey("ask")
                 .setWidth("3.5em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::recommendation)
+        grid.addColumn(SquadSellCandidate::rank).setHeader("Rank").setWidth("4.5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::recommendation)
                 .setHeader("Call")
                 .setRenderer(new ComponentRenderer<>(row -> {
                     String call = row.recommendation() == null ? "" : row.recommendation();
@@ -112,17 +125,17 @@ public class SquadTrimView extends VerticalLayout {
                 }))
                 .setWidth("6em")
                 .setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::name).setHeader("Name").setAutoWidth(true);
-        grid.addColumn(SquadAdvice.SellRow::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::caVsFirstTeam).setHeader("vs XI").setWidth("5em").setFlexGrow(0);
-        grid.addColumn(SquadAdvice.SellRow::depthAtPosition).setHeader("Depth").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::name).setHeader("Name").setAutoWidth(true);
+        grid.addColumn(SquadSellCandidate::position).setHeader("Pos").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::age).setHeader("Age").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::ca).setHeader("CA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::pa).setHeader("PA").setWidth("4em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::caVsFirstTeam).setHeader("vs XI").setWidth("5em").setFlexGrow(0);
+        grid.addColumn(SquadSellCandidate::depthAtPosition).setHeader("Depth").setWidth("5em").setFlexGrow(0);
         grid.addColumn(row -> MoneyDisplay.format(row.salaryWeekly(), currency)).setHeader("Wage/wk");
         grid.addColumn(row -> row.askingPrice() == null ? "" : MoneyDisplay.format(row.askingPrice(), currency))
                 .setHeader("Asking");
-        grid.addColumn(SquadAdvice.SellRow::contractEnd).setHeader("Contract");
+        grid.addColumn(SquadSellCandidate::contractEnd).setHeader("Contract");
         grid.addColumn(row -> String.join(", ", row.reasons())).setHeader("Reasons").setFlexGrow(1);
     }
 
@@ -138,7 +151,7 @@ public class SquadTrimView extends VerticalLayout {
         summary.removeClassName("moneyball-empty");
         summary.setText("Ranking squad…");
         summary.getElement().setAttribute("aria-busy", "true");
-        UiAsync.submit(ui, () -> tools.sellRows(club), rows -> {
+        UiAsync.submit(ui, () -> advice.squadSellCandidates(club), rows -> {
                     grid.setItems(rows);
                     long sell = rows.stream().filter(row -> "sell".equals(row.recommendation())).count();
                     long loan = rows.stream().filter(row -> "loan".equals(row.recommendation())).count();
@@ -151,5 +164,12 @@ public class SquadTrimView extends VerticalLayout {
                     summary.getElement().setAttribute("aria-busy", "false");
                     runButton.setEnabled(true);
                 });
+    }
+
+    private static SquadAdvicePort requireSquadAdvicePort(PlayerAnalysisPort tools) {
+        if (tools instanceof SquadAdvicePort port) {
+            return port;
+        }
+        throw new IllegalArgumentException("Player analysis adapter does not provide squad advice queries");
     }
 }
